@@ -10,6 +10,8 @@
 
 Farklı kaynaklardan anime arayıp terminal üzerinden izlemeyi sağlayan modüler araç. Klavye odaklı bir terminal arayüzü (TUI), sağlayıcı plugin'leriyle konuşan bir HTTP API ve Rust ile yazılmış bir ağ katmanından oluşur; oynatma MPV üzerinden yapılır.
 
+*Watch anime from your terminal: search across Turkish providers and play episodes via MPV.*
+
 ## Demo
 
 ![Migurdex demo](assets/docs/demo.gif)
@@ -17,7 +19,7 @@ Farklı kaynaklardan anime arayıp terminal üzerinden izlemeyi sağlayan modül
 ## Özellikler
 
 - **Fuzzy arama** — harf atlamalı, skorlu sıralama (`opc` → One Piece).
-- **12 Türkçe anime sağlayıcısı** — plugin mimarisi; yetenekler override edilen metotlardan otomatik çıkar.
+- **12 Türkçe anime sağlayıcısı** — Acheriya, AnimeciX, Animexe, AnimPow, Anizium, Anizm, AsyaAnimeleri, OpenAnime, SonAnime, TrAnimeIzle, TRAnimeci, TurkAnime. Plugin mimarisi; yetenekler override edilen metotlardan otomatik çıkar.
 - **Metadata** — AniList ve MAL üzerinden bilgi çekme.
 - **Otomatik kaynak seçimi** — sunucu / kalite / tür boyutlarında `Otomatik` / `Asla` / `Sadece` kuralları; uygun kaynak yoksa manuel listeye düşer.
 - **Sıralama öncelikleri** — kategori, çözünürlük, format ve sunucu tercih sıraları.
@@ -77,7 +79,7 @@ dotnet run --project Migurdex.Cli
 
 ## Kullanım
 
-Akış: **Arama → Detay → Bölüm → Kaynak → Oynat**.
+Komut satırından anime izlemek dört adımda olur: **Arama → Detay → Bölüm → Kaynak → Oynat**.
 
 1. **Arama:** Ana menüden aramaya girin, anime adını yazın (fuzzy eşleşme daraltır).
 2. **Detay:** Sonuçtan seçince açıklama, türler ve bölüm listesi gelir.
