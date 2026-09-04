@@ -41,7 +41,7 @@ Farklı kaynaklardan anime arayıp terminal üzerinden izlemeyi sağlayan modül
 
 Hazır sürümleri [Releases](https://github.com/roxyrekt/Migurdex/releases) sayfasından indirin.
 
-**Arşiv (Linux/macOS/Windows):** `tar.gz` / `zip` dosyasını açın, içindeki `migurdex` (veya `migurdex.exe`) dosyasını çalıştırın — API arka planda otomatik başlar.
+**Arşiv (Linux/Windows):** `tar.gz` / `zip` dosyasını açın, içindeki `migurdex` (veya `migurdex.exe`) dosyasını çalıştırın — API arka planda otomatik başlar.
 
 **AppImage (Linux):**
 
@@ -53,7 +53,7 @@ chmod +x Migurdex-x86_64.AppImage
 ## Kaynaktan derleme
 
 ```bash
-# Debug dev-loop (Linux/macOS)
+# Debug dev-loop (Linux)
 ./build.sh
 # Windows
 .\build.ps1
