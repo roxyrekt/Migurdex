@@ -1,0 +1,11 @@
+.cache/
+.vs/
+.idea/
+**/obj
+**/bin
+*.user
+
+
+Migurdex.Native/target/
+dist/
+*.log

@@ -1,0 +1,9 @@
+[Desktop Entry]
+Name=Migurdex
+Comment=Terminalden anime arama ve izleme
+Exec=migurdex
+Icon=migurdex
+Type=Application
+Categories=AudioVideo;Video;
+Terminal=true
+StartupNotify=false

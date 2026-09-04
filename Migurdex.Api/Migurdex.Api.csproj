@@ -1,0 +1,49 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+    <PropertyGroup>
+        <TargetFramework>net10.0</TargetFramework>
+        <Nullable>enable</Nullable>
+        <ImplicitUsings>enable</ImplicitUsings>
+        <InvariantGlobalization>true</InvariantGlobalization>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <TrimmerRootAssembly Include="Migurdex.Api"/>
+        <TrimmerRootAssembly Include="Migurdex.Core"/>
+        <TrimmerRootAssembly Include="Migurdex.Shared"/>
+    </ItemGroup>
+
+    <ItemGroup>
+        <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="10.0.*"/>
+    </ItemGroup>
+
+    <ItemGroup>
+        <ProjectReference Include="..\Migurdex.Core\Migurdex.Core.csproj"/>
+    </ItemGroup>
+
+    <ItemGroup>
+        <PluginProject Include="Migurdex.Plugins.Acheriya"/>
+        <PluginProject Include="Migurdex.Plugins.Animecix"/>
+        <PluginProject Include="Migurdex.Plugins.Animpow"/>
+        <PluginProject Include="Migurdex.Plugins.Anizm"/>
+        <PluginProject Include="Migurdex.Plugins.Anizium"/>
+        <PluginProject Include="Migurdex.Plugins.Animexe"/>
+        <PluginProject Include="Migurdex.Plugins.AsyaAnimeleri"/>
+        <PluginProject Include="Migurdex.Plugins.OpenAnime"/>
+        <PluginProject Include="Migurdex.Plugins.SonAnime"/>
+        <PluginProject Include="Migurdex.Plugins.TrAnimeIzle"/>
+        <PluginProject Include="Migurdex.Plugins.TrAnimeci"/>
+        <PluginProject Include="Migurdex.Plugins.Turkanime"/>
+    </ItemGroup>
+
+    <Target Name="CopyPluginsToApi" AfterTargets="Build">
+        <ItemGroup>
+            <PluginBinFiles Include="..\Plugins\%(PluginProject.Identity)\bin\$(Configuration)\$(TargetFramework)\*.dll"/>
+        </ItemGroup>
+        <Copy SourceFiles="@(PluginBinFiles)"
+              DestinationFolder="$(OutDir)Plugins\"
+              SkipUnchangedFiles="true"/>
+    </Target>
+
+</Project>
+

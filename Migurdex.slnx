@@ -1,0 +1,22 @@
+<Solution>
+    <Project Path="Migurdex.Shared/Migurdex.Shared.csproj"/>
+    <Project Path="Migurdex.Core/Migurdex.Core.csproj"/>
+    <Project Path="Migurdex.Api/Migurdex.Api.csproj"/>
+    <Project Path="Migurdex.Cli/Migurdex.Cli.csproj"/>
+
+    <Folder Name="/Plugins/">
+        <Project Path="Plugins/Migurdex.Plugins.Acheriya/Migurdex.Plugins.Acheriya.csproj"/>
+        <Project Path="Plugins/Migurdex.Plugins.Animecix/Migurdex.Plugins.Animecix.csproj"/>
+        <Project Path="Plugins/Migurdex.Plugins.Animexe/Migurdex.Plugins.Animexe.csproj"/>
+        <Project Path="Plugins/Migurdex.Plugins.Animpow/Migurdex.Plugins.Animpow.csproj"/>
+        <Project Path="Plugins/Migurdex.Plugins.Anizium/Migurdex.Plugins.Anizium.csproj"/>
+        <Project Path="Plugins/Migurdex.Plugins.Anizm/Migurdex.Plugins.Anizm.csproj"/>
+        <Project Path="Plugins/Migurdex.Plugins.AsyaAnimeleri/Migurdex.Plugins.AsyaAnimeleri.csproj"/>
+        <Project Path="Plugins/Migurdex.Plugins.OpenAnime/Migurdex.Plugins.OpenAnime.csproj"/>
+        <Project Path="Plugins/Migurdex.Plugins.SonAnime/Migurdex.Plugins.SonAnime.csproj"/>
+        <Project Path="Plugins/Migurdex.Plugins.TrAnimeci/Migurdex.Plugins.TrAnimeci.csproj"/>
+        <Project Path="Plugins/Migurdex.Plugins.TrAnimeIzle/Migurdex.Plugins.TrAnimeIzle.csproj"/>
+        <Project Path="Plugins/Migurdex.Plugins.Turkanime/Migurdex.Plugins.Turkanime.csproj"/>
+    </Folder>
+</Solution>
+
