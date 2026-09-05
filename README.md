@@ -1,47 +1,35 @@
 # Migurdex
 
 <p align="center">
-  <img src="assets/packaging/migurdex.svg" alt="Migurdex logo" width="128"/>
+  <img src="assets/packaging/migurdex.svg" alt="Migurdex logo" width="160"/>
 </p>
 
-[![Build](https://github.com/roxyrekt/Migurdex/actions/workflows/build-release.yml/badge.svg)](https://github.com/roxyrekt/Migurdex/actions)
-[![Release](https://img.shields.io/github/v/release/roxyrekt/Migurdex)](https://github.com/roxyrekt/Migurdex/releases)
-[![License](https://img.shields.io/github/license/roxyrekt/Migurdex)](LICENSE)
+<p align="center">
+  <a href="https://github.com/roxyrekt/Migurdex/actions"><img src="https://github.com/roxyrekt/Migurdex/actions/workflows/build-release.yml/badge.svg" alt="Build"/></a>
+  <a href="https://github.com/roxyrekt/Migurdex/releases"><img src="https://img.shields.io/github/v/release/roxyrekt/Migurdex" alt="Release"/></a>
+  <a href="LICENSE"><img src="https://img.shields.io/github/license/roxyrekt/Migurdex" alt="License"/></a>
+</p>
 
-Farklı kaynaklardan anime arayıp terminal üzerinden izlemeyi sağlayan modüler araç. Klavye odaklı bir terminal arayüzü (TUI), sağlayıcı plugin'leriyle konuşan bir HTTP API ve Rust ile yazılmış bir ağ katmanından oluşur; oynatma MPV üzerinden yapılır.
+Terminalden anime arayıp izlemeyi sağlayan modüler araç: klavye odaklı TUI + sağlayıcı plugin'leriyle konuşan HTTP API + Rust ağ katmanı, oynatma MPV ile.
 
 *Watch anime from your terminal: search across Turkish providers and play episodes via MPV.*
-
-## Demo
 
 ![Migurdex demo](assets/docs/demo.gif)
 
 ## Özellikler
 
 - **Fuzzy arama** — harf atlamalı, skorlu sıralama (`opc` → One Piece).
-- **12 Türkçe anime sağlayıcısı** — Acheriya, AnimeciX, Animexe, AnimPow, Anizium, Anizm, AsyaAnimeleri, OpenAnime, SonAnime, TrAnimeIzle, TRAnimeci, TurkAnime. Plugin mimarisi; yetenekler override edilen metotlardan otomatik çıkar.
-- **Metadata** — AniList ve MAL üzerinden bilgi çekme.
-- **Otomatik kaynak seçimi** — sunucu / kalite / tür boyutlarında `Otomatik` / `Asla` / `Sadece` kuralları; uygun kaynak yoksa manuel listeye düşer.
-- **Sıralama öncelikleri** — kategori, çözünürlük, format ve sunucu tercih sıraları.
-- **İzleme geçmişi ve favoriler** — tek tuşla devam etme, yönetim ekranları, arama geçmişi yönetimi.
-- **MPV entegrasyonu** — kaldığın yerden devam, ilerleme takibi.
-- **Discord Rich Presence** ve **gizli mod**.
-- Kesilebilir bildirimler, `Esc` ile tutarlı geri navigasyon.
+- **12 Türkçe sağlayıcı** — Acheriya, AnimeciX, Animexe, AnimPow, Anizium, Anizm, AsyaAnimeleri, OpenAnime, SonAnime, TrAnimeIzle, TRAnimeci, TurkAnime.
+- **Metadata** — AniList ve MAL üzerinden bilgi, poster ve sezon eşleştirme.
+- **MPV ile izleme** — kaldığın yerden devam, ilerleme takibi, altyazı desteği.
+- **Geçmiş ve favoriler** — tek tuşla devam etme, arama geçmişi yönetimi.
+- **Otomatik kaynak seçimi** — sunucu / kalite / tür kuralları, uymazsa manuel listeye düşer.
 
-## Gereksinimler
-
-| Ne | Neden |
-|---|---|
-| [MPV Player](https://mpv.io/) (PATH'te) | Video oynatma |
-| .NET 10 SDK | Kaynaktan derlemek için |
-| Rust / cargo | Native ağ katmanını derlemek için |
-| `libfuse2` (Linux) | AppImage'i çalıştırmak için |
-
-## Hızlı başlangıç
+## Hızlı Başlangıç
 
 Hazır sürümleri [Releases](https://github.com/roxyrekt/Migurdex/releases) sayfasından indirin.
 
-**Arşiv (Linux/Windows):** `tar.gz` / `zip` dosyasını açın, içindeki `migurdex` (veya `migurdex.exe`) dosyasını çalıştırın — API arka planda otomatik başlar.
+**Arşiv (Linux / Windows):** `tar.gz` / `zip` dosyasını açın, içindeki `migurdex` (veya `migurdex.exe`) dosyasını çalıştırın — API arka planda otomatik başlar.
 
 **AppImage (Linux):**
 
@@ -50,7 +38,30 @@ chmod +x Migurdex-x86_64.AppImage
 ./Migurdex-x86_64.AppImage
 ```
 
-## Kaynaktan derleme
+## Gereksinimler
+
+| Ne | Neden |
+|---|---|
+| [MPV Player](https://mpv.io/) (PATH'te) | Video oynatma |
+| `libfuse2` (Linux) | AppImage'i çalıştırmak için |
+
+Kaynaktan derlemek için ek olarak: .NET 10 SDK + Rust / cargo.
+
+## Kullanım
+
+**Arama -> Detay -> Kaynak -> Oynat:**
+
+1. **Arama:** ana menüden aramaya girin, adı yazın (fuzzy daraltır).
+2. **Detay:** sonuçtan seçince açıklama ve bölüm listesi gelir.
+3. **Kaynak:** bölümü seçince fansub grupları ve çözülen kaynaklar (sunucu / kalite / tür) gelir.
+4. **Oynat:** kaynağı seçince MPV açılır; kaldığınız yer kaydedilir.
+
+`Esc` bir önceki ekrana döner.
+
+## Kaynaktan Derleme
+
+<details>
+<summary>Komutlar (Linux / Windows)</summary>
 
 ```bash
 # Debug dev-loop (Linux)
@@ -77,27 +88,9 @@ dotnet run --project Migurdex.Api
 dotnet run --project Migurdex.Cli
 ```
 
-## Kullanım
-
-Komut satırından anime izlemek dört adımda olur: **Arama → Detay → Bölüm → Kaynak → Oynat**.
-
-1. **Arama:** Ana menüden aramaya girin, anime adını yazın (fuzzy eşleşme daraltır).
-2. **Detay:** Sonuçtan seçince açıklama, türler ve bölüm listesi gelir.
-3. **Bölüm:** Bölümü seçince fansub grupları listelenir.
-4. **Kaynak:** Grubu seçince çözülen kaynaklar (sunucu / kalite / tür) gelir.
-5. **Oynat:** Kaynağı seçince MPV açılır; kaldığınız yer kaydedilir.
-
-**Otomatik seçim kuralları:** Ayarlar → `Otomatik: Sunucular / Kaliteler / Türler` ekranlarında her öğe `Otomatik → Asla → Sadece` arasında döner.
-
-- `Otomatik`: kural yok, seçilebilir.
-- `Asla`: otomatik seçimde elenir (manuel listede görünür).
-- `Sadece`: liste doluysa yalnız işaretliler otomatik seçilir.
-
-**Geçmiş ve favoriler:** İzleme geçmişinden tek tuşla devam edilir; favoriler, arama geçmişi ve izleme kayıtları ilgili yönetim ekranlarından silinir/temizlenir.
+</details>
 
 ## Yapılandırma
-
-Ayarlar ekranında: `Otomatik Oynat`, `Bekleme Süresi`, `Sıralama Öncelikleri...` (kategori / çözünürlük / format / sunucu sıraları + otomatik kural ekranları), `Sağlayıcı Yönetimi...`, Discord RPC, gizli mod, API adresi.
 
 Tüm veriler `~/.config/migurdex/` altında tutulur (`config.json`, `history.json`, `search_history.json`, `favorites.json`). API logları `~/.config/migurdex/logs/api.log` dosyasına yazar.
 
@@ -105,22 +98,16 @@ Tüm veriler `~/.config/migurdex/` altında tutulur (`config.json`, `history.jso
 
 | Proje | Rol |
 |---|---|
-| `Migurdex.Api` | HTTP API: arama, detay, kaynak çözümleme, sağlık (`/health`) |
-| `Migurdex.Cli` | Klavye odaklı terminal arayüzü (Spectre.Console) |
-| `Migurdex.Core` | Ortak servisler: plugin yükleyici, Rust köprüsü (`RustBridge`), HTTP işleyici |
-| `Migurdex.Shared` | Modeller + arayüzler (`IAnimeProvider`, `IExtractor`, ...) |
-| `Migurdex.Native` | Rust ağ katmanı (`cdylib`): HTTP istemcisi, emülasyon, hız limiti |
+| `Migurdex.Api` | HTTP API: arama, detay, kaynak çözümleme |
+| `Migurdex.Cli` | Klavye odaklı terminal arayüzü |
+| `Migurdex.Core` | Plugin yükleyici, Rust köprüsü, extractor'lar |
+| `Migurdex.Shared` | Modeller + arayüzler (`IAnimeProvider`, `IExtractor`) |
+| `Migurdex.Native` | Rust ağ katmanı: HTTP istemcisi, emülasyon |
 | `Plugins/` | Sağlayıcı plugin'leri (`Migurdex.Plugins.*`) |
 
-İstek akışı: `TUI → API → plugin (+ Rust HTTP) → kaynak listesi → MPV`. Native kütüphane (`libmigurdex_native.so` / `migurdex_native.dll`) API çıktısının yanına kopyalanır ve başlangıçta oradan yüklenir; yoksa API `rust: false` ile çalışmaya devam eder.
+Akış: `TUI → API → plugin (+ Rust HTTP) → kaynak listesi → MPV`. Native kütüphane (`libmigurdex_native.so` / `migurdex_native.dll`) API ile birlikte gelir; eksikse API başlamaz.
 
-## Plugin geliştirme
-
-1. `Migurdex.Shared` içindeki `IAnimeProvider` arayüzünü implemente edin (`SearchAsync`, `GetDetailsAsync`, `GetGroupsAsync`, `GetVideoSourcesAsync` — ihtiyacınız olanları override etmeniz yeterli, yetenekler otomatik çıkar).
-2. Projeyi `Plugins/Migurdex.Plugins.<Ad>/` altına koyun (dizin adı = proje adı).
-3. `./build.sh` çalıştırın — build scripti yeni plugini otomatik keşfedip API'nin `Plugins` klasörüne kopyalar; API başlangıçta klasördeki tüm pluginleri yükler.
-
-## Yol haritası
+## Yol Haritası
 
 - [ ] **MyAnimeList & AniList izleme durumu eşitleme**
 - [ ] **Otomatik yeni bölüm takibi**
