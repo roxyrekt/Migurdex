@@ -15,6 +15,8 @@ public class AnimeDetailsView : BaseView
     private          AnimeDetails?     _cachedDetails;
     private          string?           _initialPosterUrl;
     private          string?           _lastSelectedSearchable;
+    private          string?           _lastSelectedSeasonSearchable;
+    private          int?              _selectedSeason;
     private          string?           _provider;
 
     public AnimeDetailsView(IApiClientService apiClient,
@@ -30,13 +32,11 @@ public class AnimeDetailsView : BaseView
     {
         if (_provider != provider || _animeId != animeId)
         {
-            _cachedDetails = null;
-            _animeTitle    = animeTitle;
-        }
-
-        if (_provider != provider || _animeId != animeId)
-        {
-            _lastSelectedSearchable = null;
+            _cachedDetails                = null;
+            _animeTitle                   = animeTitle;
+            _selectedSeason               = null;
+            _lastSelectedSeasonSearchable = null;
+            _lastSelectedSearchable       = null;
         }
 
         _provider         = provider;
@@ -127,33 +127,124 @@ public class AnimeDetailsView : BaseView
         AnsiConsole.Write(grid);
         AnsiConsole.WriteLine();
 
-        var choices = new List<FuzzyChoice>
+        var groupedEpisodes = details.Episodes
+                                     .GroupBy(e => e.Season ?? 1)
+                                     .OrderBy(g => g.Key)
+                                     .ToList();
+
+        var isMultiSeason = groupedEpisodes.Count > 1;
+
+        if (isMultiSeason && _selectedSeason == null)
         {
-            new()
+            var seasonChoices = new List<FuzzyChoice>
+            {
+                new()
+                {
+                    Display       = isFav ? "[pink1]Favorilerden Çıkar[/]" : "[pink1]Favorilere Ekle[/]",
+                    DisplayActive = isFav ? "[bold pink1]Favorilerden Çıkar[/]" : "[bold pink1]Favorilere Ekle[/]",
+                    Searchable    = isFav ? "Favorilerden Çıkar" : "Favorilere Ekle"
+                }
+            };
+
+            foreach (var group in groupedEpisodes)
+            {
+                var seasonNum = group.Key;
+                var epCount   = group.Count();
+                var label     = $"{seasonNum}. Sezon";
+                seasonChoices.Add(new FuzzyChoice
+                {
+                    Display       = $"[silver]{seasonNum}. Sezon[/] [grey]({epCount} Bölüm)[/]",
+                    DisplayActive = $"[bold gold1]{seasonNum}. Sezon[/] [bold white]({epCount} Bölüm)[/]",
+                    Searchable    = label
+                });
+            }
+
+            seasonChoices.Add(new FuzzyChoice
+            {
+                Display       = "[red]Geri[/]",
+                DisplayActive = "[bold red]Geri[/]",
+                Searchable    = "Geri"
+            });
+
+            var seasonChoice = FuzzyPrompt.Show("Sezon Seçin:",
+                                                seasonChoices,
+                                                initialSelection: _lastSelectedSeasonSearchable);
+
+            if (seasonChoice == null || seasonChoice.Searchable == "Geri")
+            {
+                navigator.Pop();
+                return;
+            }
+
+            _lastSelectedSeasonSearchable = seasonChoice.Searchable;
+
+            if (seasonChoice.Searchable is "Favorilere Ekle" or "Favorilerden Çıkar")
+            {
+                _historyService.ToggleFavorite(new FavoriteEntry
+                {
+                    AnimeId      = _animeId,
+                    AnimeTitle   = details.Title,
+                    ProviderName = _provider
+                });
+                return;
+            }
+
+            var matchedGroup = groupedEpisodes.FirstOrDefault(g => $"{g.Key}. Sezon" == seasonChoice.Searchable);
+            if (matchedGroup != null)
+            {
+                _selectedSeason         = matchedGroup.Key;
+                _lastSelectedSearchable = null;
+            }
+
+            return;
+        }
+
+        var activeSeason = _selectedSeason ?? (groupedEpisodes.Count > 0 ? groupedEpisodes[0].Key : 1);
+        var currentSeasonGroup = groupedEpisodes.FirstOrDefault(g => g.Key == activeSeason)
+                                 ?? groupedEpisodes.FirstOrDefault();
+
+        var choices = new List<FuzzyChoice>();
+
+        if (!isMultiSeason)
+        {
+            choices.Add(new FuzzyChoice
             {
                 Display       = isFav ? "[pink1]Favorilerden Çıkar[/]" : "[pink1]Favorilere Ekle[/]",
                 DisplayActive = isFav ? "[bold pink1]Favorilerden Çıkar[/]" : "[bold pink1]Favorilere Ekle[/]",
                 Searchable    = isFav ? "Favorilerden Çıkar" : "Favorilere Ekle"
-            }
-        };
+            });
+        }
 
-        var episodeMap      = new Dictionary<string, Episode>();
-        var groupedEpisodes = details.Episodes.GroupBy(e => e.Season ?? 1).OrderBy(g => g.Key);
-
-        foreach (var group in groupedEpisodes)
+        var episodeMap = new Dictionary<string, Episode>();
+        if (currentSeasonGroup != null)
         {
-            var prefix = $"Sezon {group.Key}: ";
-            foreach (var ep in group.OrderBy(e => e.Number))
+            foreach (var ep in currentSeasonGroup.OrderBy(e => e.Number))
             {
-                var label = $"{prefix}Bölüm {ep.Number} - {ep.Title}";
+                var hasCustomTitle = !string.IsNullOrWhiteSpace(ep.Title)
+                                     && !ep.Title.Trim()
+                                           .Equals($"Bölüm {ep.Number}", StringComparison.OrdinalIgnoreCase)
+                                     && !ep.Title.Trim().Equals($"{ep.Number}", StringComparison.OrdinalIgnoreCase);
+
+                var display = hasCustomTitle
+                                  ? $"[silver]{ep.Number}. Bölüm[/] [grey]│[/] [grey]{Markup.Escape(ep.Title!)}[/]"
+                                  : $"[silver]{ep.Number}. Bölüm[/]";
+
+                var displayActive = hasCustomTitle
+                                        ? $"[bold gold1]{ep.Number}. Bölüm[/] [grey]│[/] [bold white]{Markup.Escape(ep.Title!)}[/]"
+                                        : $"[bold gold1]{ep.Number}. Bölüm[/]";
+
+                var searchable = hasCustomTitle
+                                     ? $"{ep.Number}. Bölüm {ep.Title}"
+                                     : $"{ep.Number}. Bölüm";
+
                 choices.Add(new FuzzyChoice
                 {
-                    Display = $"[silver]Sezon {group.Key} Bölüm {ep.Number}[/] - [grey]{Markup.Escape(ep.Title)}[/]",
-                    DisplayActive =
-                        $"[bold gold1]Sezon {group.Key} Bölüm {ep.Number}[/] - [bold white]{Markup.Escape(ep.Title)}[/]",
-                    Searchable = label
+                    Display       = display,
+                    DisplayActive = displayActive,
+                    Searchable    = searchable
                 });
-                episodeMap[label] = ep;
+
+                episodeMap[searchable] = ep;
             }
         }
 
@@ -164,10 +255,18 @@ public class AnimeDetailsView : BaseView
             Searchable    = "Geri"
         });
 
-        var choice = FuzzyPrompt.Show("İşlem:", choices, initialSelection: _lastSelectedSearchable);
+        var promptTitle = isMultiSeason ? $"{activeSeason}. Sezon Bölümleri:" : "Bölümler:";
+        var choice      = FuzzyPrompt.Show(promptTitle, choices, initialSelection: _lastSelectedSearchable);
 
         if (choice == null || choice.Searchable == "Geri")
         {
+            if (isMultiSeason)
+            {
+                _selectedSeason         = null;
+                _lastSelectedSearchable = null;
+                return;
+            }
+
             navigator.Pop();
             return;
         }
@@ -185,9 +284,11 @@ public class AnimeDetailsView : BaseView
             return;
         }
 
-        var selectedEp  = episodeMap[choice.Searchable];
-        var sourcesView = (EpisodeSourcesView) _serviceProvider.GetService(typeof(EpisodeSourcesView))!;
-        sourcesView.SetTarget(_provider, _animeId, details.Title, selectedEp, details.Episodes, details.PosterUrl);
-        navigator.Push(sourcesView);
+        if (episodeMap.TryGetValue(choice.Searchable, out var selectedEp))
+        {
+            var sourcesView = (EpisodeSourcesView) _serviceProvider.GetService(typeof(EpisodeSourcesView))!;
+            sourcesView.SetTarget(_provider, _animeId, details.Title, selectedEp, details.Episodes, details.PosterUrl);
+            navigator.Push(sourcesView);
+        }
     }
 }

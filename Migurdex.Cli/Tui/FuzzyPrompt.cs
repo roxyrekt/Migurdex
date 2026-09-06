@@ -24,6 +24,52 @@ public static class FuzzyPrompt
         return $"{Markup.Escape(left)}[black on white]{Markup.Escape(cursorChar.ToString())}[/]{Markup.Escape(right)}";
     }
 
+    private static bool IsWordDeleteKey(ConsoleKeyInfo keyInfo)
+    {
+        if (keyInfo.Modifiers.HasFlag(ConsoleModifiers.Control))
+        {
+            if (keyInfo.Key is ConsoleKey.Backspace or ConsoleKey.W)
+            {
+                return true;
+            }
+
+            if (keyInfo.KeyChar is (char) 8 or (char) 23 or (char) 127)
+            {
+                return true;
+            }
+        }
+
+        if (keyInfo.KeyChar is (char) 23)
+        {
+            return true;
+        }
+
+        return false;
+    }
+
+    private static void DeleteWordBeforeCursor(ref string query, ref int textCursorIndex)
+    {
+        if (textCursorIndex <= 0)
+        {
+            return;
+        }
+
+        var target = textCursorIndex;
+
+        while (target > 0 && char.IsWhiteSpace(query[target - 1]))
+        {
+            target--;
+        }
+
+        while (target > 0 && !char.IsWhiteSpace(query[target - 1]))
+        {
+            target--;
+        }
+
+        query           = query[..target] + query[textCursorIndex..];
+        textCursorIndex = target;
+    }
+
     private static int ResolveInitialCursor(List<FuzzyChoice> choicesList, string? initialSelection)
     {
         if (string.IsNullOrEmpty(initialSelection))
@@ -102,62 +148,70 @@ public static class FuzzyPrompt
 
             var keyInfo = Console.ReadKey(true);
 
-            switch (keyInfo.Key)
+            if (IsWordDeleteKey(keyInfo))
             {
-                case ConsoleKey.UpArrow:
-                    cursorIndex = filtered.Count > 0
-                                      ? (cursorIndex - 1 + filtered.Count) % filtered.Count
-                                      : 0;
-                    break;
-                case ConsoleKey.DownArrow:
-                    cursorIndex = filtered.Count > 0
-                                      ? (cursorIndex + 1) % filtered.Count
-                                      : 0;
-                    break;
-                case ConsoleKey.LeftArrow:
-                    textCursorIndex = Math.Max(0, textCursorIndex - 1);
-                    break;
-                case ConsoleKey.RightArrow:
-                    textCursorIndex = Math.Min(query.Length, textCursorIndex + 1);
-                    break;
-                case ConsoleKey.Enter:
-                    if (filtered.Count > 0)
-                    {
-                        result    = filtered[cursorIndex];
+                DeleteWordBeforeCursor(ref query, ref textCursorIndex);
+                cursorIndex = 0;
+            }
+            else
+            {
+                switch (keyInfo.Key)
+                {
+                    case ConsoleKey.UpArrow:
+                        cursorIndex = filtered.Count > 0
+                                          ? (cursorIndex - 1 + filtered.Count) % filtered.Count
+                                          : 0;
+                        break;
+                    case ConsoleKey.DownArrow:
+                        cursorIndex = filtered.Count > 0
+                                          ? (cursorIndex + 1) % filtered.Count
+                                          : 0;
+                        break;
+                    case ConsoleKey.LeftArrow:
+                        textCursorIndex = Math.Max(0, textCursorIndex - 1);
+                        break;
+                    case ConsoleKey.RightArrow:
+                        textCursorIndex = Math.Min(query.Length, textCursorIndex + 1);
+                        break;
+                    case ConsoleKey.Enter:
+                        if (filtered.Count > 0)
+                        {
+                            result    = filtered[cursorIndex];
+                            isRunning = false;
+                        }
+
+                        break;
+                    case ConsoleKey.Escape:
+                        result    = null;
                         isRunning = false;
-                    }
+                        break;
+                    case ConsoleKey.Backspace:
+                        if (textCursorIndex > 0)
+                        {
+                            query = query[..(textCursorIndex - 1)] + query[textCursorIndex..];
+                            textCursorIndex--;
+                            cursorIndex = 0;
+                        }
 
-                    break;
-                case ConsoleKey.Escape:
-                    result    = null;
-                    isRunning = false;
-                    break;
-                case ConsoleKey.Backspace:
-                    if (textCursorIndex > 0)
-                    {
-                        query = query[..(textCursorIndex - 1)] + query[textCursorIndex..];
-                        textCursorIndex--;
-                        cursorIndex = 0;
-                    }
+                        break;
+                    case ConsoleKey.Delete:
+                        if (textCursorIndex < query.Length)
+                        {
+                            query       = query[..textCursorIndex] + query[(textCursorIndex + 1)..];
+                            cursorIndex = 0;
+                        }
 
-                    break;
-                case ConsoleKey.Delete:
-                    if (textCursorIndex < query.Length)
-                    {
-                        query       = query[..textCursorIndex] + query[(textCursorIndex + 1)..];
-                        cursorIndex = 0;
-                    }
+                        break;
+                    default:
+                        if (keyInfo.KeyChar != '\0' && !char.IsControl(keyInfo.KeyChar))
+                        {
+                            query = query[..textCursorIndex] + keyInfo.KeyChar + query[textCursorIndex..];
+                            textCursorIndex++;
+                            cursorIndex = 0;
+                        }
 
-                    break;
-                default:
-                    if (keyInfo.KeyChar != '\0' && !char.IsControl(keyInfo.KeyChar))
-                    {
-                        query = query[..textCursorIndex] + keyInfo.KeyChar + query[textCursorIndex..];
-                        textCursorIndex++;
-                        cursorIndex = 0;
-                    }
-
-                    break;
+                        break;
+                }
             }
         }
 
@@ -345,66 +399,74 @@ public static class FuzzyPrompt
                                var keyInfo = Console.ReadKey(true);
                                shouldRedraw = true;
 
-                               switch (keyInfo.Key)
+                               if (IsWordDeleteKey(keyInfo))
                                {
-                                   case ConsoleKey.UpArrow:
-                                       cursorIndex = filtered.Count > 0
-                                                         ? (cursorIndex - 1 + filtered.Count) % filtered.Count
-                                                         : 0;
-                                       break;
-                                   case ConsoleKey.DownArrow:
-                                       cursorIndex = filtered.Count > 0
-                                                         ? (cursorIndex + 1) % filtered.Count
-                                                         : 0;
-                                       break;
-                                   case ConsoleKey.LeftArrow:
-                                       textCursorIndex = Math.Max(0, textCursorIndex - 1);
-                                       break;
-                                   case ConsoleKey.RightArrow:
-                                       textCursorIndex = Math.Min(query.Length, textCursorIndex + 1);
-                                       break;
-                                   case ConsoleKey.Enter:
-                                       if (filtered.Count > 0)
-                                       {
-                                           result    = filtered[cursorIndex];
+                                   DeleteWordBeforeCursor(ref query, ref textCursorIndex);
+                                   cursorIndex = 0;
+                               }
+                               else
+                               {
+                                   switch (keyInfo.Key)
+                                   {
+                                       case ConsoleKey.UpArrow:
+                                           cursorIndex = filtered.Count > 0
+                                                             ? (cursorIndex - 1 + filtered.Count) % filtered.Count
+                                                             : 0;
+                                           break;
+                                       case ConsoleKey.DownArrow:
+                                           cursorIndex = filtered.Count > 0
+                                                             ? (cursorIndex + 1) % filtered.Count
+                                                             : 0;
+                                           break;
+                                       case ConsoleKey.LeftArrow:
+                                           textCursorIndex = Math.Max(0, textCursorIndex - 1);
+                                           break;
+                                       case ConsoleKey.RightArrow:
+                                           textCursorIndex = Math.Min(query.Length, textCursorIndex + 1);
+                                           break;
+                                       case ConsoleKey.Enter:
+                                           if (filtered.Count > 0)
+                                           {
+                                               result    = filtered[cursorIndex];
+                                               isRunning = false;
+                                               cts.Cancel();
+                                           }
+
+                                           break;
+                                       case ConsoleKey.Escape:
+                                           result    = null;
                                            isRunning = false;
                                            cts.Cancel();
-                                       }
+                                           break;
+                                       case ConsoleKey.Backspace:
+                                           if (textCursorIndex > 0)
+                                           {
+                                               query = query[..(textCursorIndex - 1)] + query[textCursorIndex..];
+                                               textCursorIndex--;
+                                               cursorIndex = 0;
+                                           }
 
-                                       break;
-                                   case ConsoleKey.Escape:
-                                       result    = null;
-                                       isRunning = false;
-                                       cts.Cancel();
-                                       break;
-                                   case ConsoleKey.Backspace:
-                                       if (textCursorIndex > 0)
-                                       {
-                                           query = query[..(textCursorIndex - 1)] + query[textCursorIndex..];
-                                           textCursorIndex--;
-                                           cursorIndex = 0;
-                                       }
+                                           break;
+                                       case ConsoleKey.Delete:
+                                           if (textCursorIndex < query.Length)
+                                           {
+                                               query       = query[..textCursorIndex] + query[(textCursorIndex + 1)..];
+                                               cursorIndex = 0;
+                                           }
 
-                                       break;
-                                   case ConsoleKey.Delete:
-                                       if (textCursorIndex < query.Length)
-                                       {
-                                           query       = query[..textCursorIndex] + query[(textCursorIndex + 1)..];
-                                           cursorIndex = 0;
-                                       }
+                                           break;
+                                       default:
+                                           if (keyInfo.KeyChar != '\0' && !char.IsControl(keyInfo.KeyChar))
+                                           {
+                                               query = query[..textCursorIndex]
+                                                       + keyInfo.KeyChar
+                                                       + query[textCursorIndex..];
+                                               textCursorIndex++;
+                                               cursorIndex = 0;
+                                           }
 
-                                       break;
-                                   default:
-                                       if (keyInfo.KeyChar != '\0' && !char.IsControl(keyInfo.KeyChar))
-                                       {
-                                           query = query[..textCursorIndex]
-                                                   + keyInfo.KeyChar
-                                                   + query[textCursorIndex..];
-                                           textCursorIndex++;
-                                           cursorIndex = 0;
-                                       }
-
-                                       break;
+                                           break;
+                                   }
                                }
                            }
                            else
