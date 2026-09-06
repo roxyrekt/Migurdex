@@ -205,7 +205,6 @@ public static class AnimeEndpoints
         string            provider,
         string            animeId,
         PluginLoader      loader,
-        MetadataManager   metadataManager,
         ILoggerFactory    loggerFactory,
         CancellationToken cancellationToken)
     {
@@ -231,35 +230,6 @@ public static class AnimeEndpoints
         try
         {
             var details = await p.GetDetailsAsync(animeId, cancellationToken);
-
-            foreach (var mapping in details.SeasonMappings.OrderBy(m => m.SeasonNumber))
-            {
-                var resolvedMeta = await metadataManager.FindBestMatchOrOverrideAsync(
-                                       details,
-                                       details.Format,
-                                       season: mapping.SeasonNumber,
-                                       cancellationToken: cancellationToken);
-
-                if (resolvedMeta != null)
-                {
-                    switch (resolvedMeta.Source)
-                    {
-                        case MetadataSource.AniList:
-                            mapping.AniListId     ??= resolvedMeta.ExternalId;
-                            mapping.MyAnimeListId ??= resolvedMeta.MyAnimeListId;
-                            break;
-                        case MetadataSource.Jikan:
-                            mapping.MyAnimeListId ??= resolvedMeta.ExternalId;
-                            mapping.AniListId     ??= resolvedMeta.AniListId;
-                            break;
-                        case MetadataSource.Tmdb:
-                            break;
-                        default:
-                            throw new ArgumentOutOfRangeException();
-                    }
-                }
-            }
-
             return Results.Ok(details);
         }
         catch (Exception ex)

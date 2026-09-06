@@ -52,7 +52,6 @@ builder.Services.AddSingleton<PluginLoader>(sp =>
 
 builder.Services.AddCoreExtractors();
 
-builder.Services.AddSingleton<MetadataManager>();
 builder.Services.AddTransient<IMetadataProvider, AniListProvider>();
 builder.Services.AddTransient<IMetadataProvider, JikanProvider>();
 
