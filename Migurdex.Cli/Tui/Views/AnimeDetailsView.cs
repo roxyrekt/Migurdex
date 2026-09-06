@@ -11,6 +11,7 @@ public class AnimeDetailsView : BaseView
     private readonly IHistoryService   _historyService;
     private readonly IServiceProvider  _serviceProvider;
     private          string?           _animeId;
+    private          string?           _animeTitle;
     private          AnimeDetails?     _cachedDetails;
     private          string?           _initialPosterUrl;
     private          string?           _lastSelectedSearchable;
@@ -25,11 +26,12 @@ public class AnimeDetailsView : BaseView
         _serviceProvider = serviceProvider;
     }
 
-    public void SetTarget(string provider, string animeId, string? initialPosterUrl = null)
+    public void SetTarget(string provider, string animeId, string? initialPosterUrl = null, string? animeTitle = null)
     {
         if (_provider != provider || _animeId != animeId)
         {
             _cachedDetails = null;
+            _animeTitle    = animeTitle;
         }
 
         if (_provider != provider || _animeId != animeId)
@@ -40,6 +42,12 @@ public class AnimeDetailsView : BaseView
         _provider         = provider;
         _animeId          = animeId;
         _initialPosterUrl = initialPosterUrl;
+    }
+
+    public override string GetRpcState()
+    {
+        var title = _cachedDetails?.Title ?? _animeTitle;
+        return string.IsNullOrWhiteSpace(title) ? "Detaylar" : title;
     }
 
     public override void Render(ITuiNavigator navigator)

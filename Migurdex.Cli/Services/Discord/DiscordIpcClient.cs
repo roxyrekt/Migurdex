@@ -1,4 +1,3 @@
-using Migurdex.Cli.Services.Discord;
 using System.Buffers.Binary;
 using System.IO.Pipes;
 using System.Net.Sockets;
@@ -8,24 +7,26 @@ using System.Text.Json;
 
 namespace Migurdex.Cli.Services.Discord;
 
-public partial class DiscordIpcClient : IDisposable
+public class DiscordIpcClient : IDisposable
 {
-    private readonly string          _clientId;
-    private readonly Action<string>? _logAction;
-    private readonly SemaphoreSlim   _lock = new(1, 1);
+    private static readonly TimeSpan        _reconnectCooldown = TimeSpan.FromSeconds(3);
+    private readonly        string          _clientId;
+    private readonly        SemaphoreSlim   _lock = new(1, 1);
+    private readonly        Action<string>? _logAction;
+    private readonly        Lock            _pendingGate = new();
+    private                 bool            _hasPendingActivity;
 
-    private Stream?                  _stream;
-    private Socket?                  _unixSocket;
-    private NamedPipeClientStream?   _winPipe;
-    private CancellationTokenSource? _readCts;
-    private Task?                    _readTask;
+    private volatile bool                     _isConnected;
+    private          DateTime                 _lastConnectAttempt = DateTime.MinValue;
+    private          Task<bool>?              _ongoingConnectTask;
+    private          DiscordActivity?         _pendingActivity;
+    private          CancellationTokenSource? _readCts;
+    private          Task?                    _readTask;
+    private          Task<bool>?              _scheduledRetryTask;
 
-    private volatile        bool             _isConnected;
-    private                 Task<bool>?      _ongoingConnectTask;
-    private                 DiscordActivity? _pendingActivity;
-    private                 bool             _hasPendingActivity;
-    private                 DateTime         _lastConnectAttempt = DateTime.MinValue;
-    private static readonly TimeSpan         _reconnectCooldown  = TimeSpan.FromSeconds(3);
+    private Stream?                _stream;
+    private Socket?                _unixSocket;
+    private NamedPipeClientStream? _winPipe;
 
     public DiscordIpcClient(string clientId, Action<string>? logAction = null)
     {
@@ -34,6 +35,13 @@ public partial class DiscordIpcClient : IDisposable
     }
 
     public bool IsConnected => _isConnected;
+
+    public void Dispose()
+    {
+        CleanupCurrentConnection();
+        _lock.Dispose();
+        GC.SuppressFinalize(this);
+    }
 
     public Task<bool> EnsureConnectedAsync(CancellationToken ct = default)
     {
@@ -116,8 +124,12 @@ public partial class DiscordIpcClient : IDisposable
 
             if (_hasPendingActivity)
             {
-                var act = _pendingActivity;
-                _hasPendingActivity = false;
+                DiscordActivity? act;
+                lock (_pendingGate)
+                {
+                    act                 = _pendingActivity;
+                    _hasPendingActivity = false;
+                }
 
                 _ = Task.Run(async () =>
                              {
@@ -149,16 +161,83 @@ public partial class DiscordIpcClient : IDisposable
 
     public async Task<bool> SetActivityAsync(DiscordActivity? activity, CancellationToken ct = default)
     {
-        _pendingActivity    = activity;
-        _hasPendingActivity = true;
+        lock (_pendingGate)
+        {
+            _pendingActivity    = activity;
+            _hasPendingActivity = true;
+        }
 
         var connected = await EnsureConnectedAsync(ct).ConfigureAwait(false);
         if (!connected || _stream == null || !_isConnected)
         {
+            ScheduleRetryIfNeeded();
             return false;
         }
 
         return await SendActivityDirectAsync(activity, ct).ConfigureAwait(false);
+    }
+
+    private void ScheduleRetryIfNeeded()
+    {
+        lock (_pendingGate)
+        {
+            if (_scheduledRetryTask is { IsCompleted: false })
+            {
+                return;
+            }
+
+            var wait = _reconnectCooldown - (DateTime.UtcNow - _lastConnectAttempt);
+            if (wait < TimeSpan.Zero)
+            {
+                wait = TimeSpan.Zero;
+            }
+
+            wait += TimeSpan.FromMilliseconds(200);
+#if DEBUG
+            _logAction?.Invoke($"Discord cooldown aktif - retry planlandı ({(int) wait.TotalMilliseconds}ms sonra)");
+#endif
+
+            _scheduledRetryTask = Task.Run(async () =>
+            {
+                try
+                {
+                    await Task.Delay(wait).ConfigureAwait(false);
+                    var connected = await EnsureConnectedAsync().ConfigureAwait(false);
+                    if (!connected)
+                    {
+#if DEBUG
+                        _logAction?.Invoke("Discord retry bağlantı kuramadı, güncel activity pending olarak kaldı.");
+#endif
+                        return false;
+                    }
+
+                    DiscordActivity? act;
+                    lock (_pendingGate)
+                    {
+                        act = _pendingActivity;
+                    }
+
+                    var sent = await SendActivityDirectAsync(act, CancellationToken.None).ConfigureAwait(false);
+                    if (!sent)
+                    {
+#if DEBUG
+                        _logAction?.Invoke("Discord retry gönderimi başarısız.");
+#endif
+                    }
+
+                    return sent;
+                }
+                catch (Exception ex)
+                {
+#if DEBUG
+                    _logAction?.Invoke($"Discord retry hatası: {ex.Message}");
+#else
+                    _ = ex;
+#endif
+                    return false;
+                }
+            });
+        }
     }
 
     private async Task<bool> SendActivityDirectAsync(DiscordActivity? activity, CancellationToken ct)
@@ -260,7 +339,7 @@ public partial class DiscordIpcClient : IDisposable
                 await socket.ConnectAsync(new UnixDomainSocketEndPoint(path), cts.Token).ConfigureAwait(false);
 
                 _unixSocket = socket;
-                return new NetworkStream(socket, ownsSocket: true);
+                return new NetworkStream(socket, true);
             }
             catch (Exception ex)
             {
@@ -464,6 +543,12 @@ public partial class DiscordIpcClient : IDisposable
                 }
 
                 var remaining = len;
+                if (remaining is < 0 or > 1024 * 1024)
+                {
+                    _logAction?.Invoke($"Discord IPC geçersiz frame uzunluğu, dinleme sonlandırılıyor: {remaining}");
+                    break;
+                }
+
                 while (remaining > 0)
                 {
                     var toRead = Math.Min(remaining, drainBuf.Length);
@@ -535,12 +620,5 @@ public partial class DiscordIpcClient : IDisposable
         }
 
         _winPipe = null;
-    }
-
-    public void Dispose()
-    {
-        CleanupCurrentConnection();
-        _lock.Dispose();
-        GC.SuppressFinalize(this);
     }
 }

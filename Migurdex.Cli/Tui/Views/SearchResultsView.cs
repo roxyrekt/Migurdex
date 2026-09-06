@@ -28,6 +28,12 @@ public class SearchResultsView : BaseView
         _lastSelectedSearchable = null;
     }
 
+    public override string GetRpcState()
+    {
+        var q = _query?.Trim();
+        return string.IsNullOrEmpty(q) ? "Arama" : $"Arama: {q}";
+    }
+
     public override void Render(ITuiNavigator navigator)
     {
         if (string.IsNullOrWhiteSpace(_query))
@@ -146,7 +152,10 @@ public class SearchResultsView : BaseView
     private void PushDetails(ITuiNavigator navigator, SearchResult selectedAnime)
     {
         var detailsView = (AnimeDetailsView) _serviceProvider.GetService(typeof(AnimeDetailsView))!;
-        detailsView.SetTarget(selectedAnime.ProviderName, selectedAnime.Id, selectedAnime.PosterUrl);
+        detailsView.SetTarget(selectedAnime.ProviderName,
+                              selectedAnime.Id,
+                              selectedAnime.PosterUrl,
+                              selectedAnime.Title);
         navigator.Push(detailsView);
     }
 }

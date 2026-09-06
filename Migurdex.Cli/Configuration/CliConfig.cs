@@ -5,6 +5,7 @@ public class CliConfig
     public string       ApiBaseUrl               { get; set; } = "http://localhost:7045";
     public string       PreferredPlayer          { get; set; } = "mpv";
     public bool         EnableDiscordRpc         { get; set; } = true;
+    public string       DiscordRpcTitleMode      { get; set; } = "İçerik";
     public bool         EnableIncognitoMode      { get; set; } = false;
     public bool         AutoSelectBestSource     { get; set; } = false;
     public double       AutoSelectTimeoutSeconds { get; set; } = 5;

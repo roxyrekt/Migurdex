@@ -3,6 +3,7 @@ using Migurdex.Cli.Services;
 using Migurdex.Shared.Enums;
 using Migurdex.Shared.Models;
 using Spectre.Console;
+using System.Globalization;
 
 namespace Migurdex.Cli.Tui.Views;
 
@@ -206,6 +207,21 @@ public class EpisodeSourcesView : BaseView
         }
 
         return true;
+    }
+
+    public override string GetRpcState()
+    {
+        if (string.IsNullOrWhiteSpace(_animeTitle) || _episode is null)
+        {
+            return "Kaynaklar";
+        }
+
+        var season = Math.Max(1, _episode.Season ?? 1);
+        var ep = _episode.Number % 1 == 0
+                     ? ((int) _episode.Number).ToString()
+                     : _episode.Number.ToString("0.#", CultureInfo.InvariantCulture);
+
+        return $"{_animeTitle} S{season} E{ep}";
     }
 
     public override void Render(ITuiNavigator navigator)

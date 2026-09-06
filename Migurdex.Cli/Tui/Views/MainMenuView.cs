@@ -14,6 +14,11 @@ public class MainMenuView : BaseView
         _historyService  = historyService;
     }
 
+    public override string GetRpcState()
+    {
+        return "Ana Menü";
+    }
+
     public override void Render(ITuiNavigator navigator)
     {
         AnsiConsole.Clear();

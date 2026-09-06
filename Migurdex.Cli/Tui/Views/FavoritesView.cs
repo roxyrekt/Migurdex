@@ -20,6 +20,11 @@ public class FavoritesView : BaseView
         _serviceProvider = serviceProvider;
     }
 
+    public override string GetRpcState()
+    {
+        return "Favoriler";
+    }
+
     public override void Render(ITuiNavigator navigator)
     {
         var viewRunning = true;
@@ -134,7 +139,10 @@ public class FavoritesView : BaseView
                     actionRunning = false;
                     viewRunning   = false;
                     var detailsView = (AnimeDetailsView) _serviceProvider.GetService(typeof(AnimeDetailsView))!;
-                    detailsView.SetTarget(selectedFav.ProviderName, selectedFav.AnimeId, selectedFav.PosterUrl);
+                    detailsView.SetTarget(selectedFav.ProviderName,
+                                          selectedFav.AnimeId,
+                                          selectedFav.PosterUrl,
+                                          selectedFav.AnimeTitle);
                     navigator.Push(detailsView);
                 }
                 else if (actionChoice.Searchable == "Sil")

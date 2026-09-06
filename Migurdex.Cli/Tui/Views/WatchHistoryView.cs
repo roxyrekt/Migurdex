@@ -75,6 +75,11 @@ public class WatchHistoryView : BaseView
         return $"{seasonText}{epText} - {epTitle}";
     }
 
+    public override string GetRpcState()
+    {
+        return "Geçmiş";
+    }
+
     public override void Render(ITuiNavigator navigator)
     {
         var historyRunning = true;
@@ -254,7 +259,8 @@ public class WatchHistoryView : BaseView
         var detailsView = (AnimeDetailsView) _serviceProvider.GetService(typeof(AnimeDetailsView))!;
         detailsView.SetTarget(selectedHistory.ProviderName,
                               selectedHistory.AnimeId,
-                              selectedHistory.PosterUrl);
+                              selectedHistory.PosterUrl,
+                              selectedHistory.AnimeTitle);
         navigator.Push(detailsView, true);
 
         var sourcesView = (EpisodeSourcesView) _serviceProvider.GetService(typeof(EpisodeSourcesView))!;
@@ -367,7 +373,8 @@ public class WatchHistoryView : BaseView
             var detailsView = (AnimeDetailsView) _serviceProvider.GetService(typeof(AnimeDetailsView))!;
             detailsView.SetTarget(selectedHistory.ProviderName,
                                   selectedHistory.AnimeId,
-                                  selectedHistory.PosterUrl);
+                                  selectedHistory.PosterUrl,
+                                  selectedHistory.AnimeTitle);
             navigator.Push(detailsView);
             return true;
         }

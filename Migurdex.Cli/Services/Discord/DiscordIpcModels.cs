@@ -43,6 +43,9 @@ public class SetActivityArgs
 
 public class DiscordActivity
 {
+    [JsonPropertyName("name")]
+    public string? Name { get; set; }
+
     [JsonPropertyName("details")]
     public string? Details { get; set; }
 
@@ -62,7 +65,7 @@ public class DiscordActivity
     public int Type { get; set; } = 3; // 3 = watching
 
     [JsonPropertyName("instance")]
-    public bool Instance { get; set; } = false;
+    public bool Instance { get; set; }
 }
 
 public class DiscordTimestamps

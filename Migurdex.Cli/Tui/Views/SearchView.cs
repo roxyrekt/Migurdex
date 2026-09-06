@@ -16,6 +16,11 @@ public class SearchView : BaseView
         _serviceProvider = serviceProvider;
     }
 
+    public override string GetRpcState()
+    {
+        return "Arama";
+    }
+
     public override void Render(ITuiNavigator navigator)
     {
         AnsiConsole.Clear();

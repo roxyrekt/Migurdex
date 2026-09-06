@@ -2,8 +2,6 @@ namespace Migurdex.Cli.Services;
 
 public interface IDiscordRpcService
 {
-    void UpdatePresence(string title, string details, double? remainingSeconds = null);
-
     void UpdatePlaybackPresence(
         string  animeTitle,
         string  episodeTitle,

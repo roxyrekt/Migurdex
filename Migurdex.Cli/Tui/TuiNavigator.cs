@@ -1,5 +1,4 @@
 using Migurdex.Cli.Services;
-using Migurdex.Cli.Tui.Views;
 using Spectre.Console;
 
 namespace Migurdex.Cli.Tui;
@@ -79,20 +78,7 @@ public class TuiNavigator : ITuiNavigator
 
     private void UpdateRpc(BaseView view)
     {
-        var state = view switch
-        {
-            MainMenuView       => "Ana Menü",
-            SearchView         => "Arama",
-            SearchResultsView  => "Arama",
-            AnimeDetailsView   => "Detaylar",
-            EpisodeSourcesView => "Kaynaklar",
-            PlaybackMenuView   => "İzleme Sonrası",
-            WatchHistoryView   => "Geçmiş",
-            FavoritesView      => "Favoriler",
-            SettingsView       => "Ayarlar",
-            _                  => "Geziniyor"
-        };
-        _rpcService?.UpdateNavigationPresence(state);
+        _rpcService?.UpdateNavigationPresence(view.GetRpcState());
     }
 
     private void RunLoop()

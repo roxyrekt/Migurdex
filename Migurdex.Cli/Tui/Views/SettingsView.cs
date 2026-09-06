@@ -7,14 +7,20 @@ namespace Migurdex.Cli.Tui.Views;
 
 public class SettingsView : BaseView
 {
-    private readonly IApiClientService     _apiClient;
-    private readonly IConfigurationService _configService;
-    private          string?               _lastProviderName;
+    private static readonly string[]              _rpcTitleModes = ["Migurdex", "Sağlayıcı", "İçerik"];
+    private readonly        IApiClientService     _apiClient;
+    private readonly        IConfigurationService _configService;
+    private                 string?               _lastProviderName;
 
     public SettingsView(IConfigurationService configService, IApiClientService apiClient)
     {
         _configService = configService;
         _apiClient     = apiClient;
+    }
+
+    public override string GetRpcState()
+    {
+        return "Ayarlar";
     }
 
     public override void Render(ITuiNavigator navigator)
@@ -41,6 +47,12 @@ public class SettingsView : BaseView
                 Id          = "Rpc",
                 Label       = "Discord RPC",
                 ValueGetter = c => c.EnableDiscordRpc ? "Açık" : "Kapalı"
+            },
+            new()
+            {
+                Id          = "RpcTitle",
+                Label       = "RPC Başlığı",
+                ValueGetter = c => NormalizeRpcTitleMode(c.DiscordRpcTitleMode)
             },
             new()
             {
@@ -152,6 +164,17 @@ public class SettingsView : BaseView
         }
     }
 
+    private static string NormalizeRpcTitleMode(string? mode)
+    {
+        return _rpcTitleModes.Contains(mode) ? mode! : "İçerik";
+    }
+
+    private static string NextRpcTitleMode(string? current)
+    {
+        var idx = Array.IndexOf(_rpcTitleModes, NormalizeRpcTitleMode(current));
+        return _rpcTitleModes[(idx + 1) % _rpcTitleModes.Length];
+    }
+
     private bool HandleSelection(SettingItem item, CliConfig config, ITuiNavigator navigator, ref bool running)
     {
         switch (item.Id)
@@ -176,6 +199,9 @@ public class SettingsView : BaseView
                 break;
             case "Rpc":
                 config.EnableDiscordRpc = !config.EnableDiscordRpc;
+                break;
+            case "RpcTitle":
+                config.DiscordRpcTitleMode = NextRpcTitleMode(config.DiscordRpcTitleMode);
                 break;
             case "Incognito":
                 config.EnableIncognitoMode = !config.EnableIncognitoMode;

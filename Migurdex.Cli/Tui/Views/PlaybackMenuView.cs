@@ -2,6 +2,7 @@ using Migurdex.Cli.Configuration;
 using Migurdex.Cli.Services;
 using Migurdex.Shared.Models;
 using Spectre.Console;
+using System.Globalization;
 
 namespace Migurdex.Cli.Tui.Views;
 
@@ -45,6 +46,24 @@ public class PlaybackMenuView : BaseView
 
         _availableSources       = [.. availableSources];
         _lastSelectedSearchable = null;
+    }
+
+    public override string GetRpcState()
+    {
+        var title          = _animeTitle?.Trim();
+        var episodeInfoStr = "";
+
+        if (_episode != null)
+        {
+            var season = Math.Max(1, _episode.Season ?? 1);
+            var ep = _episode.Number % 1 == 0
+                         ? ((int) _episode.Number).ToString()
+                         : _episode.Number.ToString("0.#", CultureInfo.InvariantCulture);
+
+            episodeInfoStr = $" S{season} E{ep} - {_episode.Title}";
+        }
+
+        return string.IsNullOrEmpty(title) ? "İzleme Sonrası" : $"{title}{episodeInfoStr}";
     }
 
     public override void Render(ITuiNavigator navigator)
@@ -152,7 +171,7 @@ public class PlaybackMenuView : BaseView
         if (choice.Searchable == "Bölüm Listesi")
         {
             var detailsView = (AnimeDetailsView) _serviceProvider.GetService(typeof(AnimeDetailsView))!;
-            detailsView.SetTarget(provider, animeId, historyEntry.PosterUrl);
+            detailsView.SetTarget(provider, animeId, historyEntry.PosterUrl, animeTitle);
             navigator.Push(detailsView);
             return;
         }

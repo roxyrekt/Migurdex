@@ -4,4 +4,9 @@ public abstract class BaseView
 {
     public          bool SkipOnBack { get; set; }
     public abstract void Render(ITuiNavigator navigator);
+
+    public virtual string GetRpcState()
+    {
+        return "Geziniyor";
+    }
 }

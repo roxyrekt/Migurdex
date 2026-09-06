@@ -1,5 +1,5 @@
 using Migurdex.Cli.Services.Discord;
-using Migurdex.Shared.Models;
+using System.Globalization;
 
 namespace Migurdex.Cli.Services;
 
@@ -10,29 +10,32 @@ public class DiscordRpcService : IDiscordRpcService, IDisposable
     private const string PauseIcon       = "https://cdn.rcd.gg/PreMiD/resources/pause.png";
     private const string GitHubUrl       = "https://github.com/roxyrekt/Migurdex";
 
+    private const int MaxDiscordImageUrlLength = 300;
+
     private static readonly string[] _globalCdns =
     [
         "tmdb.org", "anilist.co", "myanimelist.net", "media.kitsu.io", "cdn.rcd.gg", "raw.githubusercontent.com",
-        "githubusercontent.com"
+        "githubusercontent.com", "wsrv.nl"
     ];
 
     private static readonly Lock _rpcLogLock = new();
 
     private readonly IApiClientService     _apiService;
     private readonly IConfigurationService _configService;
-    private          List<ProviderInfo>?   _cachedProviders;
-    private          DiscordIpcClient?     _client;
+
+    private readonly Lock                _sendGate     = new();
+    private readonly long                _sessionStart = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+    private          List<ProviderInfo>? _cachedProviders;
+    private          DiscordIpcClient?   _client;
+    private          string?             _lastNavSignature;
+    private          DateTime            _lastPlaybackSendUtc = DateTime.MinValue;
+    private          string?             _lastPlaybackSignature;
 
     public DiscordRpcService(IConfigurationService configService, IApiClientService apiService)
     {
         _configService = configService;
         _apiService    = apiService;
         Initialize();
-    }
-
-    public void UpdatePresence(string title, string details, double? remainingSeconds = null)
-    {
-        UpdatePlaybackPresence(title, details, null, false, null, remainingSeconds);
     }
 
     public void UpdatePlaybackPresence(
@@ -52,6 +55,22 @@ public class DiscordRpcService : IDiscordRpcService, IDisposable
             return;
         }
 
+        var titleMode = NormalizeTitleMode(_configService.Config.DiscordRpcTitleMode);
+        var playbackSig =
+            $"{titleMode}|{animeTitle}|{episodeTitle}|{posterUrl}|{isPaused}|{providerName}|{season}|{episodeNumber}";
+
+        lock (_sendGate)
+        {
+            if (playbackSig == _lastPlaybackSignature
+                && DateTime.UtcNow - _lastPlaybackSendUtc < TimeSpan.FromSeconds(10))
+            {
+                return;
+            }
+
+            _lastPlaybackSignature = playbackSig;
+            _lastPlaybackSendUtc   = DateTime.UtcNow;
+        }
+
         try
         {
             var detailsText = Truncate(animeTitle);
@@ -65,7 +84,12 @@ public class DiscordRpcService : IDiscordRpcService, IDisposable
 
             if (episodeNumber.HasValue)
             {
-                stateParts.Add($"E{episodeNumber.Value}");
+                var ep = episodeNumber.Value % 1 == 0
+                             ? ((int) episodeNumber.Value).ToString()
+                             : episodeNumber.Value.ToString("0.#",
+                                                            CultureInfo.InvariantCulture);
+
+                stateParts.Add($"E{ep}");
             }
 
             var statePrefix = stateParts.Count > 0 ? string.Join(" ", stateParts) : "";
@@ -114,14 +138,22 @@ public class DiscordRpcService : IDiscordRpcService, IDisposable
 
             var activity = new DiscordActivity
             {
-                Details = detailsText,
-                State   = stateText,
-                Type    = 3, // watching
+                Name = titleMode switch
+                {
+                    "Migurdex"  => "Migurdex",
+                    "Sağlayıcı" => string.IsNullOrWhiteSpace(providerName) ? "Migurdex" : providerName,
+                    _           => detailsText
+                },
+                Details = titleMode == "İçerik" ? stateText : detailsText,
+                State = titleMode == "İçerik"
+                            ? string.IsNullOrWhiteSpace(providerName) ? null : providerName
+                            : stateText,
+                Type = 3, // watching
                 Buttons =
                 [
                     new DiscordButton
                     {
-                        Label = "GitHub'da İncele",
+                        Label = "Migurdex",
                         Url   = GitHubUrl
                     }
                 ],
@@ -194,16 +226,28 @@ public class DiscordRpcService : IDiscordRpcService, IDisposable
             return;
         }
 
+        var navSig = $"{NormalizeTitleMode(_configService.Config.DiscordRpcTitleMode)}|{details}|{state}";
+        lock (_sendGate)
+        {
+            if (navSig == _lastNavSignature)
+            {
+                return;
+            }
+
+            _lastNavSignature = navSig;
+        }
+
         try
         {
             var activity = new DiscordActivity
             {
-                Details = Truncate(details ?? "Ana Menü"),
-                State   = Truncate(state),
+                Name    = "Migurdex",
+                Details = Truncate(state),
+                State   = string.IsNullOrWhiteSpace(details) ? null : Truncate(details),
                 Type    = 3, // watching
                 Timestamps = new DiscordTimestamps
                 {
-                    Start = DateTimeOffset.UtcNow.ToUnixTimeSeconds()
+                    Start = _sessionStart
                 },
                 Assets = new DiscordAssets
                 {
@@ -214,7 +258,7 @@ public class DiscordRpcService : IDiscordRpcService, IDisposable
                 [
                     new DiscordButton
                     {
-                        Label = "GitHub'da İncele",
+                        Label = "Migurdex",
                         Url   = GitHubUrl
                     }
                 ]
@@ -242,6 +286,12 @@ public class DiscordRpcService : IDiscordRpcService, IDisposable
     {
         try
         {
+            lock (_sendGate)
+            {
+                _lastNavSignature      = null;
+                _lastPlaybackSignature = null;
+            }
+
             if (_client != null)
             {
                 try
@@ -324,6 +374,11 @@ public class DiscordRpcService : IDiscordRpcService, IDisposable
             return DefaultCover;
         }
 
+        if (posterUrl.Length > MaxDiscordImageUrlLength)
+        {
+            return DefaultCover;
+        }
+
         if (IsGlobalCdnImage(posterUrl))
         {
             return posterUrl;
@@ -334,7 +389,8 @@ public class DiscordRpcService : IDiscordRpcService, IDisposable
         var translateUrl =
             $"https://{proxyHost}{uri.PathAndQuery}{separator}_x_tr_sl=tr&_x_tr_tl=ja&_x_tr_hl=tr&_x_tr_pto=wapp";
 
-        return $"https://wsrv.nl/?url={translateUrl}";
+        var proxied = $"https://wsrv.nl/?url={translateUrl}";
+        return proxied.Length <= MaxDiscordImageUrlLength ? proxied : DefaultCover;
     }
 
     private string? GetProviderDomain(string? providerName)
@@ -376,6 +432,11 @@ public class DiscordRpcService : IDiscordRpcService, IDisposable
 
         var lower = url.ToLowerInvariant();
         return _globalCdns.Any(lower.Contains);
+    }
+
+    private static string NormalizeTitleMode(string? mode)
+    {
+        return mode is "Migurdex" or "Sağlayıcı" or "İçerik" ? mode : "İçerik";
     }
 
     private static string Truncate(string? text, int maxLength = 128)
