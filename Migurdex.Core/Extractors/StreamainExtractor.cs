@@ -35,24 +35,38 @@ public partial class StreamainExtractor : IExtractor
 
         try
         {
-            _logger.LogDebug("fetching embed page: {Url}", url);
-
-            var request = new HttpRequestMessage(HttpMethod.Get, url);
-            request.Headers.Add("User-Agent",
-                                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36");
-            request.AddHeaders(headers);
-
-            var response = await _httpClient.SendAsync(request, cancellationToken);
-            if (!response.IsSuccessStatusCode)
+            var pageUrl = url;
+            if (!url.Contains("/embed/", StringComparison.OrdinalIgnoreCase))
             {
-                _logger.LogWarning("embed page failed: {StatusCode} for {Url}",
-                                   response.StatusCode,
-                                   url);
+                var watchHtml = await GetPageHtmlAsync(url, referer: null, headers, cancellationToken);
+                if (watchHtml is null)
+                {
+                    return sources;
+                }
 
-                return sources;
+                var embedMatch = EmbedUrlRegex().Match(watchHtml);
+                if (embedMatch.Success)
+                {
+                    pageUrl = "https://streamain.com/embed/" + embedMatch.Groups[1].Value;
+                }
+                else if (TryGetIdFromWatchUrl(url, out var id))
+                {
+                    pageUrl = "https://streamain.com/embed/" + id;
+                }
+                else
+                {
+                    _logger.LogWarning("could not find embed URL in watch page for: {Url}", url);
+                    return sources;
+                }
+
+                _logger.LogDebug("resolved embed page: {EmbedUrl}", pageUrl);
             }
 
-            var html = await response.Content.ReadAsStringAsync(cancellationToken);
+            var html = await GetPageHtmlAsync(pageUrl, url, headers, cancellationToken);
+            if (html is null)
+            {
+                return sources;
+            }
 
             var dataLinkMatch = PlaybobVideoRegex().Match(html);
             if (dataLinkMatch.Success)
@@ -95,6 +109,59 @@ public partial class StreamainExtractor : IExtractor
 
         return sources;
     }
+
+    private async Task<string?> GetPageHtmlAsync(string pageUrl,
+        string?                                         referer,
+        IDictionary<string, string>?                    headers,
+        CancellationToken                               cancellationToken)
+    {
+        _logger.LogDebug("fetching page: {Url}", pageUrl);
+
+        using var request = new HttpRequestMessage(HttpMethod.Get, pageUrl);
+        request.Headers.Add("User-Agent",
+                            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36");
+
+        if (!string.IsNullOrEmpty(referer))
+        {
+            request.Headers.Add("Referer", referer);
+        }
+
+        request.AddHeaders(headers);
+
+        using var response = await _httpClient.SendAsync(request, cancellationToken);
+        if (!response.IsSuccessStatusCode)
+        {
+            _logger.LogWarning("page failed: {StatusCode} for {Url}", response.StatusCode, pageUrl);
+            return null;
+        }
+
+        return await response.Content.ReadAsStringAsync(cancellationToken);
+    }
+
+    private static bool TryGetIdFromWatchUrl(string url, out string id)
+    {
+        id = string.Empty;
+
+        if (!Uri.TryCreate(url, UriKind.Absolute, out var uri))
+        {
+            return false;
+        }
+
+        var segments = uri.AbsolutePath.Split('/', StringSplitOptions.RemoveEmptyEntries);
+        for (var i = 0; i < segments.Length; i++)
+        {
+            if (segments[i].Equals("watch", StringComparison.OrdinalIgnoreCase) && i > 0)
+            {
+                id = segments[i - 1];
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    [GeneratedRegex(@"streamain\.com/embed/([A-Za-z0-9_-]+)", RegexOptions.IgnoreCase | RegexOptions.Compiled)]
+    private static partial Regex EmbedUrlRegex();
 
     [GeneratedRegex(@"id=""playbob-video""[^>]+data-link=""([^""]+)""")]
     private static partial Regex PlaybobVideoRegex();

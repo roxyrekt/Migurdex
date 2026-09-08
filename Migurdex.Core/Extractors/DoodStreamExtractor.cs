@@ -14,7 +14,12 @@ public partial class DoodStreamExtractor : IExtractor
 
     public DoodStreamExtractor(ISharedBridge bridge)
     {
-        _httpClient     = bridge.CreateHttpClient(o => o.AllowAutoRedirect = true);
+        _httpClient = bridge.CreateHttpClient(o =>
+        {
+            o.AllowAutoRedirect = true;
+            o.Emulation         = BrowserEmulation.Chrome120;
+        });
+
         _metadataReader = bridge.MetadataReader;
         _logger         = bridge.CreateLogger<DoodStreamExtractor>();
     }
@@ -62,7 +67,10 @@ public partial class DoodStreamExtractor : IExtractor
             _logger.LogDebug("fetching DoodStream embed page: {Url}", url);
 
             var request = new HttpRequestMessage(HttpMethod.Get, targetUrl);
-            request.Headers.Add("User-Agent", requestHeaders["User-Agent"]);
+            foreach (var kv in requestHeaders)
+            {
+                request.Headers.TryAddWithoutValidation(kv.Key, kv.Value);
+            }
 
             var response = await _httpClient.SendAsync(request, cancellationToken);
 
@@ -70,7 +78,7 @@ public partial class DoodStreamExtractor : IExtractor
 
             if (!response.IsSuccessStatusCode)
             {
-                _logger.LogWarning("embed page failed: {Url}", targetUrl);
+                _logger.LogWarning("embed page failed: {StatusCode} {Url}", (int) response.StatusCode, targetUrl);
 
                 return sources;
             }
@@ -100,13 +108,15 @@ public partial class DoodStreamExtractor : IExtractor
             _logger.LogDebug("fetching stream base from: {PassMd5Url}", passMd5Url);
 
             var passRequest = new HttpRequestMessage(HttpMethod.Get, passMd5Url);
-            passRequest.Headers.Add("User-Agent", requestHeaders["User-Agent"]);
+            passRequest.Headers.TryAddWithoutValidation("User-Agent", requestHeaders["User-Agent"]);
             passRequest.Headers.Add("Referer", url);
 
             var passResponse = await _httpClient.SendAsync(passRequest, cancellationToken);
             if (!passResponse.IsSuccessStatusCode)
             {
-                _logger.LogWarning("pass_md5 request failed");
+                _logger.LogWarning("pass_md5 request failed: {StatusCode} {Url}",
+                                   (int) passResponse.StatusCode,
+                                   passMd5Url);
 
                 return sources;
             }

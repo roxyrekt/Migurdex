@@ -38,8 +38,14 @@ public partial class M3U8PlaylistExtractor : IExtractor
         {
             var baseUri = new Uri(url);
             var request = new HttpRequestMessage(HttpMethod.Get, url);
-            request.Headers.Add("User-Agent",
-                                "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:151.0) Gecko/20100101 Firefox/151.0");
+            // Honor a caller-provided UA (e.g. to match the TLS profile that minted
+            // a bound token); fall back to the Firefox default otherwise.
+            var userAgent =
+                headers?.TryGetValue("User-Agent", out var customUa) == true
+                && !string.IsNullOrWhiteSpace(customUa)
+                    ? customUa
+                    : "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:151.0) Gecko/20100101 Firefox/151.0";
+            request.Headers.TryAddWithoutValidation("User-Agent", userAgent);
             request.Headers.Add("Accept", "*/*");
             request.Headers.Add("Accept-Language", "en-US,en;q=0.9");
             request.AddHeaders(headers);

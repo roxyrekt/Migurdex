@@ -10,8 +10,8 @@ crate-type = ["cdylib", "rlib"]
 dashmap = "6.0"
 url = "2.5"
 tokio = { version = "1", features = ["full"] }
-wreq = { version = "6.0.0-rc", features = ["json", "cookies", "gzip"] }
-wreq-util = { version = "3.0.0-rc", features = ["emulation-serde"] }
+wreq = { version = "0.16", features = ["json", "cookies", "gzip"] }
+wreq-util = { version = "0.2", features = ["emulation-serde"] }
 mimalloc = { version = "0.1", default-features = false }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"

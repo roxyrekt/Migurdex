@@ -16,7 +16,12 @@ public partial class OkRuExtractor : IExtractor
 
     public OkRuExtractor(M3U8PlaylistExtractor m3U8Extractor, ISharedBridge bridge, ILogger<OkRuExtractor> logger)
     {
-        _httpClient    = bridge.CreateHttpClient(o => o.AllowAutoRedirect = true);
+        _httpClient = bridge.CreateHttpClient(o =>
+        {
+            o.AllowAutoRedirect = true;
+            o.Emulation         = BrowserEmulation.Chrome120;
+        });
+
         _m3U8Extractor = m3U8Extractor;
         _logger        = logger;
 
@@ -45,7 +50,7 @@ public partial class OkRuExtractor : IExtractor
             var response = await _httpClient.GetAsync(url, cancellationToken);
             if (!response.IsSuccessStatusCode)
             {
-                _logger.LogWarning("embed page failed for: {Url}", url);
+                _logger.LogWarning("embed page failed: {StatusCode} for: {Url}", (int) response.StatusCode, url);
 
                 return sources;
             }
@@ -86,18 +91,28 @@ public partial class OkRuExtractor : IExtractor
                 return sources;
             }
 
-            var metadataJson = metadataProp.GetString();
-            if (string.IsNullOrEmpty(metadataJson))
+
+            var metadataPayload = metadataProp.ValueKind == JsonValueKind.String
+                                      ? metadataProp.GetString()
+                                      : metadataProp.GetRawText();
+
+            if (string.IsNullOrEmpty(metadataPayload))
             {
                 _logger.LogWarning("metadata is empty");
 
                 return sources;
             }
 
-            using var metaDoc  = JsonDocument.Parse(metadataJson);
+            using var metaDoc  = JsonDocument.Parse(metadataPayload);
             var       metaRoot = metaDoc.RootElement;
 
-            if (metaRoot.TryGetProperty("ondemandHls", out var hlsProp))
+            if (!metaRoot.TryGetProperty("hlsManifestUrl", out var hlsProp)
+                && !metaRoot.TryGetProperty("ondemandHls", out hlsProp))
+            {
+                hlsProp = default;
+            }
+
+            if (hlsProp.ValueKind == JsonValueKind.String)
             {
                 var hlsUrl = hlsProp.GetString();
                 if (!string.IsNullOrEmpty(hlsUrl))

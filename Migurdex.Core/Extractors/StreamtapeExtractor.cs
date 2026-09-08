@@ -58,21 +58,46 @@ public partial class StreamtapeExtractor : IExtractor
 
             var html = await response.Content.ReadAsStringAsync(cancellationToken);
 
-            var match = ReconstructionRegex().Match(html);
+            var videoId = ExtractVideoId(url);
 
-            if (!match.Success)
+            string? finalUrl = null;
+            foreach (Match candidate in ReconstructionRegex().Matches(html))
+            {
+                var prefix    = candidate.Groups["prefix"].Value;
+                var encrypted = candidate.Groups["encrypted"].Value;
+                if (!int.TryParse(candidate.Groups["sub1"].Value, out var sub1))
+                {
+                    continue;
+                }
+
+                var sub2 = candidate.Groups["sub2"].Success
+                           && int.TryParse(candidate.Groups["sub2"].Value, out var parsedSub2)
+                               ? parsedSub2
+                               : 0;
+
+                var built = BuildUrl(prefix, encrypted, sub1, sub2, url);
+                if (string.IsNullOrEmpty(built))
+                {
+                    continue;
+                }
+
+                if (!string.IsNullOrEmpty(videoId)
+                    && !built.Contains(videoId, StringComparison.OrdinalIgnoreCase))
+                {
+                    _logger.LogDebug("skipping decoy stream URL for video {VideoId}", videoId);
+                    continue;
+                }
+
+                finalUrl = built;
+                break;
+            }
+
+            if (string.IsNullOrEmpty(finalUrl))
             {
                 _logger.LogWarning("could not find link reconstruction script");
 
                 return sources;
             }
-
-            var prefix    = match.Groups["prefix"].Value;
-            var encrypted = match.Groups["encrypted"].Value;
-            var sub1      = int.Parse(match.Groups["sub1"].Value);
-            var sub2      = match.Groups["sub2"].Success ? int.Parse(match.Groups["sub2"].Value) : 0;
-
-            var finalUrl = BuildUrl(prefix, encrypted, sub1, sub2, url);
 
             if (!string.IsNullOrEmpty(finalUrl))
             {
@@ -94,9 +119,18 @@ public partial class StreamtapeExtractor : IExtractor
     }
 
     [GeneratedRegex(
-        @"document\.getElementById\(['""](?:botlink|robotlink)['""]\)\.innerHTML\s*=\s*['""](?<prefix>[^'""\s]+?)['""]\s*\+\s*(?:['""][^'""]*['""]\s*\+\s*)*\(['""](?<encrypted>[^'""\s]+?)['""]\)\.substring\((?<sub1>\d+)\)(?:\.substring\((?<sub2>\d+)\))?;",
+        @"document\.getElementById\(['""](?:botlink|robotlink|norobotlink|captchalink|ideoooolink)['""]\)\.innerHTML\s*=\s*['""](?<prefix>[^'""\s]+?)['""]\s*\+\s*(?:['""][^'""]*['""]\s*\+\s*)*\(['""](?<encrypted>[^'""\s]+?)['""]\)\.substring\((?<sub1>\d+)\)(?:\.substring\((?<sub2>\d+)\))?;",
         RegexOptions.IgnoreCase)]
     private static partial Regex ReconstructionRegex();
+
+    [GeneratedRegex(@"/v/([A-Za-z0-9]+)", RegexOptions.IgnoreCase | RegexOptions.Compiled)]
+    private static partial Regex VideoIdRegex();
+
+    private static string ExtractVideoId(string url)
+    {
+        var match = VideoIdRegex().Match(url);
+        return match.Success ? match.Groups[1].Value : string.Empty;
+    }
 
     private static string BuildUrl(string prefix, string encrypted, int sub1, int sub2, string originalUrl)
     {

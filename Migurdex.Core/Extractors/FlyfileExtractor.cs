@@ -19,7 +19,12 @@ public partial class FlyfileExtractor : IExtractor
 
     public FlyfileExtractor(M3U8PlaylistExtractor m3U8Extractor, ISharedBridge bridge)
     {
-        _httpClient     = bridge.CreateHttpClient();
+        _httpClient = bridge.CreateHttpClient(o =>
+        {
+            o.AllowAutoRedirect = true;
+            o.Emulation         = BrowserEmulation.Chrome124;
+        });
+
         _m3U8Extractor  = m3U8Extractor;
         _metadataReader = bridge.MetadataReader;
         _logger         = bridge.CreateLogger<FlyfileExtractor>();
@@ -170,10 +175,10 @@ public partial class FlyfileExtractor : IExtractor
         string                                                 referer)
     {
         var request = new HttpRequestMessage(method, requestUrl);
-        request.Headers.Add("User-Agent",
-                            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36");
+        request.Headers.TryAddWithoutValidation("User-Agent",
+                                                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36");
 
-        request.Headers.Add("Accept", "application/json, text/plain, */*");
+        request.Headers.TryAddWithoutValidation("Accept", "application/json, text/plain, */*");
         request.Headers.Add("x-flyfile-host", host);
         request.Headers.Add("X-FlyFile-View", "embed");
         request.Headers.Add("X-Embed-Referrer", referer);
