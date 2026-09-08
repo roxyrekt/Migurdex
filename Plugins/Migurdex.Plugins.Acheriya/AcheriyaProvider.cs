@@ -3,10 +3,11 @@ using Migurdex.Shared.Enums;
 using Migurdex.Shared.Interfaces;
 using Migurdex.Shared.Models;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 
 namespace Migurdex.Plugins.Acheriya;
 
-public class AcheriyaProvider : IAnimeProvider
+public partial class AcheriyaProvider : IAnimeProvider
 {
     private readonly HttpClient                _httpClient;
     private readonly ILogger<AcheriyaProvider> _logger;
@@ -179,7 +180,7 @@ public class AcheriyaProvider : IAnimeProvider
 
                     details.Episodes.Add(new Episode
                     {
-                        Id     = $"{slug}/episode/{epNum}",
+                        Id     = $"{slug}/bolum-{epNum}",
                         Title  = epTitle ?? $"{epNum}. Bölüm",
                         Number = epNum,
                         Season = seasonNum
@@ -196,92 +197,129 @@ public class AcheriyaProvider : IAnimeProvider
         }
     }
 
-    public async Task<List<VideoSource>> GetVideoSourcesAsync(string episodeId,
-        string?                                                      group             = null,
-        CancellationToken                                            cancellationToken = default)
+    public async Task<List<string>> GetGroupsAsync(string episodeId, CancellationToken cancellationToken = default)
     {
         try
         {
-            var slug        = episodeId;
-            var targetEpNum = 1;
-
-            if (episodeId.Contains('/'))
-            {
-                var parts = episodeId.Split('/', StringSplitOptions.RemoveEmptyEntries);
-                slug = parts[0];
-                var epPart = parts[^1];
-                if (epPart.StartsWith("bolum-", StringComparison.OrdinalIgnoreCase))
-                {
-                    _ = int.TryParse(epPart[6..], out targetEpNum);
-                }
-                else if (int.TryParse(epPart, out var parsedEp))
-                {
-                    targetEpNum = parsedEp;
-                }
-            }
-
-            var       url     = $"{BaseUrl}/izle/{slug}";
-            using var rootDoc = await FetchRscDataAsync(url, "\"anime\":", cancellationToken);
+            var (slug, epNum) = ParseEpisodeId(episodeId);
+            var       epUrl   = $"{BaseUrl}/izle/{slug}/bolum-{epNum}";
+            using var rootDoc = await FetchRscDataAsync(epUrl, "episodeDetail", cancellationToken);
 
             if (rootDoc == null)
             {
                 return [];
             }
 
-            if (!rootDoc.RootElement.TryGetProperty("episodes", out var episodesProp)
-                || episodesProp.ValueKind != JsonValueKind.Array)
+            var links = ExtractLinksFromEpisodeDetail(rootDoc.RootElement);
+            return links.Select(l => l.FansubName).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "failed to get groups for episode: {EpisodeId}", episodeId);
+            return [];
+        }
+    }
+
+    public async Task<List<VideoSource>> GetVideoSourcesAsync(string episodeId,
+        string?                                                      group             = null,
+        CancellationToken                                            cancellationToken = default)
+    {
+        try
+        {
+            var (slug, epNum) = ParseEpisodeId(episodeId);
+            var epUrl = $"{BaseUrl}/izle/{slug}/bolum-{epNum}";
+
+            using var rootDoc = await FetchRscDataAsync(epUrl, "episodeDetail", cancellationToken);
+
+            List<AcheriyaLink> links = [];
+            if (rootDoc != null)
+            {
+                links = ExtractLinksFromEpisodeDetail(rootDoc.RootElement);
+            }
+
+            if (links.Count == 0)
+            {
+                var       animeUrl = $"{BaseUrl}/izle/{slug}";
+                using var animeDoc = await FetchRscDataAsync(animeUrl, "\"anime\":", cancellationToken);
+                if (animeDoc != null
+                    && animeDoc.RootElement.TryGetProperty("episodes", out var episodesProp)
+                    && episodesProp.ValueKind == JsonValueKind.Array)
+                {
+                    foreach (var ep in episodesProp.EnumerateArray())
+                    {
+                        if (ep.TryGetProperty("episodeNumber", out var numProp) && numProp.GetInt32() == epNum)
+                        {
+                            if (ep.TryGetProperty("videoLinks", out var videoLinksProp)
+                                && videoLinksProp.ValueKind == JsonValueKind.Array)
+                            {
+                                foreach (var vLink in videoLinksProp.EnumerateArray())
+                                {
+                                    var linkUrl = vLink.TryGetProperty("link", out var lProp)
+                                                      ? lProp.GetString() ?? ""
+                                                      : "";
+                                    if (!string.IsNullOrWhiteSpace(linkUrl))
+                                    {
+                                        var fansub = vLink.TryGetProperty("fansubName", out var fProp)
+                                                         ? fProp.GetString()
+                                                         : null;
+                                        if (string.IsNullOrWhiteSpace(fansub))
+                                        {
+                                            fansub = vLink.TryGetProperty("name", out var nProp)
+                                                         ? nProp.GetString()
+                                                         : "Varsayılan";
+                                        }
+
+                                        links.Add(new AcheriyaLink
+                                        {
+                                            Url        = NormalizeLink(linkUrl),
+                                            FansubName = fansub ?? "Varsayılan",
+                                            Type = vLink.TryGetProperty("type", out var tProp)
+                                                       ? tProp.GetString() ?? ""
+                                                       : ""
+                                        });
+                                    }
+                                }
+                            }
+
+                            break;
+                        }
+                    }
+                }
+            }
+
+            if (links.Count == 0)
             {
                 return [];
             }
 
-            var sources = new List<VideoSource>();
-
-            foreach (var ep in episodesProp.EnumerateArray())
+            var matchingLinks = links;
+            if (!string.IsNullOrWhiteSpace(group))
             {
-                if (ep.TryGetProperty("episodeNumber", out var numProp) && numProp.GetInt32() == targetEpNum)
+                var filtered =
+                    links.Where(l => l.FansubName.Equals(group, StringComparison.OrdinalIgnoreCase)).ToList();
+                if (filtered.Count > 0)
                 {
-                    if (ep.TryGetProperty("videoLinks", out var videoLinksProp)
-                        && videoLinksProp.ValueKind == JsonValueKind.Array)
-                    {
-                        foreach (var vLink in videoLinksProp.EnumerateArray())
-                        {
-                            var linkUrl  = vLink.TryGetProperty("link", out var lProp) ? lProp.GetString() ?? "" : "";
-                            var linkName = vLink.TryGetProperty("name", out var nProp) ? nProp.GetString() : null;
-
-                            if (!string.IsNullOrWhiteSpace(linkUrl))
-                            {
-                                sources.Add(new VideoSource
-                                {
-                                    Url = linkUrl,
-                                    Type = linkUrl.EndsWith(".m3u8") || linkUrl.Contains("/hls/")
-                                               ? VideoType.M3U8
-                                               : VideoType.Embed,
-                                    Hoster = "Acheriya",
-                                    Group  = string.IsNullOrWhiteSpace(linkName) ? "Acheriya" : linkName
-                                });
-                            }
-                        }
-                    }
-
-                    if (sources.Count == 0 && ep.TryGetProperty("videoLink", out var mainLinkProp))
-                    {
-                        var mainUrl = mainLinkProp.GetString() ?? "";
-                        if (!string.IsNullOrWhiteSpace(mainUrl))
-                        {
-                            sources.Add(new VideoSource
-                            {
-                                Url = mainUrl,
-                                Type = mainUrl.EndsWith(".m3u8") || mainUrl.Contains("/hls/")
-                                           ? VideoType.M3U8
-                                           : VideoType.Embed,
-                                Hoster = "Acheriya",
-                                Group  = "Acheriya"
-                            });
-                        }
-                    }
-
-                    break;
+                    matchingLinks = filtered;
                 }
+            }
+
+            var sources = new List<VideoSource>();
+            foreach (var link in matchingLinks)
+            {
+                var isM3U8 = link.Url.EndsWith(".m3u8", StringComparison.OrdinalIgnoreCase)
+                             || link.Url.Contains("/hls/", StringComparison.OrdinalIgnoreCase);
+
+                sources.Add(new VideoSource
+                {
+                    Url = link.Url,
+                    Type = isM3U8
+                               ? VideoType.M3U8
+                               : (link.Url.Contains(".mp4", StringComparison.OrdinalIgnoreCase)
+                                      ? VideoType.Mp4
+                                      : VideoType.Embed),
+                    Hoster = string.IsNullOrWhiteSpace(link.Type) ? "Acheriya" : link.Type,
+                    Group  = link.FansubName
+                });
             }
 
             return sources;
@@ -293,6 +331,109 @@ public class AcheriyaProvider : IAnimeProvider
         }
     }
 
+    private static (string Slug, int EpNum) ParseEpisodeId(string episodeId)
+    {
+        var slug  = episodeId;
+        var epNum = 1;
+
+        if (episodeId.Contains('/'))
+        {
+            var parts = episodeId.Split('/', StringSplitOptions.RemoveEmptyEntries);
+            slug = parts[0];
+            var epPart = parts[^1];
+            if (epPart.StartsWith("bolum-", StringComparison.OrdinalIgnoreCase))
+            {
+                _ = int.TryParse(epPart[6..], out epNum);
+            }
+            else if (int.TryParse(epPart, out var parsedEp))
+            {
+                epNum = parsedEp;
+            }
+        }
+
+        return (slug, epNum);
+    }
+
+    private static List<AcheriyaLink> ExtractLinksFromEpisodeDetail(JsonElement rootElement)
+    {
+        var result = new List<AcheriyaLink>();
+
+        JsonElement? detail = null;
+        if (rootElement.TryGetProperty("episodeDetail", out var epDetail))
+        {
+            detail = epDetail;
+        }
+        else if (rootElement.TryGetProperty("fallback", out var fb)
+                 && fb.ValueKind == JsonValueKind.Array
+                 && fb.GetArrayLength() > 3
+                 && fb[3].ValueKind == JsonValueKind.Object
+                 && fb[3].TryGetProperty("episodeDetail", out var fbEpDetail))
+        {
+            detail = fbEpDetail;
+        }
+
+        if (detail.HasValue
+            && detail.Value.TryGetProperty("links", out var linksProp)
+            && linksProp.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var item in linksProp.EnumerateArray())
+            {
+                var rawLink = item.TryGetProperty("link", out var lProp) ? lProp.GetString() ?? "" : "";
+                if (string.IsNullOrWhiteSpace(rawLink))
+                {
+                    continue;
+                }
+
+                var fansub = item.TryGetProperty("fansubName", out var fProp) ? fProp.GetString() : null;
+                if (string.IsNullOrWhiteSpace(fansub))
+                {
+                    fansub = item.TryGetProperty("name", out var nProp) ? nProp.GetString() : null;
+                }
+
+                if (string.IsNullOrWhiteSpace(fansub))
+                {
+                    fansub = "Varsayılan";
+                }
+
+                var type = item.TryGetProperty("type", out var tProp) ? tProp.GetString() ?? "" : "";
+
+                result.Add(new AcheriyaLink
+                {
+                    Url        = NormalizeLink(rawLink),
+                    FansubName = fansub,
+                    Type       = type
+                });
+            }
+        }
+
+        return result;
+    }
+
+    private static string NormalizeLink(string url)
+    {
+        if (url.Contains("mediadelivery.net", StringComparison.OrdinalIgnoreCase))
+        {
+            var match = GuidRegex().Match(url);
+            if (match.Success)
+            {
+                return $"https://tatsumi.acheriya.com/hls/{match.Groups[1].Value}/playlist.m3u8";
+            }
+        }
+
+        return url;
+    }
+
+    private struct AcheriyaLink
+    {
+        public string Url        { get; set; }
+        public string FansubName { get; set; }
+        public string Type       { get; set; }
+    }
+
+    [GeneratedRegex(@"([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})",
+                    RegexOptions.IgnoreCase | RegexOptions.Compiled)]
+    private static partial Regex GuidRegex();
+
     private async Task<JsonDocument?> FetchRscDataAsync(string url,
         string                                                 keyword,
         CancellationToken                                      cancellationToken = default)
@@ -303,7 +444,7 @@ public class AcheriyaProvider : IAnimeProvider
         var       content = await response.Content.ReadAsStringAsync(cancellationToken);
         using var reader  = new StringReader(content);
 
-        while (await reader.ReadLineAsync() is { } line)
+        while (await reader.ReadLineAsync(cancellationToken) is { } line)
         {
             if (line.Contains(keyword))
             {
@@ -318,7 +459,11 @@ public class AcheriyaProvider : IAnimeProvider
                         if (root.ValueKind == JsonValueKind.Array && root.GetArrayLength() > 3)
                         {
                             var targetElement = root[3];
-                            return JsonDocument.Parse(targetElement.GetRawText());
+                            var rawText       = targetElement.GetRawText();
+                            if (rawText.Contains(keyword, StringComparison.Ordinal))
+                            {
+                                return JsonDocument.Parse(rawText);
+                            }
                         }
 
                         doc.Dispose();
