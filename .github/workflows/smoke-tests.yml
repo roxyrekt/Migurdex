@@ -1,0 +1,51 @@
+name: Extractor Smoke Tests
+
+on:
+    schedule:
+        -   cron: "0 3 * * *"
+    workflow_dispatch:
+
+permissions:
+    contents: read
+
+concurrency:
+    group: smoke-${{ github.ref }}
+    cancel-in-progress: true
+
+env:
+    DOTNET_VERSION: "10.0.x"
+
+jobs:
+    smoke:
+        name: Extractor smoke (ubuntu)
+        runs-on: ubuntu-latest
+        continue-on-error: true
+
+        steps:
+            -   uses: actions/checkout@v7
+
+            -   name: Setup .NET
+                uses: actions/setup-dotnet@v6
+                with:
+                    dotnet-version: ${{ env.DOTNET_VERSION }}
+
+            -   name: Setup Rust
+                uses: dtolnay/rust-toolchain@stable
+
+            -   name: Build Rust Native (debug)
+                working-directory: ./Migurdex.Native
+                run: cargo build
+
+            -   name: Run extractor smoke tests
+                run: |
+                    dotnet test Migurdex.Tests/Migurdex.Tests.csproj \
+                      -c Debug \
+                      --logger "trx;LogFileName=smoke.trx" \
+                      --results-directory TestResults
+
+            -   name: Upload TRX report
+                if: always()
+                uses: actions/upload-artifact@v7
+                with:
+                    name: smoke-trx
+                    path: TestResults/smoke.trx

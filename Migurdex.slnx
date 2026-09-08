@@ -3,6 +3,7 @@
     <Project Path="Migurdex.Core/Migurdex.Core.csproj"/>
     <Project Path="Migurdex.Api/Migurdex.Api.csproj"/>
     <Project Path="Migurdex.Cli/Migurdex.Cli.csproj"/>
+    <Project Path="Migurdex.Tests/Migurdex.Tests.csproj"/>
 
     <Folder Name="/Plugins/">
         <Project Path="Plugins/Migurdex.Plugins.Acheriya/Migurdex.Plugins.Acheriya.csproj"/>
