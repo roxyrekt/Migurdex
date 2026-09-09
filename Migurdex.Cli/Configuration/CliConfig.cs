@@ -39,17 +39,48 @@ public class CliConfig
 
     public List<string> PreferredFormatOrder { get; set; } =
     [
-        "M3U8",
-        "Mp4"
+        "Mp4",
+        "M3U8"
     ];
 
     public List<string> PreferredHosterOrder { get; set; } =
     [
+        "Streamcash",
+        "Streamain",
+        "Tau Video",
+        "Turkanime",
         "GoogleDrive",
-        "Yandex",
+        "HdVid",
+        "Uqload",
+        "Flyfile",
+        "VidsSt",
+        "Byse",
+        "AitrVip",
+        "DoodStream",
         "AnizmPlayer",
+        "Voe",
+        "YandexDisk",
+        "HexUpload",
+        "Cyberfile",
+        "Videa",
         "Sibnet",
+        "Sistenn",
+        "YourUpload",
+        "Vidsonic",
+        "MailRu",
+        "Puffy",
+        "Dailymotion",
+        "OkRu",
+        "StreamWish",
+        "MixDrop",
+        "VK",
+        "Gofile",
+        "Sendvid",
+        "Mp4Upload",
+        "Streamtape",
+        "Firestream",
         "Vidmoly",
-        "Streamwish"
+        "Abyss",
+        "Rumble"
     ];
 }
