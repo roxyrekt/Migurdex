@@ -8,9 +8,11 @@
   <a href="https://github.com/roxyrekt/Migurdex/actions"><img src="https://github.com/roxyrekt/Migurdex/actions/workflows/build-release.yml/badge.svg" alt="Build"/></a>
   <a href="https://github.com/roxyrekt/Migurdex/releases"><img src="https://img.shields.io/github/v/release/roxyrekt/Migurdex" alt="Release"/></a>
   <a href="LICENSE"><img src="https://img.shields.io/github/license/roxyrekt/Migurdex" alt="License"/></a>
+  <img src="https://img.shields.io/badge/.NET-10-512BD4" alt=".NET 10"/>
+  <img src="https://img.shields.io/badge/Rust-native-dea584" alt="Rust"/>
 </p>
 
-Terminalden anime arayıp izlemeyi sağlayan modüler araç: klavye odaklı TUI + sağlayıcı plugin'leriyle konuşan HTTP API + Rust ağ katmanı, oynatma MPV ile.
+Terminalden Türkçe anime aramak ve izlemek için araç. TUI + yerel HTTP API + Rust ağ katmanı, oynatma MPV ile.
 
 *Watch anime from your terminal: search across Turkish providers and play episodes via MPV.*
 
@@ -18,16 +20,17 @@ Terminalden anime arayıp izlemeyi sağlayan modüler araç: klavye odaklı TUI 
 
 ## Özellikler
 
-- **Fuzzy arama** — harf atlamalı, skorlu sıralama (`opc` → One Piece).
-- **12 Türkçe sağlayıcı** — Acheriya, AnimeciX, Animexe, AnimPow, Anizium, Anizm, AsyaAnimeleri, OpenAnime, SonAnime, TrAnimeIzle, TRAnimeci, TurkAnime.
-- **Metadata** — AniList ve MAL üzerinden bilgi, poster ve sezon eşleştirme.
-- **MPV ile izleme** — kaldığın yerden devam, ilerleme takibi, altyazı desteği.
-- **Geçmiş ve favoriler** — tek tuşla devam etme, arama geçmişi yönetimi.
-- **Otomatik kaynak seçimi** — sunucu / kalite / tür kuralları, uymazsa manuel listeye düşer.
+- Fuzzy arama (`opc` -> One Piece gibi)
+- 12 Türkçe sağlayıcı: Acheriya, AnimeciX, Animexe, AnimPow, Anizium, Anizm, AsyaAnimeleri, OpenAnime, SonAnime, TrAnimeIzle, TRAnimeci, TurkAnime
+- AniList ve MAL ile bilgi/poster çekme ve izleme durumu eşitleme
+- MPV ile kaldığın yerden devam etme
+- Geçmiş, favoriler, arama geçmişi
+- Discord RPC (ayarlanabilir)
+- Otomatik kaynak seçimi (sunucu / kalite / tür kuralları, uymazsa manuel liste)
+- Gizli mod (geçmiş ve senkronu duraklatır)
+- Sağlayıcı açma/kapama ve sıralama öncelikleri
 
-## Hızlı Başlangıç
-
-### Tek Satırda Kurulum
+## Kurulum
 
 **Linux:**
 
@@ -41,21 +44,27 @@ curl -fsSL https://raw.githubusercontent.com/roxyrekt/Migurdex/main/install.sh |
 irm https://raw.githubusercontent.com/roxyrekt/Migurdex/main/install.ps1 | iex
 ```
 
-### Kaldırma (Uninstall / Purge)
+Sonra `migurdex` yazıp çalıştır. API arka planda kendisi başlıyor.
 
-- **Linux:**
-  - Standart (ayarları korur): `curl -fsSL https://raw.githubusercontent.com/roxyrekt/Migurdex/main/install.sh | bash -s -- --uninstall`
-  - Tam temizlik (tüm verileri siler): `curl -fsSL https://raw.githubusercontent.com/roxyrekt/Migurdex/main/install.sh | bash -s -- --purge`
-- **Windows:**
-  - Standart (ayarları korur): `irm https://raw.githubusercontent.com/roxyrekt/Migurdex/main/install.ps1 | % { & ([scriptblock]::Create($_)) -Uninstall }`
-  - Tam temizlik (tüm verileri siler): `irm https://raw.githubusercontent.com/roxyrekt/Migurdex/main/install.ps1 | % { & ([scriptblock]::Create($_)) -Purge }`
+Kaldırmak için:
 
-### Manuel Kurulum
+```bash
+# Linux, ayarları tutar
+curl -fsSL https://raw.githubusercontent.com/roxyrekt/Migurdex/main/install.sh | bash -s -- --uninstall
 
-Hazır sürümleri [Releases](https://github.com/roxyrekt/Migurdex/releases) sayfasından da indirebilirsiniz:
+# Linux, her şeyi siler
+curl -fsSL https://raw.githubusercontent.com/roxyrekt/Migurdex/main/install.sh | bash -s -- --purge
+```
 
-- **Arşiv (Linux / Windows):** `tar.gz` / `zip` dosyasını açın, içindeki `migurdex` (veya `migurdex.exe`) dosyasını çalıştırın — API arka planda otomatik başlar.
-- **AppImage (Linux):**
+```powershell
+# Windows, ayarları tutar
+irm https://raw.githubusercontent.com/roxyrekt/Migurdex/main/install.ps1 | % { & ([scriptblock]::Create($_)) -Uninstall }
+
+# Windows, her şeyi siler
+irm https://raw.githubusercontent.com/roxyrekt/Migurdex/main/install.ps1 | % { & ([scriptblock]::Create($_)) -Purge }
+```
+
+Manuel kurmak istersen [Releases](https://github.com/roxyrekt/Migurdex/releases) sayfasından `tar.gz` / `zip` / `AppImage` indirip çalıştırman yeterli.
 
 ```bash
 chmod +x Migurdex-x86_64.AppImage
@@ -64,79 +73,83 @@ chmod +x Migurdex-x86_64.AppImage
 
 ## Gereksinimler
 
-| Ne | Neden |
-|---|---|
-| [MPV Player](https://mpv.io/) (PATH'te) | Video oynatma |
-| `libfuse2` (Linux) | AppImage'i çalıştırmak için |
-
-Kaynaktan derlemek için ek olarak: .NET 10 SDK + Rust / cargo.
+- [MPV](https://mpv.io/) kurulu ve PATH'te olmalı
+- AppImage için Linux'ta `libfuse2`
+- Kaynaktan derlemek için: .NET 10 SDK + Rust / cargo
 
 ## Kullanım
 
-**Arama -> Detay -> Kaynak -> Oynat:**
+Akış basit: Arama -> Detay -> Kaynak -> Oynat.
 
-1. **Arama:** ana menüden aramaya girin, adı yazın (fuzzy daraltır).
-2. **Detay:** sonuçtan seçince açıklama ve bölüm listesi gelir.
-3. **Kaynak:** bölümü seçince fansub grupları ve çözülen kaynaklar (sunucu / kalite / tür) gelir.
-4. **Oynat:** kaynağı seçince MPV açılır; kaldığınız yer kaydedilir.
+1. Ana menüden aramaya gir, adı yaz (liste fuzzy daralır).
+2. Sonuçtan seçince açıklama ve bölüm listesi gelir.
+3. Bölümü seçince fansub grupları ve kaynaklar (sunucu / kalite / tür) gelir.
+4. Kaynağı seçince MPV açılır.
 
-`Esc` bir önceki ekrana döner.
+`Esc` bir önceki ekrana döner. Yön tuşları + `Enter` ile kullanılıyor.
 
-## Kaynaktan Derleme
+## Ayarlar
 
-<details>
-<summary>Komutlar (Linux / Windows)</summary>
+Ayarlar menüsünden değiştirilebilenler: otomatik oynat, bekleme süresi, Discord RPC ve başlık modu, gizli mod, oynatıcı logları, API adresi (varsayılan `http://127.0.0.1:7045`), AniList / MAL bağlantısı, sağlayıcı açma-kapama, sıralama öncelikleri ve otomatik seçim kuralları (Otomatik / Asla / Sadece).
 
-```bash
-# Debug dev-loop (Linux)
-./build.sh
-# Windows
-.\build.ps1
+Kaydetmeden çıkarsan (`Esc` / İptal) değişiklikler uygulanmaz.
 
-# Release dev-loop
-./build.sh --release
-.\build.ps1 -Release
+## Dosyalar
 
-# Dağıtım paketi (dist/ altına arşiv)
-./build.sh --publish
-.\build.ps1 -Publish
-```
+Linux'ta `~/.config/migurdex/` altında tutulur:
 
-Ardından iki ayrı terminalde:
+`config.json`, `history.json`, `search_history.json`, `favorites.json`, loglar `logs/api.log` içinde.
 
-```bash
-# 1. API servisi
-dotnet run --project Migurdex.Api
-
-# 2. Terminal istemcisi
-dotnet run --project Migurdex.Cli
-```
-
-</details>
-
-## Yapılandırma
-
-Tüm veriler `~/.config/migurdex/` altında tutulur (`config.json`, `history.json`, `search_history.json`, `favorites.json`). API logları `~/.config/migurdex/logs/api.log` dosyasına yazar.
+Windows'ta `%APPDATA%\migurdex\` altında aynı yapı var.
 
 ## Mimari
 
-| Proje | Rol |
+| Proje | Ne yapar |
 |---|---|
-| `Migurdex.Api` | HTTP API: arama, detay, kaynak çözümleme |
-| `Migurdex.Cli` | Klavye odaklı terminal arayüzü |
+| `Migurdex.Api` | Arama, detay, kaynak çözümleme |
+| `Migurdex.Cli` | Terminal arayüzü |
 | `Migurdex.Core` | Plugin yükleyici, Rust köprüsü, extractor'lar |
-| `Migurdex.Shared` | Modeller + arayüzler (`IAnimeProvider`, `IExtractor`) |
-| `Migurdex.Native` | Rust ağ katmanı: HTTP istemcisi, emülasyon |
-| `Plugins/` | Sağlayıcı plugin'leri (`Migurdex.Plugins.*`) |
+| `Migurdex.Shared` | Modeller ve arayüzler (`IAnimeProvider`, `IExtractor`) |
+| `Migurdex.Native` | Rust tarafı HTTP istemcisi |
+| `Plugins/` | Sağlayıcılar (`Migurdex.Plugins.*`) |
 
-Akış: `TUI → API → plugin (+ Rust HTTP) → kaynak listesi → MPV`. Native kütüphane (`libmigurdex_native.so` / `migurdex_native.dll`) API ile birlikte gelir; eksikse API başlamaz.
+Akış: `TUI -> API -> plugin (+ Rust HTTP) -> kaynak listesi -> MPV`. Native kütüphane (`libmigurdex_native.so` / `migurdex_native.dll`) API ile birlikte gelir, eksikse API başlamaz.
+
+Bulit-in extractor'lar `Migurdex.Core/Extractors` altında. API tarafında `GET /api/v1/extractors` ve `POST /api/v1/extractors/resolve` ile de çağrılabiliyor.
+
+## Derleme
+
+```bash
+# Linux
+./build.sh            # debug
+./build.sh --release
+./build.sh --publish  # dist/ altına paket
+
+# Windows
+.\build.ps1
+.\build.ps1 -Release
+.\build.ps1 -Publish
+```
+
+Geliştirirken iki terminalde:
+
+```bash
+dotnet run --project Migurdex.Api
+dotnet run --project Migurdex.Cli
+```
+
+Testler:
+
+```bash
+dotnet test
+```
 
 ## Yol Haritası
 
-- [x] **MyAnimeList & AniList izleme durumu eşitleme**
-- [ ] **Otomatik yeni bölüm atlama**
-- [ ] **Intro skip** (aniskip benzeri)
+- [x] MAL ve AniList senkronu
+- [ ] Yeni bölüm atlama
+- [ ] Intro skip
 
 ---
 
-GPL-3.0 Lisansı. Detaylar için [LICENSE](LICENSE) dosyasına bakın.
+GPL-3.0. Detay için [LICENSE](LICENSE) dosyasına bak.
