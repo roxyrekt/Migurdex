@@ -143,7 +143,13 @@ public class ApiClientService : IApiClientService
                 RedirectStandardError  = apiLogPath != null
             };
 
-            psi.EnvironmentVariables["ASPNETCORE_URLS"] = _configService.Config.ApiBaseUrl;
+            var listenUrl = (_configService.Config.ApiBaseUrl ?? string.Empty).Trim();
+            if (string.IsNullOrWhiteSpace(listenUrl))
+            {
+                listenUrl = new CliConfig().ApiBaseUrl;
+            }
+
+            psi.EnvironmentVariables["ASPNETCORE_URLS"] = listenUrl;
 
             var process = Process.Start(psi);
             if (process != null)
@@ -159,14 +165,15 @@ public class ApiClientService : IApiClientService
                 }
             }
 
-            for (var i = 0; i < 40; i++)
+            for (var i = 0; i < 50; i++)
             {
                 if (await IsApiOnlineAsync(cancellationToken))
                 {
                     return true;
                 }
 
-                await Task.Delay(250, cancellationToken);
+                var delay = i < 10 ? 100 : 200;
+                await Task.Delay(delay, cancellationToken);
             }
         }
         catch

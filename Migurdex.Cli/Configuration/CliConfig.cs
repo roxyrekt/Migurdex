@@ -2,7 +2,7 @@ namespace Migurdex.Cli.Configuration;
 
 public class CliConfig
 {
-    public string       ApiBaseUrl               { get; set; } = "http://localhost:7045";
+    public string       ApiBaseUrl               { get; set; } = "http://127.0.0.1:7045";
     public string       PreferredPlayer          { get; set; } = "mpv";
     public bool         EnableDiscordRpc         { get; set; } = true;
     public string       DiscordRpcTitleMode      { get; set; } = "İçerik";

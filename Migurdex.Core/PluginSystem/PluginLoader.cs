@@ -31,7 +31,7 @@ public class PluginLoader(
         }
 
         var dlls = Directory.GetFiles(pluginsPath, "*.dll");
-        foreach (var dll in dlls)
+        Parallel.ForEach(dlls, dll =>
         {
             try
             {
@@ -41,7 +41,7 @@ public class PluginLoader(
             {
                 logger.LogError(ex, "error loading plugin {PluginDll}", Path.GetFileName(dll));
             }
-        }
+        });
     }
 
     public void UnloadPlugin(string dllPath)
