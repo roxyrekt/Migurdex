@@ -1,3 +1,5 @@
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using Migurdex.Core.Services;
 using Migurdex.Shared.Interfaces;
 using Migurdex.Shared.Models;
@@ -29,52 +31,6 @@ public sealed class MalListClientTests
             RefreshToken = "mal-refresh-1",
             ExpiresAtUtc = DateTime.UtcNow.AddHours(1)
         };
-    }
-
-    private sealed class FakeFlow : IOAuthFlow
-    {
-        public string                     Provider     => "mal";
-        public int                        RefreshCalls { get; private set; }
-        public Func<string, OAuthToken?>? OnRefresh    { get; set; }
-
-        public string BuildAuthorizeUrl(string redirectUri) => string.Empty;
-
-        public Task<OAuthToken?> ExchangeCodeAsync(string code,
-            string                                        redirectUri,
-            CancellationToken                             cancellationToken = default) =>
-            Task.FromResult<OAuthToken?>(null);
-
-        public Task<OAuthToken?> RefreshAsync(string refreshToken,
-            CancellationToken                        cancellationToken = default)
-        {
-            RefreshCalls++;
-            return Task.FromResult(OnRefresh?.Invoke(refreshToken));
-        }
-    }
-
-    private sealed class ScriptedCapturingHandler : HttpMessageHandler
-    {
-        private readonly Queue<HttpResponseMessage>                                       _responses;
-        public readonly  List<(HttpMethod Method, string? Auth, string Body, string Url)> Requests = [];
-
-        public ScriptedCapturingHandler(IEnumerable<HttpResponseMessage> responses)
-        {
-            _responses = new Queue<HttpResponseMessage>(responses);
-        }
-
-        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request,
-            CancellationToken                                                           cancellationToken)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            var body = request.Content is not null
-                           ? await request.Content.ReadAsStringAsync(cancellationToken)
-                           : string.Empty;
-            Requests.Add((request.Method, request.Headers.Authorization?.Parameter, body,
-                          request.RequestUri?.ToString() ?? string.Empty));
-            return _responses.Count > 0
-                       ? _responses.Dequeue()
-                       : new HttpResponseMessage(HttpStatusCode.ServiceUnavailable);
-        }
     }
 
     private static HttpResponseMessage JsonOk(string json)
@@ -222,19 +178,83 @@ public sealed class MalListClientTests
         Assert.Equal(0, flow.RefreshCalls);
     }
 
+    private sealed class FakeFlow : IOAuthFlow
+    {
+        public int                        RefreshCalls { get; private set; }
+        public Func<string, OAuthToken?>? OnRefresh    { get; set; }
+        public string                     Provider     => "mal";
+
+        public string BuildAuthorizeUrl(string redirectUri)
+        {
+            return string.Empty;
+        }
+
+        public Task<OAuthToken?> ExchangeCodeAsync(string code,
+            string                                        redirectUri,
+            CancellationToken                             cancellationToken = default)
+        {
+            return Task.FromResult<OAuthToken?>(null);
+        }
+
+        public Task<OAuthToken?> RefreshAsync(string refreshToken,
+            CancellationToken                        cancellationToken = default)
+        {
+            RefreshCalls++;
+            return Task.FromResult(OnRefresh?.Invoke(refreshToken));
+        }
+    }
+
+    private sealed class ScriptedCapturingHandler : HttpMessageHandler
+    {
+        public readonly  List<(HttpMethod Method, string? Auth, string Body, string Url)> Requests = [];
+        private readonly Queue<HttpResponseMessage>                                       _responses;
+
+        public ScriptedCapturingHandler(IEnumerable<HttpResponseMessage> responses)
+        {
+            _responses = new Queue<HttpResponseMessage>(responses);
+        }
+
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request,
+            CancellationToken                                                           cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var body = request.Content is not null
+                           ? await request.Content.ReadAsStringAsync(cancellationToken)
+                           : string.Empty;
+            Requests.Add((request.Method, request.Headers.Authorization?.Parameter, body,
+                          request.RequestUri?.ToString() ?? string.Empty));
+            return _responses.Count > 0
+                       ? _responses.Dequeue()
+                       : new HttpResponseMessage(HttpStatusCode.ServiceUnavailable);
+        }
+    }
+
     private sealed class StubBridge : ISharedBridge
     {
         private readonly HttpClient _client;
-        public StubBridge(HttpClient client) => _client = client;
+
+        public StubBridge(HttpClient client)
+        {
+            _client = client;
+        }
+
         public IMp4MetadataReader MetadataReader => throw new NotSupportedException();
 
-        public Microsoft.Extensions.Logging.ILoggerFactory LoggerFactory =>
-            Microsoft.Extensions.Logging.Abstractions.NullLoggerFactory.Instance;
+        public ILoggerFactory LoggerFactory => NullLoggerFactory.Instance;
 
-        public HttpClient CreateHttpClient(HttpClientOptions?        options = null) => _client;
-        public HttpClient CreateHttpClient(Action<HttpClientOptions> configure)      => _client;
+        public HttpClient CreateHttpClient(HttpClientOptions? options = null)
+        {
+            return _client;
+        }
 
-        public Microsoft.Extensions.Logging.ILogger<T> CreateLogger<T>() =>
-            Microsoft.Extensions.Logging.Abstractions.NullLogger<T>.Instance;
+        public HttpClient CreateHttpClient(Action<HttpClientOptions> configure)
+        {
+            return _client;
+        }
+
+        public ILogger<T> CreateLogger<T>()
+        {
+            return NullLogger<T>.Instance;
+        }
     }
 }

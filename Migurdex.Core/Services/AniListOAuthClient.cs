@@ -14,23 +14,20 @@ public static class AniListOAuthDefaults
     public const int    LoopbackPort = 46421;
     public const string CallbackPath = "/callback";
 
-    public static string LoopbackRedirectUri
-    {
-        get { return $"http://127.0.0.1:{LoopbackPort}{CallbackPath}"; }
-    }
+    public static string LoopbackRedirectUri => $"http://127.0.0.1:{LoopbackPort}{CallbackPath}";
 }
 
 public sealed class AniListOAuthClient : IOAuthFlow
 {
-    private readonly string _clientId;
-    private readonly string _clientSecret;
-    private readonly HttpClient _httpClient;
+    private readonly string                      _clientId;
+    private readonly string                      _clientSecret;
+    private readonly HttpClient                  _httpClient;
     private readonly ILogger<AniListOAuthClient> _logger;
 
-    public AniListOAuthClient(ISharedBridge                  bridge,
-        string                                               clientId,
-        string                                               clientSecret,
-        ILogger<AniListOAuthClient>?                         logger = null)
+    public AniListOAuthClient(ISharedBridge bridge,
+        string                              clientId,
+        string                              clientSecret,
+        ILogger<AniListOAuthClient>?        logger = null)
     {
         _clientId     = clientId;
         _clientSecret = clientSecret;
@@ -39,22 +36,19 @@ public sealed class AniListOAuthClient : IOAuthFlow
         _logger = logger ?? NullLogger<AniListOAuthClient>.Instance;
     }
 
-    public string Provider
-    {
-        get { return "anilist"; }
-    }
+    public string Provider => "anilist";
 
     public string BuildAuthorizeUrl(string redirectUri)
     {
-        return $"{AniListOAuthDefaults.AuthorizeUrl}" +
-               $"?client_id={Uri.EscapeDataString(_clientId)}" +
-               $"&redirect_uri={Uri.EscapeDataString(redirectUri)}" +
-               "&response_type=code";
+        return $"{AniListOAuthDefaults.AuthorizeUrl}"
+               + $"?client_id={Uri.EscapeDataString(_clientId)}"
+               + $"&redirect_uri={Uri.EscapeDataString(redirectUri)}"
+               + "&response_type=code";
     }
 
-    public async Task<OAuthToken?> ExchangeCodeAsync(string            code,
-        string                                                         redirectUri,
-        CancellationToken                                              cancellationToken = default)
+    public async Task<OAuthToken?> ExchangeCodeAsync(string code,
+        string                                              redirectUri,
+        CancellationToken                                   cancellationToken = default)
     {
         var form = new Dictionary<string, string>
         {
@@ -68,8 +62,8 @@ public sealed class AniListOAuthClient : IOAuthFlow
         return await RequestTokenAsync(form, cancellationToken);
     }
 
-    public async Task<OAuthToken?> RefreshAsync(string            refreshToken,
-        CancellationToken                                       cancellationToken = default)
+    public async Task<OAuthToken?> RefreshAsync(string refreshToken,
+        CancellationToken                              cancellationToken = default)
     {
         var form = new Dictionary<string, string>
         {
@@ -87,8 +81,9 @@ public sealed class AniListOAuthClient : IOAuthFlow
     {
         try
         {
-            using var content  = new FormUrlEncodedContent(form);
-            using var response = await _httpClient.PostAsync(AniListOAuthDefaults.TokenUrl, content,
+            using var content = new FormUrlEncodedContent(form);
+            using var response = await _httpClient.PostAsync(AniListOAuthDefaults.TokenUrl,
+                                                             content,
                                                              cancellationToken);
 
             if (response.StatusCode == HttpStatusCode.TooManyRequests)
@@ -100,11 +95,11 @@ public sealed class AniListOAuthClient : IOAuthFlow
             if (!response.IsSuccessStatusCode)
             {
                 _logger.LogWarning("AniList OAuth token isteği başarısız: {Status}",
-                                   (int)response.StatusCode);
+                                   (int) response.StatusCode);
                 return null;
             }
 
-            var json = await response.Content.ReadAsStringAsync(cancellationToken);
+            var       json = await response.Content.ReadAsStringAsync(cancellationToken);
             using var doc  = JsonDocument.Parse(json);
             var       root = doc.RootElement;
 

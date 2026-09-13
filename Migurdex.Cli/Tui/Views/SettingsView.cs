@@ -9,11 +9,11 @@ namespace Migurdex.Cli.Tui.Views;
 public class SettingsView : BaseView
 {
     private static readonly string[]              _rpcTitleModes = ["Migurdex", "Sağlayıcı", "İçerik"];
+    private readonly        AniListOAuthClient    _aniListOAuth;
     private readonly        IApiClientService     _apiClient;
     private readonly        IConfigurationService _configService;
-    private readonly        OAuthTokenStore       _tokenStore;
-    private readonly        AniListOAuthClient    _aniListOAuth;
     private readonly        MalOAuthClient        _malOAuth;
+    private readonly        OAuthTokenStore       _tokenStore;
     private                 string?               _lastProviderName;
 
     public SettingsView(IConfigurationService configService,

@@ -33,13 +33,13 @@ public sealed class MalOAuthClient : IOAuthFlow
         _logger = logger ?? NullLogger<MalOAuthClient>.Instance;
     }
 
-    public string Provider => "mal";
-
     public string CodeVerifier
     {
         get => _codeVerifier ?? string.Empty;
         internal set => _codeVerifier = value;
     }
+
+    public string Provider => "mal";
 
     public string BuildAuthorizeUrl(string redirectUri)
     {

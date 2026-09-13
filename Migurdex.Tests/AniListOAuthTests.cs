@@ -1,3 +1,5 @@
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using Migurdex.Core.Services;
 using Migurdex.Shared.Interfaces;
 using Migurdex.Shared.Models;
@@ -118,7 +120,10 @@ public sealed class AniListOAuthTests
         cts.Cancel();
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
-            client.ExchangeCodeAsync("code", RedirectUri, cts.Token));
+                                                                    client.ExchangeCodeAsync(
+                                                                        "code",
+                                                                        RedirectUri,
+                                                                        cts.Token));
     }
 
     [Fact]
@@ -128,8 +133,8 @@ public sealed class AniListOAuthTests
 
         var waitTask = LoopbackCodeReceiver.WaitForCodeAsync(port, "/callback", TimeSpan.FromSeconds(10));
 
-        using var http = new HttpClient();
-        var response = await http.GetAsync($"http://127.0.0.1:{port}/callback?code=loop-code-1");
+        using var http     = new HttpClient();
+        var       response = await http.GetAsync($"http://127.0.0.1:{port}/callback?code=loop-code-1");
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
 
         var body = await response.Content.ReadAsStringAsync();
@@ -164,9 +169,13 @@ public sealed class AniListOAuthTests
     private sealed class CapturingHandler : HttpMessageHandler
     {
         private readonly HttpResponseMessage _response;
-        public string LastBody { get; private set; } = string.Empty;
 
-        public CapturingHandler(HttpResponseMessage response) => _response = response;
+        public CapturingHandler(HttpResponseMessage response)
+        {
+            _response = response;
+        }
+
+        public string LastBody { get; private set; } = string.Empty;
 
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request,
             CancellationToken                                                           cancellationToken)
@@ -201,16 +210,29 @@ public sealed class AniListOAuthTests
     private sealed class StubBridge : ISharedBridge
     {
         private readonly HttpClient _client;
-        public StubBridge(HttpClient client) => _client = client;
+
+        public StubBridge(HttpClient client)
+        {
+            _client = client;
+        }
+
         public IMp4MetadataReader MetadataReader => throw new NotSupportedException();
 
-        public Microsoft.Extensions.Logging.ILoggerFactory LoggerFactory =>
-            Microsoft.Extensions.Logging.Abstractions.NullLoggerFactory.Instance;
+        public ILoggerFactory LoggerFactory => NullLoggerFactory.Instance;
 
-        public HttpClient CreateHttpClient(HttpClientOptions?   options = null) => _client;
-        public HttpClient CreateHttpClient(Action<HttpClientOptions> configure) => _client;
+        public HttpClient CreateHttpClient(HttpClientOptions? options = null)
+        {
+            return _client;
+        }
 
-        public Microsoft.Extensions.Logging.ILogger<T> CreateLogger<T>() =>
-            Microsoft.Extensions.Logging.Abstractions.NullLogger<T>.Instance;
+        public HttpClient CreateHttpClient(Action<HttpClientOptions> configure)
+        {
+            return _client;
+        }
+
+        public ILogger<T> CreateLogger<T>()
+        {
+            return NullLogger<T>.Instance;
+        }
     }
 }

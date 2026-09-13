@@ -8,10 +8,10 @@ namespace Migurdex.Core.Services;
 
 public sealed class MalListClient
 {
-    private readonly IOAuthFlow             _oauth;
-    private readonly OAuthTokenStore        _tokenStore;
     private readonly HttpClient             _httpClient;
     private readonly ILogger<MalListClient> _logger;
+    private readonly IOAuthFlow             _oauth;
+    private readonly OAuthTokenStore        _tokenStore;
 
     public MalListClient(ISharedBridge bridge,
         IOAuthFlow                     oauth,
@@ -83,13 +83,6 @@ public sealed class MalListClient
         return refreshed.AccessToken;
     }
 
-    private enum UpdateResult
-    {
-        Updated,
-        Unauthorized,
-        Failed
-    }
-
     private async Task<UpdateResult> TryUpdateAsync(int animeId,
         int                                             progress,
         bool                                            isCompleted,
@@ -135,5 +128,12 @@ public sealed class MalListClient
             _logger.LogWarning(ex, "MyAnimeList liste güncelleme hata verdi");
             return UpdateResult.Failed;
         }
+    }
+
+    private enum UpdateResult
+    {
+        Updated,
+        Unauthorized,
+        Failed
     }
 }

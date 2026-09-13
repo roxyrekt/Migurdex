@@ -10,8 +10,8 @@ public sealed class OAuthTokenStore
         WriteIndented = true
     };
 
-    private readonly string                        _filePath;
-    private readonly Lock                          _lock   = new();
+    private readonly string                         _filePath;
+    private readonly Lock                           _lock   = new();
     private          Dictionary<string, OAuthToken> _tokens = new(StringComparer.OrdinalIgnoreCase);
 
     public OAuthTokenStore(string? configDirectory = null)
@@ -24,6 +24,17 @@ public sealed class OAuthTokenStore
         Directory.CreateDirectory(dir);
         _filePath = Path.Combine(dir, "tokens.json");
         Load();
+    }
+
+    public IReadOnlyList<string> Providers
+    {
+        get
+        {
+            lock (_lock)
+            {
+                return [.. _tokens.Keys];
+            }
+        }
     }
 
     public bool TryGet(string provider, out OAuthToken? token)
@@ -54,17 +65,6 @@ public sealed class OAuthTokenStore
 
             Save();
             return true;
-        }
-    }
-
-    public IReadOnlyList<string> Providers
-    {
-        get
-        {
-            lock (_lock)
-            {
-                return [.. _tokens.Keys];
-            }
         }
     }
 

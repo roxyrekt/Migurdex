@@ -16,8 +16,8 @@ public class AnimeDetailsView : BaseView
     private          string?           _initialPosterUrl;
     private          string?           _lastSelectedSearchable;
     private          string?           _lastSelectedSeasonSearchable;
-    private          int?              _selectedSeason;
     private          string?           _provider;
+    private          int?              _selectedSeason;
 
     public AnimeDetailsView(IApiClientService apiClient,
         IHistoryService                       historyService,

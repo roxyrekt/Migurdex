@@ -10,25 +10,6 @@ namespace Migurdex.Tests;
 
 public sealed class SeasonChainTests
 {
-    private sealed class FakeMetadataProvider : IMetadataProvider
-    {
-        public           string                            Name => "AniList";
-        private readonly Dictionary<string, MediaMetadata> _byId;
-
-        public FakeMetadataProvider(IEnumerable<MediaMetadata> data)
-        {
-            _byId = data.ToDictionary(m => m.ExternalId);
-        }
-
-        public Task<List<MediaMetadata>> SearchMetadataAsync(string title,
-            ContentFormat                                           expectedFormat    = ContentFormat.Unknown,
-            CancellationToken                                       cancellationToken = default) =>
-            Task.FromResult(_byId.Values.ToList());
-
-        public Task<MediaMetadata?> GetMetadataByIdAsync(string id, CancellationToken cancellationToken = default) =>
-            Task.FromResult(_byId.GetValueOrDefault(id));
-    }
-
     private static MediaMetadata Meta(string id, string title, string? malId, int? eps)
     {
         return new MediaMetadata
@@ -96,21 +77,25 @@ public sealed class SeasonChainTests
             (id, _) => Task.FromResult<IReadOnlyList<RelationEdge>>(edges.GetValueOrDefault(id, [])));
     }
 
-    private static Dictionary<string, MediaMetadata> JjkChainData() =>
-        new()
+    private static Dictionary<string, MediaMetadata> JjkChainData()
+    {
+        return new Dictionary<string, MediaMetadata>
         {
             ["113415"] = Meta("113415", "Jujutsu Kaisen", "40748", 24),
             ["145064"] = Meta("145064", "Jujutsu Kaisen 2nd Season", "51009", 23),
             ["60683"]  = Meta("60683", "Jujutsu Kaisen S3", "57658", 12)
         };
+    }
 
-    private static Dictionary<string, string?> JjkSequels() =>
-        new()
+    private static Dictionary<string, string?> JjkSequels()
+    {
+        return new Dictionary<string, string?>
         {
             ["113415"] = "145064",
             ["145064"] = "60683",
             ["60683"]  = null
         };
+    }
 
     private static AnimeDetails Details(string title,
         int                                    seasons,
@@ -591,23 +576,27 @@ public sealed class SeasonChainTests
         Assert.Null(svc.TranslateToCanonical(align, 1, 1));
     }
 
-    private static Dictionary<string, MediaMetadata> BleachChainData() =>
-        new()
+    private static Dictionary<string, MediaMetadata> BleachChainData()
+    {
+        return new Dictionary<string, MediaMetadata>
         {
             ["269"]   = Meta("269", "BLEACH", "269", 366),
             ["16463"] = Meta("16463", "BLEACH S2", "5150", 13),
             ["16545"] = Meta("16545", "BLEACH S3", "5151", 13),
             ["16546"] = Meta("16546", "BLEACH S4", "5152", 14)
         };
+    }
 
-    private static Dictionary<string, string?> BleachSequels() =>
-        new()
+    private static Dictionary<string, string?> BleachSequels()
+    {
+        return new Dictionary<string, string?>
         {
             ["269"]   = "16463",
             ["16463"] = "16545",
             ["16545"] = "16546",
             ["16546"] = null
         };
+    }
 
     [Fact]
     public async Task Align_GroupSpanning_ExpandsToSlices()
@@ -1094,5 +1083,29 @@ public sealed class SeasonChainTests
         Assert.NotNull(chain);
         Assert.Equal(3, chain.Entries.Count);
         Assert.Equal(1, calls.GetValueOrDefault("113415"));
+    }
+
+    private sealed class FakeMetadataProvider : IMetadataProvider
+    {
+        private readonly Dictionary<string, MediaMetadata> _byId;
+
+        public FakeMetadataProvider(IEnumerable<MediaMetadata> data)
+        {
+            _byId = data.ToDictionary(m => m.ExternalId);
+        }
+
+        public string Name => "AniList";
+
+        public Task<List<MediaMetadata>> SearchMetadataAsync(string title,
+            ContentFormat                                           expectedFormat    = ContentFormat.Unknown,
+            CancellationToken                                       cancellationToken = default)
+        {
+            return Task.FromResult(_byId.Values.ToList());
+        }
+
+        public Task<MediaMetadata?> GetMetadataByIdAsync(string id, CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(_byId.GetValueOrDefault(id));
+        }
     }
 }

@@ -90,7 +90,7 @@ public static partial class TitleNormalizer
         }
 
         var dist = Distance(x, y);
-        return Math.Max(0.0, (x.Length + y.Length - 2 * dist) / (double)(x.Length + y.Length));
+        return Math.Max(0.0, (x.Length + y.Length - (2 * dist)) / (double) (x.Length + y.Length));
     }
 
     private static int Distance(string x, string y)

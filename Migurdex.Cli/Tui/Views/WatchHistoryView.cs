@@ -90,7 +90,8 @@ public class WatchHistoryView : BaseView
 
             if (fullHistory.Count == 0)
             {
-                FuzzyPrompt.Show("Geçmiş", [
+                FuzzyPrompt.Show("Geçmiş",
+                [
                     new FuzzyChoice
                     {
                         Display       = "[grey]Henüz izleme geçmişi yok.[/]",
@@ -333,27 +334,30 @@ public class WatchHistoryView : BaseView
             manageSelected = choice.Searchable;
 
             var actionChoice = FuzzyPrompt.Show(selectedHistory.AnimeTitle,
-            [
-                new FuzzyChoice
-                {
-                    Display       = "[silver]Detaylar[/]",
-                    DisplayActive = "[bold white]Detaylar[/]",
-                    Searchable    = "Detaylar"
-                },
-                new FuzzyChoice
-                {
-                    Display       = "[red]Kayıttan Sil[/]",
-                    DisplayActive = "[bold red]Kayıttan Sil[/]",
-                    Searchable    = "Sil"
-                },
-                new FuzzyChoice
-                {
-                    Display       = "[silver]Geri[/]",
-                    DisplayActive = "[bold white]Geri[/]",
-                    Searchable    = "Geri"
-                }
-            ],
-            headerLines: [$"[grey]Sağlayıcı:[/] [bold mediumpurple1]{Markup.Escape(selectedHistory.ProviderName)}[/]  [grey]•[/]  [grey]Son:[/] [bold gold1]{GetFormattedEpisodeText(selectedHistory)}[/]"]);
+                                                [
+                                                    new FuzzyChoice
+                                                    {
+                                                        Display       = "[silver]Detaylar[/]",
+                                                        DisplayActive = "[bold white]Detaylar[/]",
+                                                        Searchable    = "Detaylar"
+                                                    },
+                                                    new FuzzyChoice
+                                                    {
+                                                        Display       = "[red]Kayıttan Sil[/]",
+                                                        DisplayActive = "[bold red]Kayıttan Sil[/]",
+                                                        Searchable    = "Sil"
+                                                    },
+                                                    new FuzzyChoice
+                                                    {
+                                                        Display       = "[silver]Geri[/]",
+                                                        DisplayActive = "[bold white]Geri[/]",
+                                                        Searchable    = "Geri"
+                                                    }
+                                                ],
+                                                headerLines:
+                                                [
+                                                    $"[grey]Sağlayıcı:[/] [bold mediumpurple1]{Markup.Escape(selectedHistory.ProviderName)}[/]  [grey]•[/]  [grey]Son:[/] [bold gold1]{GetFormattedEpisodeText(selectedHistory)}[/]"
+                                                ]);
 
             if (actionChoice == null || actionChoice.Searchable == "Geri")
             {

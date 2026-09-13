@@ -314,9 +314,9 @@ public partial class AcheriyaProvider : IAnimeProvider
                     Url = link.Url,
                     Type = isM3U8
                                ? VideoType.M3U8
-                               : (link.Url.Contains(".mp4", StringComparison.OrdinalIgnoreCase)
-                                      ? VideoType.Mp4
-                                      : VideoType.Embed),
+                               : link.Url.Contains(".mp4", StringComparison.OrdinalIgnoreCase)
+                                   ? VideoType.Mp4
+                                   : VideoType.Embed,
                     Hoster = string.IsNullOrWhiteSpace(link.Type) ? "Acheriya" : link.Type,
                     Group  = link.FansubName
                 });
@@ -423,13 +423,6 @@ public partial class AcheriyaProvider : IAnimeProvider
         return url;
     }
 
-    private struct AcheriyaLink
-    {
-        public string Url        { get; set; }
-        public string FansubName { get; set; }
-        public string Type       { get; set; }
-    }
-
     [GeneratedRegex(@"([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})",
                     RegexOptions.IgnoreCase | RegexOptions.Compiled)]
     private static partial Regex GuidRegex();
@@ -477,5 +470,12 @@ public partial class AcheriyaProvider : IAnimeProvider
         }
 
         return null;
+    }
+
+    private struct AcheriyaLink
+    {
+        public string Url        { get; set; }
+        public string FansubName { get; set; }
+        public string Type       { get; set; }
     }
 }

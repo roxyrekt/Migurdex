@@ -38,7 +38,7 @@ public partial class StreamainExtractor : IExtractor
             var pageUrl = url;
             if (!url.Contains("/embed/", StringComparison.OrdinalIgnoreCase))
             {
-                var watchHtml = await GetPageHtmlAsync(url, referer: null, headers, cancellationToken);
+                var watchHtml = await GetPageHtmlAsync(url, null, headers, cancellationToken);
                 if (watchHtml is null)
                 {
                     return sources;

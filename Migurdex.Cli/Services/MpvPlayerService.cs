@@ -4,6 +4,7 @@ using Migurdex.Core.Services;
 using Migurdex.Shared.Models;
 using Spectre.Console;
 using System.Diagnostics;
+using System.Globalization;
 using System.IO.Pipes;
 using System.Net.Sockets;
 using System.Text;
@@ -131,7 +132,7 @@ public class MpvPlayerService : IMpvPlayerService
             var episode = historyEntry.EpisodeNumber % 1 == 0
                               ? ((int) historyEntry.EpisodeNumber).ToString()
                               : historyEntry.EpisodeNumber.ToString("0.#",
-                                                                    System.Globalization.CultureInfo.InvariantCulture);
+                                                                    CultureInfo.InvariantCulture);
             mediaTitle = $"{animeTitle} S{season}E{episode}";
         }
 
@@ -174,7 +175,8 @@ public class MpvPlayerService : IMpvPlayerService
         if (!_configService.Config.ShowPlayerLogs)
         {
             AnsiConsole.Clear();
-            AnsiConsole.MarkupLine($"[grey]~~[/] [bold cyan]Oynatılıyor:[/] [white]{Markup.Escape(historyEntry.AnimeTitle)}[/] [grey]~~[/]");
+            AnsiConsole.MarkupLine(
+                $"[grey]~~[/] [bold cyan]Oynatılıyor:[/] [white]{Markup.Escape(historyEntry.AnimeTitle)}[/] [grey]~~[/]");
             if (!string.IsNullOrWhiteSpace(mediaTitle))
             {
                 AnsiConsole.MarkupLine($"[grey]{Markup.Escape(mediaTitle)}[/]");

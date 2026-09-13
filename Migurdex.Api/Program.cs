@@ -1,5 +1,3 @@
-using System.Diagnostics;
-using System.Text;
 using Microsoft.AspNetCore.Diagnostics;
 using Migurdex.Api.Endpoints;
 using Migurdex.Api.Services;
@@ -9,6 +7,8 @@ using Migurdex.Core.PluginSystem;
 using Migurdex.Core.Services;
 using Migurdex.Core.Utils;
 using Migurdex.Shared.Interfaces;
+using System.Diagnostics;
+using System.Text;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -69,10 +69,12 @@ app.UseExceptionHandler(errorApp => errorApp.Run(async context =>
     var logger  = context.RequestServices.GetRequiredService<ILoggerFactory>().CreateLogger("Unhandled");
     var feature = context.Features.Get<IExceptionHandlerFeature>();
     if (feature?.Error is not null)
+    {
         logger.LogError(feature.Error,
                         "unhandled exception for {Method} {Path}",
                         context.Request.Method,
                         context.Request.Path);
+    }
 
     context.Response.StatusCode = StatusCodes.Status500InternalServerError;
     await context.Response.WriteAsJsonAsync(new
@@ -88,11 +90,13 @@ app.Use(async (context, next) =>
     await next();
     sw.Stop();
     if (!context.Request.Path.StartsWithSegments("/health"))
+    {
         logger.LogDebug("{Method} {Path} -> {Status} ({Elapsed}ms)",
                         context.Request.Method,
                         context.Request.Path,
                         context.Response.StatusCode,
                         sw.ElapsedMilliseconds);
+    }
 });
 
 app.MapGet("/health",

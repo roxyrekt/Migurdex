@@ -11,8 +11,6 @@ namespace Migurdex.Tests;
 
 public sealed class ExtractorFixture : IDisposable
 {
-    public IExtractorManager ExtractorManager { get; }
-
     private readonly ServiceProvider _provider;
     private          bool            _disposed;
 
@@ -36,6 +34,19 @@ public sealed class ExtractorFixture : IDisposable
         ExtractorManager = _provider.GetRequiredService<IExtractorManager>();
     }
 
+    public IExtractorManager ExtractorManager { get; }
+
+    public void Dispose()
+    {
+        if (_disposed)
+        {
+            return;
+        }
+
+        _disposed = true;
+        _provider.Dispose();
+    }
+
     private static void InitializeNative()
     {
         if (RustBridge.IsInitialized)
@@ -56,7 +67,7 @@ public sealed class ExtractorFixture : IDisposable
             Path.Combine(repoRoot, "Migurdex.Api", "bin", "Debug", "net10.0", libName),
             Path.Combine(repoRoot, "Migurdex.Api", "bin", "Release", "net10.0", libName),
             Path.Combine(repoRoot, "Migurdex.Native", "target", "debug", libName),
-            Path.Combine(repoRoot, "Migurdex.Native", "target", "release", libName),
+            Path.Combine(repoRoot, "Migurdex.Native", "target", "release", libName)
         };
 
         var found = candidates.FirstOrDefault(File.Exists);
@@ -68,16 +79,5 @@ public sealed class ExtractorFixture : IDisposable
         }
 
         RustBridge.Initialize(found);
-    }
-
-    public void Dispose()
-    {
-        if (_disposed)
-        {
-            return;
-        }
-
-        _disposed = true;
-        _provider.Dispose();
     }
 }

@@ -1,6 +1,6 @@
-using System.Text.Json;
 using Migurdex.Shared.Enums;
 using Migurdex.Shared.Models;
+using System.Text.Json;
 
 namespace Migurdex.Cli.Services;
 
@@ -77,17 +77,17 @@ public interface IApiClientService
         CancellationToken                                      cancellationToken = default);
 
     Task<ApiResult<TrackerEpisodeMapping?>> MapTrackerEpisodeAsync(string provider,
-        string                                                                providerId,
-        int                                                                   season,
-        double                                                                episode,
-        CancellationToken                                                     cancellationToken = default);
+        string                                                            providerId,
+        int                                                               season,
+        double                                                            episode,
+        CancellationToken                                                 cancellationToken = default);
 
     Task<bool> SaveTrackerMappingAsync(string provider,
-        string                                          providerId,
-        string                                          anilistId,
-        string?                                         malId             = null,
-        string?                                         matchedTitle      = null,
-        CancellationToken                               cancellationToken = default);
+        string                                providerId,
+        string                                anilistId,
+        string?                               malId             = null,
+        string?                               matchedTitle      = null,
+        CancellationToken                     cancellationToken = default);
 }
 
 public class ProviderInfo

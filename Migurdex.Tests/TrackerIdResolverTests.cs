@@ -1,8 +1,11 @@
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Migurdex.Core.Services;
 using Migurdex.Shared.Enums;
 using Migurdex.Shared.Interfaces;
 using Migurdex.Shared.Models;
+using System.Net;
+using System.Net.Http.Headers;
 using Xunit;
 
 namespace Migurdex.Tests;
@@ -67,28 +70,15 @@ public sealed class TitleNormalizerTests
 
 public sealed class TrackerIdResolverTests
 {
-    private sealed class FakeMetadataProvider : IMetadataProvider
-    {
-        public           string              Name => "AniList";
-        private readonly List<MediaMetadata> _data;
-
-        public FakeMetadataProvider(List<MediaMetadata> data)
-        {
-            _data = data;
-        }
-
-        public Task<List<MediaMetadata>> SearchMetadataAsync(string title,
-            ContentFormat                                           expectedFormat    = ContentFormat.Unknown,
-            CancellationToken                                       cancellationToken = default)
-        {
-            return Task.FromResult(_data);
-        }
-
-        public Task<MediaMetadata?> GetMetadataByIdAsync(string id, CancellationToken cancellationToken = default)
-        {
-            return Task.FromResult(_data.FirstOrDefault(m => m.ExternalId == id));
-        }
-    }
+    private const string AniListPageJson = """
+                                           {"data":{"Page":{"media":[{
+                                             "id":21,"idMal":21,
+                                             "title":{"romaji":"ONE PIECE","english":"ONE PIECE","native":"ONE PIECE"},
+                                             "format":"TV","status":"RELEASING","seasonYear":1999,"averageScore":88,
+                                             "episodes":null,"genres":[],"synonyms":[],
+                                             "coverImage":{"extraLarge":"http://x"},"bannerImage":null
+                                           }]}}}
+                                           """;
 
     private static TrackerIdResolver CreateResolver(List<MediaMetadata> data, string dir)
     {
@@ -239,7 +229,7 @@ public sealed class TrackerIdResolverTests
         {
             Meta("99", "Attack on Titan", "16498")
         };
-        var resolver = CreateResolver(data, dir: NewTempDir());
+        var resolver = CreateResolver(data, NewTempDir());
 
         var mappings = new List<SeasonMapping>
         {
@@ -274,7 +264,7 @@ public sealed class TrackerIdResolverTests
         var result = await resolver.ResolveFromProviderAsync("TurkAnime",
                                                              "fate",
                                                              ["Fate Stay Night"],
-                                                             year: 2014,
+                                                             2014,
                                                              cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.NotNull(result.Entry);
@@ -489,6 +479,149 @@ public sealed class TrackerIdResolverTests
                                                                         cancellationToken: cts.Token));
     }
 
+    private static HttpResponseMessage TooManyRequests()
+    {
+        var r = new HttpResponseMessage(HttpStatusCode.TooManyRequests);
+        r.Headers.RetryAfter = new RetryConditionHeaderValue(TimeSpan.Zero);
+        return r;
+    }
+
+    [Fact]
+    public async Task AniList_Relations_429_RetriesOnce()
+    {
+        const string relationsJson = """
+                                     {"data":{"Media":{"relations":{"edges":[
+                                       {"relationType":"SEQUEL","node":{"id":145064,"type":"ANIME","format":"TV"}}
+                                     ]}}}}
+                                     """;
+        var handler = new ScriptedHandler(
+        [
+            TooManyRequests(),
+            new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(relationsJson)
+            }
+        ]);
+        var provider = new AniListProvider(
+            new StubBridge(new HttpClient(handler)));
+
+        var edges = await provider.QueryAnimeRelationsAsync("113415",
+                                                            TestContext.Current.CancellationToken);
+
+        Assert.Equal(2, handler.Calls);
+        var edge = Assert.Single(edges);
+        Assert.Equal("145064", edge.Id);
+        Assert.Equal("SEQUEL", edge.RelationType);
+    }
+
+    [Fact]
+    public async Task AniList_Relations_CancelledToken_PropagatesCancellation()
+    {
+        var handler = new ScriptedHandler([TooManyRequests()]);
+        var provider = new AniListProvider(
+            new StubBridge(new HttpClient(handler)));
+
+        using var cts = new CancellationTokenSource();
+        cts.Cancel();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+                                                                    provider.QueryAnimeRelationsAsync(
+                                                                        "113415",
+                                                                        cts.Token));
+        Assert.Equal(1, handler.Calls);
+    }
+
+    [Fact]
+    public async Task AniList_LongCooldown_DoesNotRetry()
+    {
+        var throttled = new HttpResponseMessage(HttpStatusCode.TooManyRequests);
+        throttled.Headers.RetryAfter =
+            new RetryConditionHeaderValue(TimeSpan.FromSeconds(60));
+        var handler = new ScriptedHandler([throttled]);
+        var provider = new AniListProvider(
+            new StubBridge(new HttpClient(handler)));
+
+        var list = await provider.SearchMetadataAsync("one piece",
+                                                      cancellationToken: TestContext.Current.CancellationToken);
+
+        Assert.Equal(1, handler.Calls);
+        Assert.Empty(list);
+    }
+
+    [Fact]
+    public async Task AniList_NonNumericId_ReturnsNullWithoutRequest()
+    {
+        var handler = new ScriptedHandler([]);
+        var provider = new AniListProvider(
+            new StubBridge(new HttpClient(handler)));
+
+        var meta = await provider.GetMetadataByIdAsync("not-a-number",
+                                                       TestContext.Current.CancellationToken);
+
+        Assert.Null(meta);
+        Assert.Equal(0, handler.Calls);
+    }
+
+    [Fact]
+    public async Task AniList_429_RetriesOnce()
+    {
+        var handler = new ScriptedHandler(
+        [
+            TooManyRequests(),
+            new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(AniListPageJson)
+            }
+        ]);
+        var provider = new AniListProvider(
+            new StubBridge(new HttpClient(handler)));
+
+        var list = await provider.SearchMetadataAsync("one piece",
+                                                      cancellationToken: TestContext.Current.CancellationToken);
+
+        Assert.Equal(2, handler.Calls);
+        var single = Assert.Single(list);
+        Assert.Equal("21", single.ExternalId);
+    }
+
+    [Fact]
+    public async Task AniList_Persistent429_ReturnsEmpty()
+    {
+        var handler = new ScriptedHandler([TooManyRequests(), TooManyRequests()]);
+        var provider = new AniListProvider(
+            new StubBridge(new HttpClient(handler)));
+
+        var list = await provider.SearchMetadataAsync("one piece",
+                                                      cancellationToken: TestContext.Current.CancellationToken);
+
+        Assert.Equal(2, handler.Calls);
+        Assert.Empty(list);
+    }
+
+    private sealed class FakeMetadataProvider : IMetadataProvider
+    {
+        private readonly List<MediaMetadata> _data;
+
+        public FakeMetadataProvider(List<MediaMetadata> data)
+        {
+            _data = data;
+        }
+
+        public string Name => "AniList";
+
+        public Task<List<MediaMetadata>> SearchMetadataAsync(string title,
+            ContentFormat                                           expectedFormat    = ContentFormat.Unknown,
+            CancellationToken                                       cancellationToken = default)
+        {
+            return Task.FromResult(_data);
+        }
+
+        public Task<MediaMetadata?> GetMetadataByIdAsync(string id, CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(_data.FirstOrDefault(m => m.ExternalId == id));
+        }
+    }
+
     private sealed class CancellingMetadataProvider : IMetadataProvider
     {
         public string Name => "AniList";
@@ -509,12 +642,13 @@ public sealed class TrackerIdResolverTests
     private sealed class ScriptedHandler : HttpMessageHandler
     {
         private readonly Queue<HttpResponseMessage> _responses;
-        public           int                        Calls { get; private set; }
 
         public ScriptedHandler(IEnumerable<HttpResponseMessage> responses)
         {
             _responses = new Queue<HttpResponseMessage>(responses);
         }
+
+        public int Calls { get; private set; }
 
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request,
             CancellationToken                                                     cancellationToken)
@@ -522,152 +656,36 @@ public sealed class TrackerIdResolverTests
             Calls++;
             return Task.FromResult(_responses.Count > 0
                                        ? _responses.Dequeue()
-                                       : new HttpResponseMessage(System.Net.HttpStatusCode.ServiceUnavailable));
+                                       : new HttpResponseMessage(HttpStatusCode.ServiceUnavailable));
         }
     }
 
     private sealed class StubBridge : ISharedBridge
     {
         private readonly HttpClient _client;
-        public StubBridge(HttpClient client) => _client = client;
+
+        public StubBridge(HttpClient client)
+        {
+            _client = client;
+        }
+
         public IMp4MetadataReader MetadataReader => throw new NotSupportedException();
 
-        public Microsoft.Extensions.Logging.ILoggerFactory LoggerFactory =>
-            Microsoft.Extensions.Logging.Abstractions.NullLoggerFactory.Instance;
+        public ILoggerFactory LoggerFactory => NullLoggerFactory.Instance;
 
-        public HttpClient CreateHttpClient(HttpClientOptions?        options = null) => _client;
-        public HttpClient CreateHttpClient(Action<HttpClientOptions> configure)      => _client;
+        public HttpClient CreateHttpClient(HttpClientOptions? options = null)
+        {
+            return _client;
+        }
 
-        public Microsoft.Extensions.Logging.ILogger<T> CreateLogger<T>() =>
-            Microsoft.Extensions.Logging.Abstractions.NullLogger<T>.Instance;
-    }
+        public HttpClient CreateHttpClient(Action<HttpClientOptions> configure)
+        {
+            return _client;
+        }
 
-    private const string AniListPageJson = """
-                                           {"data":{"Page":{"media":[{
-                                             "id":21,"idMal":21,
-                                             "title":{"romaji":"ONE PIECE","english":"ONE PIECE","native":"ONE PIECE"},
-                                             "format":"TV","status":"RELEASING","seasonYear":1999,"averageScore":88,
-                                             "episodes":null,"genres":[],"synonyms":[],
-                                             "coverImage":{"extraLarge":"http://x"},"bannerImage":null
-                                           }]}}}
-                                           """;
-
-    private static HttpResponseMessage TooManyRequests()
-    {
-        var r = new HttpResponseMessage(System.Net.HttpStatusCode.TooManyRequests);
-        r.Headers.RetryAfter = new System.Net.Http.Headers.RetryConditionHeaderValue(TimeSpan.Zero);
-        return r;
-    }
-
-    [Fact]
-    public async Task AniList_Relations_429_RetriesOnce()
-    {
-        const string relationsJson = """
-                                     {"data":{"Media":{"relations":{"edges":[
-                                       {"relationType":"SEQUEL","node":{"id":145064,"type":"ANIME","format":"TV"}}
-                                     ]}}}}
-                                     """;
-        var handler = new ScriptedHandler(
-        [
-            TooManyRequests(),
-            new HttpResponseMessage(System.Net.HttpStatusCode.OK)
-            {
-                Content = new StringContent(relationsJson)
-            }
-        ]);
-        var provider = new Migurdex.Core.Services.AniListProvider(
-            new StubBridge(new HttpClient(handler)));
-
-        var edges = await provider.QueryAnimeRelationsAsync("113415",
-                                                            cancellationToken: TestContext.Current.CancellationToken);
-
-        Assert.Equal(2, handler.Calls);
-        var edge = Assert.Single(edges);
-        Assert.Equal("145064", edge.Id);
-        Assert.Equal("SEQUEL", edge.RelationType);
-    }
-
-    [Fact]
-    public async Task AniList_Relations_CancelledToken_PropagatesCancellation()
-    {
-        var handler = new ScriptedHandler([TooManyRequests()]);
-        var provider = new Migurdex.Core.Services.AniListProvider(
-            new StubBridge(new HttpClient(handler)));
-
-        using var cts = new CancellationTokenSource();
-        cts.Cancel();
-
-        await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
-                                                                    provider.QueryAnimeRelationsAsync(
-                                                                        "113415",
-                                                                        cts.Token));
-        Assert.Equal(1, handler.Calls);
-    }
-
-    [Fact]
-    public async Task AniList_LongCooldown_DoesNotRetry()
-    {
-        var throttled = new HttpResponseMessage(System.Net.HttpStatusCode.TooManyRequests);
-        throttled.Headers.RetryAfter =
-            new System.Net.Http.Headers.RetryConditionHeaderValue(TimeSpan.FromSeconds(60));
-        var handler = new ScriptedHandler([throttled]);
-        var provider = new Migurdex.Core.Services.AniListProvider(
-            new StubBridge(new HttpClient(handler)));
-
-        var list = await provider.SearchMetadataAsync("one piece",
-                                                      cancellationToken: TestContext.Current.CancellationToken);
-
-        Assert.Equal(1, handler.Calls);
-        Assert.Empty(list);
-    }
-
-    [Fact]
-    public async Task AniList_NonNumericId_ReturnsNullWithoutRequest()
-    {
-        var handler = new ScriptedHandler([]);
-        var provider = new Migurdex.Core.Services.AniListProvider(
-            new StubBridge(new HttpClient(handler)));
-
-        var meta = await provider.GetMetadataByIdAsync("not-a-number",
-                                                       cancellationToken: TestContext.Current.CancellationToken);
-
-        Assert.Null(meta);
-        Assert.Equal(0, handler.Calls);
-    }
-
-    [Fact]
-    public async Task AniList_429_RetriesOnce()
-    {
-        var handler = new ScriptedHandler(
-        [
-            TooManyRequests(),
-            new HttpResponseMessage(System.Net.HttpStatusCode.OK)
-            {
-                Content = new StringContent(AniListPageJson)
-            }
-        ]);
-        var provider = new Migurdex.Core.Services.AniListProvider(
-            new StubBridge(new HttpClient(handler)));
-
-        var list = await provider.SearchMetadataAsync("one piece",
-                                                      cancellationToken: TestContext.Current.CancellationToken);
-
-        Assert.Equal(2, handler.Calls);
-        var single = Assert.Single(list);
-        Assert.Equal("21", single.ExternalId);
-    }
-
-    [Fact]
-    public async Task AniList_Persistent429_ReturnsEmpty()
-    {
-        var handler = new ScriptedHandler([TooManyRequests(), TooManyRequests()]);
-        var provider = new Migurdex.Core.Services.AniListProvider(
-            new StubBridge(new HttpClient(handler)));
-
-        var list = await provider.SearchMetadataAsync("one piece",
-                                                      cancellationToken: TestContext.Current.CancellationToken);
-
-        Assert.Equal(2, handler.Calls);
-        Assert.Empty(list);
+        public ILogger<T> CreateLogger<T>()
+        {
+            return NullLogger<T>.Instance;
+        }
     }
 }

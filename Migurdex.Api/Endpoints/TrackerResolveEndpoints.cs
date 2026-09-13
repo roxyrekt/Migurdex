@@ -69,23 +69,29 @@ public static class TrackerResolveEndpoints
         try
         {
             var result = await resolver.ResolveFromProviderAsync(
-                             provider.Trim(), id.Trim(), titles, year, parsedFormat,
-                             seasonMappings: seasonMappings, cancellationToken: cancellationToken);
+                             provider.Trim(),
+                             id.Trim(),
+                             titles,
+                             year,
+                             parsedFormat,
+                             seasonMappings,
+                             cancellationToken);
             return Results.Ok(result);
         }
         catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
         {
             logger.LogWarning(ex, "tracker resolve failed for {Provider}:{Id}", provider, id);
             return Results.Problem("Tracker çözümleme hatası.",
-                                   statusCode: StatusCodes.Status502BadGateway, title: "Upstream hata");
+                                   statusCode: StatusCodes.Status502BadGateway,
+                                   title: "Upstream hata");
         }
     }
 
-    private static async Task<IResult> LookupFromTracker(        string?            anilistId,
-        string?            malId,
-        ITrackerIdResolver resolver,
-        ILoggerFactory     loggerFactory,
-        CancellationToken  cancellationToken)
+    private static async Task<IResult> LookupFromTracker(string? anilistId,
+        string?                                                  malId,
+        ITrackerIdResolver                                       resolver,
+        ILoggerFactory                                           loggerFactory,
+        CancellationToken                                        cancellationToken)
     {
         var logger = loggerFactory.CreateLogger("TrackerResolveEndpoints");
 
@@ -97,7 +103,9 @@ public static class TrackerResolveEndpoints
         try
         {
             var meta = await resolver.ResolveFromTrackerAsync(
-                           anilistId?.Trim(), malId?.Trim(), cancellationToken);
+                           anilistId?.Trim(),
+                           malId?.Trim(),
+                           cancellationToken);
             return meta is not null
                        ? Results.Ok(meta)
                        : ApiErrors.NotFound("Eşleşen tracker kaydı bulunamadı.");
@@ -106,7 +114,8 @@ public static class TrackerResolveEndpoints
         {
             logger.LogWarning(ex, "tracker lookup failed anilist:{A} mal:{M}", anilistId, malId);
             return Results.Problem("Tracker arama hatası.",
-                                   statusCode: StatusCodes.Status502BadGateway, title: "Upstream hata");
+                                   statusCode: StatusCodes.Status502BadGateway,
+                                   title: "Upstream hata");
         }
     }
 
@@ -140,10 +149,13 @@ public static class TrackerResolveEndpoints
         }
         catch (Exception ex)
         {
-            logger.LogWarning(ex, "tracker mapping save failed for {Provider}:{Id}",
-                              request.Provider, request.ProviderId);
+            logger.LogWarning(ex,
+                              "tracker mapping save failed for {Provider}:{Id}",
+                              request.Provider,
+                              request.ProviderId);
             return Results.Problem("Eşleşme kaydedilemedi.",
-                                   statusCode: StatusCodes.Status502BadGateway, title: "Kayıt hatası");
+                                   statusCode: StatusCodes.Status502BadGateway,
+                                   title: "Kayıt hatası");
         }
     }
 }

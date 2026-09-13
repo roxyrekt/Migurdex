@@ -8,24 +8,24 @@ namespace Migurdex.Core.Services;
 public static class LoopbackCodeReceiver
 {
     private const string ClosePageHtml =
-        "<!DOCTYPE html><html lang=\"tr\"><head><meta charset=\"utf-8\">" +
-        "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">" +
-        "<title>Migurdex bağlandı</title></head>" +
-        "<body style=\"background:#1a1b26;color:#c0caf5;font-family:sans-serif;" +
-        "display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0\">" +
-        "<div style=\"text-align:center\">" +
-        "<div style=\"font-size:48px\">&#10003;</div>" +
-        "<h2 style=\"margin:8px 0\">Migurdex bağlandı</h2>" +
-        "<p style=\"color:#9aa5ce\">Bu sekme otomatik kapanacak. Kapanmazsa kapatıp uygulamaya dönebilirsiniz.</p>" +
-        "</div>" +
-        "<script>setTimeout(function(){window.close()},2500);</script>" +
-        "</body></html>";
+        "<!DOCTYPE html><html lang=\"tr\"><head><meta charset=\"utf-8\">"
+        + "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">"
+        + "<title>Migurdex bağlandı</title></head>"
+        + "<body style=\"background:#1a1b26;color:#c0caf5;font-family:sans-serif;"
+        + "display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0\">"
+        + "<div style=\"text-align:center\">"
+        + "<div style=\"font-size:48px\">&#10003;</div>"
+        + "<h2 style=\"margin:8px 0\">Migurdex bağlandı</h2>"
+        + "<p style=\"color:#9aa5ce\">Bu sekme otomatik kapanacak. Kapanmazsa kapatıp uygulamaya dönebilirsiniz.</p>"
+        + "</div>"
+        + "<script>setTimeout(function(){window.close()},2500);</script>"
+        + "</body></html>";
 
-    public static async Task<string?> WaitForCodeAsync(int               port,
-        string                                                          path,
-        TimeSpan                                                        timeout,
-        ILogger?                                                        logger = null,
-        CancellationToken                                               cancellationToken = default)
+    public static async Task<string?> WaitForCodeAsync(int port,
+        string                                             path,
+        TimeSpan                                           timeout,
+        ILogger?                                           logger            = null,
+        CancellationToken                                  cancellationToken = default)
     {
         logger ??= NullLogger.Instance;
 
@@ -51,8 +51,8 @@ public static class LoopbackCodeReceiver
             while (!linkedCts.Token.IsCancellationRequested)
             {
                 var contextTask = listener.GetContextAsync();
-                var completed   = await Task.WhenAny(contextTask,
-                                                     Task.Delay(Timeout.InfiniteTimeSpan, linkedCts.Token));
+                var completed = await Task.WhenAny(contextTask,
+                                                   Task.Delay(Timeout.InfiniteTimeSpan, linkedCts.Token));
                 if (completed != contextTask)
                 {
                     return null;

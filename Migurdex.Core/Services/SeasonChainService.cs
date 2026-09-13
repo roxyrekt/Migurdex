@@ -8,13 +8,13 @@ namespace Migurdex.Core.Services;
 
 public sealed class SeasonChainService : ISeasonChainService
 {
-    private const           int      MaxChainLength = 8;
-    private static readonly TimeSpan _chainCacheTtl = TimeSpan.FromHours(6);
-    private static readonly TimeSpan _errorCacheTtl = TimeSpan.FromMinutes(1);
+    private const           int                         MaxChainLength = 8;
+    private static readonly TimeSpan                    _chainCacheTtl = TimeSpan.FromHours(6);
+    private static readonly TimeSpan                    _errorCacheTtl = TimeSpan.FromMinutes(1);
+    private readonly        IMemoryCache                _cache;
+    private readonly        ILogger<SeasonChainService> _logger;
 
     private readonly IReadOnlyList<IMetadataProvider>                                    _providers;
-    private readonly IMemoryCache                                                        _cache;
-    private readonly ILogger<SeasonChainService>                                         _logger;
     private readonly Func<string, CancellationToken, Task<IReadOnlyList<RelationEdge>>>? _relationsResolver;
 
     public SeasonChainService(
@@ -207,7 +207,10 @@ public sealed class SeasonChainService : ISeasonChainService
         var anySeasonFormat = ordered.Any(m => IsSeasonFormat(m.Format));
         var firstTv         = anySeasonFormat ? ordered.FindIndex(m => m.Format == ContentFormat.Tv) : 0;
         if (firstTv < 0)
+        {
             firstTv = 0;
+        }
+
         var seasonNo = 0;
         for (var i = 0; i < ordered.Count; i++)
         {
@@ -225,43 +228,6 @@ public sealed class SeasonChainService : ISeasonChainService
         chain.Truncated = truncated;
         _cache.Set(cacheKey, chain, fetchError ? _errorCacheTtl : _chainCacheTtl);
         return chain;
-    }
-
-    private async Task<(IReadOnlyList<RelationEdge> Edges, bool Failed)> GetRelationsAsync(
-        string                                          id,
-        Dictionary<string, IReadOnlyList<RelationEdge>> memo,
-        CancellationToken                               cancellationToken)
-    {
-        if (memo.TryGetValue(id, out var memoized))
-        {
-            return (memoized, false);
-        }
-
-        try
-        {
-            IReadOnlyList<RelationEdge> edges = [];
-            if (_relationsResolver is not null)
-            {
-                edges = await _relationsResolver(id, cancellationToken);
-            }
-            else if (AniList is AniListProvider aniList)
-            {
-                edges = await aniList.QueryAnimeRelationsAsync(id, cancellationToken);
-            }
-
-            memo[id] = edges;
-            return (edges, false);
-        }
-        catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
-        {
-            _logger.LogWarning(ex, "season chain: relations query failed '{Id}'", id);
-            return ([], true);
-        }
-    }
-
-    private static bool IsSeasonFormat(ContentFormat format)
-    {
-        return format is ContentFormat.Tv or ContentFormat.Ova or ContentFormat.Unknown;
     }
 
     public EntryAlignment AlignEntry(AnimeDetails details, SeasonChain chain)
@@ -615,6 +581,43 @@ public sealed class SeasonChainService : ISeasonChainService
             Number     = number,
             IsOverflow = match.CanonicalEpisodeCount.HasValue && number > match.CanonicalEpisodeCount.Value
         };
+    }
+
+    private async Task<(IReadOnlyList<RelationEdge> Edges, bool Failed)> GetRelationsAsync(
+        string                                          id,
+        Dictionary<string, IReadOnlyList<RelationEdge>> memo,
+        CancellationToken                               cancellationToken)
+    {
+        if (memo.TryGetValue(id, out var memoized))
+        {
+            return (memoized, false);
+        }
+
+        try
+        {
+            IReadOnlyList<RelationEdge> edges = [];
+            if (_relationsResolver is not null)
+            {
+                edges = await _relationsResolver(id, cancellationToken);
+            }
+            else if (AniList is AniListProvider aniList)
+            {
+                edges = await aniList.QueryAnimeRelationsAsync(id, cancellationToken);
+            }
+
+            memo[id] = edges;
+            return (edges, false);
+        }
+        catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
+        {
+            _logger.LogWarning(ex, "season chain: relations query failed '{Id}'", id);
+            return ([], true);
+        }
+    }
+
+    private static bool IsSeasonFormat(ContentFormat format)
+    {
+        return format is ContentFormat.Tv or ContentFormat.Ova or ContentFormat.Unknown;
     }
 
     private static SeasonChainEntry ToEntry(int seasonNumber, MediaMetadata meta)

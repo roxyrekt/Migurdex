@@ -1,5 +1,3 @@
-using Migurdex.Cli.Services;
-
 namespace Migurdex.Cli.Tui.Views;
 
 public class MainMenuView : BaseView

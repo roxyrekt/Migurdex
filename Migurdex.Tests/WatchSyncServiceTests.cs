@@ -1,5 +1,6 @@
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using Migurdex.Core.Services;
-using Migurdex.Shared.Enums;
 using Migurdex.Shared.Interfaces;
 using Migurdex.Shared.Models;
 using System.Net;
@@ -48,79 +49,6 @@ public sealed class WatchSyncServiceTests
             Episode     = episode,
             IsCompleted = completed
         };
-    }
-
-    private sealed class Script
-    {
-        public Queue<HttpResponseMessage>                                        PushResponses { get; } = new();
-        public List<string>                                                      PushBodies    { get; } = [];
-        public Func<string, string, int, double, string?, EpisodeMappingResult>? OnMap         { get; set; }
-        public int                                                               MapCalls      { get; private set; }
-
-        public Task<EpisodeMappingResult> Map(string provider,
-            string                                   animeId,
-            int                                      season,
-            double                                   episode,
-            string?                                  title,
-            CancellationToken                        ct)
-        {
-            MapCalls++;
-            return Task.FromResult(OnMap?.Invoke(provider, animeId, season, episode, title)
-                                   ?? new EpisodeMappingResult());
-        }
-    }
-
-    private sealed class ScriptHandler : HttpMessageHandler
-    {
-        private readonly Script _script;
-
-        public ScriptHandler(Script script) => _script = script;
-
-        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request,
-            CancellationToken                                                           cancellationToken)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            _script.PushBodies.Add(request.Content is not null
-                                       ? await request.Content.ReadAsStringAsync(cancellationToken)
-                                       : string.Empty);
-            return _script.PushResponses.Count > 0
-                       ? _script.PushResponses.Dequeue()
-                       : new HttpResponseMessage(HttpStatusCode.ServiceUnavailable);
-        }
-    }
-
-    private sealed class FakeFlow : IOAuthFlow
-    {
-        public string Provider { get; }
-
-        public FakeFlow(string provider = "anilist") => Provider = provider;
-
-        public string BuildAuthorizeUrl(string redirectUri) => string.Empty;
-
-        public Task<OAuthToken?> ExchangeCodeAsync(string code,
-            string                                        redirectUri,
-            CancellationToken                             cancellationToken = default) =>
-            Task.FromResult<OAuthToken?>(null);
-
-        public Task<OAuthToken?> RefreshAsync(string refreshToken,
-            CancellationToken                        cancellationToken = default) =>
-            Task.FromResult<OAuthToken?>(null);
-    }
-
-    private sealed class StubBridge : ISharedBridge
-    {
-        private readonly HttpClient _client;
-        public StubBridge(HttpClient client) => _client = client;
-        public IMp4MetadataReader MetadataReader => throw new NotSupportedException();
-
-        public Microsoft.Extensions.Logging.ILoggerFactory LoggerFactory =>
-            Microsoft.Extensions.Logging.Abstractions.NullLoggerFactory.Instance;
-
-        public HttpClient CreateHttpClient(HttpClientOptions?        options = null) => _client;
-        public HttpClient CreateHttpClient(Action<HttpClientOptions> configure)      => _client;
-
-        public Microsoft.Extensions.Logging.ILogger<T> CreateLogger<T>() =>
-            Microsoft.Extensions.Logging.Abstractions.NullLogger<T>.Instance;
     }
 
     private static (WatchSyncService Sync, Script Script, OAuthTokenStore Store) Build(string dir,
@@ -184,13 +112,13 @@ public sealed class WatchSyncServiceTests
         {
             OnMap = (_, _, _, _, _) => new EpisodeMappingResult
             {
-                Mapping = Mapping(episode: 12, total: 12)
+                Mapping = Mapping(12)
             }
         };
         script.PushResponses.Enqueue(JsonOk());
         var (sync, _, _) = Build(NewTempDir("migurdex-synctest-"), script);
 
-        await sync.SyncAsync(Entry(episode: 12, completed: true));
+        await sync.SyncAsync(Entry(12, true));
 
         var body = Assert.Single(script.PushBodies);
         Assert.Contains("\"progress\":12", body);
@@ -204,13 +132,13 @@ public sealed class WatchSyncServiceTests
         {
             OnMap = (_, _, _, _, _) => new EpisodeMappingResult
             {
-                Mapping = Mapping(episode: 5, total: 12)
+                Mapping = Mapping()
             }
         };
         script.PushResponses.Enqueue(JsonOk());
         var (sync, _, _) = Build(NewTempDir("migurdex-synctest-"), script);
 
-        await sync.SyncAsync(Entry(episode: 5, completed: true));
+        await sync.SyncAsync(Entry(5, true));
 
         Assert.Contains("\"status\":\"CURRENT\"", Assert.Single(script.PushBodies));
     }
@@ -222,13 +150,13 @@ public sealed class WatchSyncServiceTests
         {
             OnMap = (_, _, _, _, _) => new EpisodeMappingResult
             {
-                Mapping = Mapping(episode: 5, total: null)
+                Mapping = Mapping(5, null)
             }
         };
         script.PushResponses.Enqueue(JsonOk());
         var (sync, _, _) = Build(NewTempDir("migurdex-synctest-"), script);
 
-        await sync.SyncAsync(Entry(episode: 5, completed: true));
+        await sync.SyncAsync(Entry(5, true));
 
         Assert.Contains("\"status\":\"CURRENT\"", Assert.Single(script.PushBodies));
     }
@@ -240,13 +168,13 @@ public sealed class WatchSyncServiceTests
         {
             OnMap = (_, _, _, _, _) => new EpisodeMappingResult
             {
-                Mapping = Mapping(episode: 15, total: 12, overflow: true)
+                Mapping = Mapping(15, 12, true)
             }
         };
         script.PushResponses.Enqueue(JsonOk());
         var (sync, _, _) = Build(NewTempDir("migurdex-synctest-"), script);
 
-        await sync.SyncAsync(Entry(episode: 15, completed: true));
+        await sync.SyncAsync(Entry(15, true));
 
         Assert.Contains("\"status\":\"CURRENT\"", Assert.Single(script.PushBodies));
     }
@@ -331,7 +259,7 @@ public sealed class WatchSyncServiceTests
                 Mapping = Mapping()
             }
         };
-        var (sync, _, store) = Build(dir, script, loggedIn: false);
+        var (sync, _, store) = Build(dir, script, false);
 
         await sync.SyncAsync(Entry());
 
@@ -376,10 +304,10 @@ public sealed class WatchSyncServiceTests
     {
         var dir    = NewTempDir("migurdex-synctest-");
         var script = new Script();
-        var (sync, _, store) = Build(dir, script, loggedIn: false);
+        var (sync, _, store) = Build(dir, script, false);
 
-        await sync.SyncAsync(Entry(episode: 3));
-        await sync.SyncAsync(Entry(episode: 7, completed: true));
+        await sync.SyncAsync(Entry(3));
+        await sync.SyncAsync(Entry(7, true));
 
         Assert.Equal(1, sync.QueuedCount);
 
@@ -424,11 +352,11 @@ public sealed class WatchSyncServiceTests
     {
         var dir    = NewTempDir("migurdex-synctest-");
         var script = new Script();
-        var (sync, _, _) = Build(dir, script, loggedIn: false);
+        var (sync, _, _) = Build(dir, script, false);
 
         await sync.SyncAsync(Entry());
 
-        var (reopened, _, _) = Build(dir, new Script(), loggedIn: false);
+        var (reopened, _, _) = Build(dir, new Script(), false);
         Assert.Equal(1, reopened.QueuedCount);
     }
 
@@ -494,7 +422,7 @@ public sealed class WatchSyncServiceTests
         }
 
         var aniList = new AniListListClient(new StubBridge(new HttpClient(new ScriptHandler(aniListScript))),
-                                            new FakeFlow("anilist"),
+                                            new FakeFlow(),
                                             store);
         var mal = new MalListClient(new StubBridge(new HttpClient(new ScriptHandler(malScript))),
                                     new FakeFlow("mal"),
@@ -511,15 +439,15 @@ public sealed class WatchSyncServiceTests
         {
             OnMap = (_, _, _, _, _) => new EpisodeMappingResult
             {
-                Mapping = Mapping(5, malId: "40748")
+                Mapping = Mapping()
             }
         };
         var malScript = new Script();
         malScript.PushResponses.Enqueue(JsonOk());
 
-        var (sync, _, _, _) = BuildWithMal(dir, aniListScript, malScript, aniListLoggedIn: false, malLoggedIn: true);
+        var (sync, _, _, _) = BuildWithMal(dir, aniListScript, malScript, false);
 
-        var outcome = await sync.SyncAsync(Entry(5));
+        var outcome = await sync.SyncAsync(Entry());
 
         Assert.Equal(SyncOutcomeKind.Pushed, outcome.Kind);
         Assert.Empty(aniListScript.PushBodies);
@@ -537,7 +465,7 @@ public sealed class WatchSyncServiceTests
         {
             OnMap = (_, _, _, _, _) => new EpisodeMappingResult
             {
-                Mapping = Mapping(12, total: 12, malId: "40748")
+                Mapping = Mapping(12)
             }
         };
         aniListScript.PushResponses.Enqueue(JsonOk());
@@ -545,9 +473,9 @@ public sealed class WatchSyncServiceTests
         var malScript = new Script();
         malScript.PushResponses.Enqueue(JsonOk());
 
-        var (sync, _, _, _) = BuildWithMal(dir, aniListScript, malScript, aniListLoggedIn: true, malLoggedIn: true);
+        var (sync, _, _, _) = BuildWithMal(dir, aniListScript, malScript);
 
-        var outcome = await sync.SyncAsync(Entry(12, completed: true));
+        var outcome = await sync.SyncAsync(Entry(12, true));
 
         Assert.Equal(SyncOutcomeKind.Pushed, outcome.Kind);
 
@@ -568,21 +496,120 @@ public sealed class WatchSyncServiceTests
         {
             OnMap = (_, _, _, _, _) => new EpisodeMappingResult
             {
-                Mapping = Mapping(5, malId: null)
+                Mapping = Mapping(malId: null)
             }
         };
         aniListScript.PushResponses.Enqueue(JsonOk());
 
         var malScript = new Script();
 
-        var (sync, _, _, _) = BuildWithMal(dir, aniListScript, malScript, aniListLoggedIn: true, malLoggedIn: true);
+        var (sync, _, _, _) = BuildWithMal(dir, aniListScript, malScript);
 
-        var outcome = await sync.SyncAsync(Entry(5));
+        var outcome = await sync.SyncAsync(Entry());
 
         Assert.Equal(SyncOutcomeKind.Pushed, outcome.Kind);
         var aniBody = Assert.Single(aniListScript.PushBodies);
         Assert.Contains("\"progress\":5", aniBody);
         Assert.Empty(malScript.PushBodies);
         Assert.Equal(0, sync.QueuedCount);
+    }
+
+    private sealed class Script
+    {
+        public Queue<HttpResponseMessage>                                        PushResponses { get; } = new();
+        public List<string>                                                      PushBodies    { get; } = [];
+        public Func<string, string, int, double, string?, EpisodeMappingResult>? OnMap         { get; set; }
+        public int                                                               MapCalls      { get; private set; }
+
+        public Task<EpisodeMappingResult> Map(string provider,
+            string                                   animeId,
+            int                                      season,
+            double                                   episode,
+            string?                                  title,
+            CancellationToken                        ct)
+        {
+            MapCalls++;
+            return Task.FromResult(OnMap?.Invoke(provider, animeId, season, episode, title)
+                                   ?? new EpisodeMappingResult());
+        }
+    }
+
+    private sealed class ScriptHandler : HttpMessageHandler
+    {
+        private readonly Script _script;
+
+        public ScriptHandler(Script script)
+        {
+            _script = script;
+        }
+
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request,
+            CancellationToken                                                           cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            _script.PushBodies.Add(request.Content is not null
+                                       ? await request.Content.ReadAsStringAsync(cancellationToken)
+                                       : string.Empty);
+            return _script.PushResponses.Count > 0
+                       ? _script.PushResponses.Dequeue()
+                       : new HttpResponseMessage(HttpStatusCode.ServiceUnavailable);
+        }
+    }
+
+    private sealed class FakeFlow : IOAuthFlow
+    {
+        public FakeFlow(string provider = "anilist")
+        {
+            Provider = provider;
+        }
+
+        public string Provider { get; }
+
+        public string BuildAuthorizeUrl(string redirectUri)
+        {
+            return string.Empty;
+        }
+
+        public Task<OAuthToken?> ExchangeCodeAsync(string code,
+            string                                        redirectUri,
+            CancellationToken                             cancellationToken = default)
+        {
+            return Task.FromResult<OAuthToken?>(null);
+        }
+
+        public Task<OAuthToken?> RefreshAsync(string refreshToken,
+            CancellationToken                        cancellationToken = default)
+        {
+            return Task.FromResult<OAuthToken?>(null);
+        }
+    }
+
+    private sealed class StubBridge : ISharedBridge
+    {
+        private readonly HttpClient _client;
+
+        public StubBridge(HttpClient client)
+        {
+            _client = client;
+        }
+
+        public IMp4MetadataReader MetadataReader => throw new NotSupportedException();
+
+        public ILoggerFactory LoggerFactory => NullLoggerFactory.Instance;
+
+        public HttpClient CreateHttpClient(HttpClientOptions? options = null)
+        {
+            return _client;
+        }
+
+        public HttpClient CreateHttpClient(Action<HttpClientOptions> configure)
+        {
+            return _client;
+        }
+
+        public ILogger<T> CreateLogger<T>()
+        {
+            return NullLogger<T>.Instance;
+        }
     }
 }

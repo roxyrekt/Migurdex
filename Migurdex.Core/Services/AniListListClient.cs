@@ -11,15 +11,15 @@ namespace Migurdex.Core.Services;
 
 public sealed class AniListListClient
 {
-    private readonly IOAuthFlow _oauth;
-    private readonly OAuthTokenStore _tokenStore;
-    private readonly HttpClient _httpClient;
+    private readonly HttpClient                 _httpClient;
     private readonly ILogger<AniListListClient> _logger;
+    private readonly IOAuthFlow                 _oauth;
+    private readonly OAuthTokenStore            _tokenStore;
 
-    public AniListListClient(ISharedBridge             bridge,
-        IOAuthFlow                                    oauth,
-        OAuthTokenStore                               tokenStore,
-        ILogger<AniListListClient>?                   logger = null)
+    public AniListListClient(ISharedBridge bridge,
+        IOAuthFlow                         oauth,
+        OAuthTokenStore                    tokenStore,
+        ILogger<AniListListClient>?        logger = null)
     {
         _oauth      = oauth;
         _tokenStore = tokenStore;
@@ -28,10 +28,10 @@ public sealed class AniListListClient
         _logger = logger ?? NullLogger<AniListListClient>.Instance;
     }
 
-    public async Task<bool> UpdateProgressAsync(int               mediaId,
-        int                                                     progress,
-        AniListListStatus                                       status,
-        CancellationToken                                       cancellationToken = default)
+    public async Task<bool> UpdateProgressAsync(int mediaId,
+        int                                         progress,
+        AniListListStatus                           status,
+        CancellationToken                           cancellationToken = default)
     {
         var accessToken = await GetValidAccessTokenAsync(false, cancellationToken);
         if (accessToken is null)
@@ -52,11 +52,11 @@ public sealed class AniListListClient
         }
 
         return await TryUpdateAsync(mediaId, progress, status, accessToken, cancellationToken)
-               is UpdateResult.Updated;
+                   is UpdateResult.Updated;
     }
 
-    private async Task<string?> GetValidAccessTokenAsync(bool              forceRefresh,
-        CancellationToken                                                 cancellationToken)
+    private async Task<string?> GetValidAccessTokenAsync(bool forceRefresh,
+        CancellationToken                                     cancellationToken)
     {
         if (!_tokenStore.TryGet(_oauth.Provider, out var token) || token is null)
         {
@@ -86,18 +86,11 @@ public sealed class AniListListClient
         return refreshed.AccessToken;
     }
 
-    private enum UpdateResult
-    {
-        Updated,
-        Unauthorized,
-        Failed
-    }
-
-    private async Task<UpdateResult> TryUpdateAsync(int               mediaId,
-        int                                                         progress,
-        AniListListStatus                                           status,
-        string                                                      accessToken,
-        CancellationToken                                           cancellationToken)
+    private async Task<UpdateResult> TryUpdateAsync(int mediaId,
+        int                                             progress,
+        AniListListStatus                               status,
+        string                                          accessToken,
+        CancellationToken                               cancellationToken)
     {
         const string query = """
                              mutation ($mediaId: Int, $progress: Int, $status: MediaListStatus) {
@@ -132,7 +125,8 @@ public sealed class AniListListClient
         {
             using var request = new HttpRequestMessage(HttpMethod.Post, "https://graphql.anilist.co");
             request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
-            request.Content = new StringContent(JsonSerializer.Serialize(requestBody), Encoding.UTF8,
+            request.Content = new StringContent(JsonSerializer.Serialize(requestBody),
+                                                Encoding.UTF8,
                                                 "application/json");
 
             using var response = await _httpClient.SendAsync(request, cancellationToken);
@@ -150,12 +144,12 @@ public sealed class AniListListClient
 
             if (!response.IsSuccessStatusCode)
             {
-                _logger.LogWarning("AniList liste güncelleme başarısız: {Status}", (int)response.StatusCode);
+                _logger.LogWarning("AniList liste güncelleme başarısız: {Status}", (int) response.StatusCode);
                 return UpdateResult.Failed;
             }
 
-            var json = await response.Content.ReadAsStringAsync(cancellationToken);
-            using var doc = JsonDocument.Parse(json);
+            var       json = await response.Content.ReadAsStringAsync(cancellationToken);
+            using var doc  = JsonDocument.Parse(json);
 
             return doc.RootElement.TryGetProperty("data", out var data)
                    && data.TryGetProperty("SaveMediaListEntry", out var entry)
@@ -168,5 +162,12 @@ public sealed class AniListListClient
             _logger.LogWarning(ex, "AniList liste güncelleme hata verdi");
             return UpdateResult.Failed;
         }
+    }
+
+    private enum UpdateResult
+    {
+        Updated,
+        Unauthorized,
+        Failed
     }
 }

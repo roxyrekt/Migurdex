@@ -1,12 +1,12 @@
-using System.Net;
-using System.Text;
-using System.Text.Json;
-using System.Text.RegularExpressions;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Migurdex.Shared.Enums;
 using Migurdex.Shared.Interfaces;
 using Migurdex.Shared.Models;
+using System.Net;
+using System.Text;
+using System.Text.Json;
+using System.Text.RegularExpressions;
 
 namespace Migurdex.Core.Services;
 
@@ -203,7 +203,9 @@ public partial class AniListProvider : IMetadataProvider
 
             using var response = await PostGraphQLAsync(requestBody, cancellationToken);
             if (response is null)
+            {
                 return result;
+            }
 
             var       json = await response.Content.ReadAsStringAsync(cancellationToken);
             using var doc  = JsonDocument.Parse(json);
@@ -212,13 +214,16 @@ public partial class AniListProvider : IMetadataProvider
                 && data.TryGetProperty("Media", out var media)
                 && media.TryGetProperty("relations", out var relations)
                 && relations.TryGetProperty("edges", out var edges))
+            {
                 foreach (var edge in edges.EnumerateArray())
                 {
                     if (!edge.TryGetProperty("node", out var node)
                         || !node.TryGetProperty("type", out var typeProp)
                         || typeProp.GetString() != "ANIME"
                         || !node.TryGetProperty("id", out var idProp))
+                    {
                         continue;
+                    }
 
                     var relType = edge.TryGetProperty("relationType", out var relProp)
                                       ? relProp.GetString() ?? ""
@@ -234,6 +239,7 @@ public partial class AniListProvider : IMetadataProvider
                         Format       = MapFormat(formatStr)
                     });
                 }
+            }
         }
         catch (Exception) when (!cancellationToken.IsCancellationRequested)
         {
@@ -279,7 +285,9 @@ public partial class AniListProvider : IMetadataProvider
 
             using var response = await PostGraphQLAsync(requestBody, cancellationToken);
             if (response is null)
+            {
                 return null;
+            }
 
             var       json = await response.Content.ReadAsStringAsync(cancellationToken);
             using var doc  = JsonDocument.Parse(json);
@@ -288,6 +296,7 @@ public partial class AniListProvider : IMetadataProvider
                 && data.TryGetProperty("Media", out var media)
                 && media.TryGetProperty("relations", out var relations)
                 && relations.TryGetProperty("edges", out var edges))
+            {
                 foreach (var edge in edges.EnumerateArray())
                 {
                     var relType = edge.TryGetProperty("relationType", out var relTypeProp)
@@ -295,12 +304,17 @@ public partial class AniListProvider : IMetadataProvider
                                       : null;
 
                     if (relType == relationType)
+                    {
                         if (edge.TryGetProperty("node", out var node)
                             && node.TryGetProperty("id", out var nodeIdProp)
                             && node.TryGetProperty("type", out var typeProp)
                             && typeProp.GetString() == "ANIME")
+                        {
                             return nodeIdProp.GetInt32().ToString();
+                        }
+                    }
                 }
+            }
         }
         catch (Exception) when (!cancellationToken.IsCancellationRequested)
         {
@@ -362,7 +376,9 @@ public partial class AniListProvider : IMetadataProvider
 
         using var response = await PostGraphQLAsync(requestBody, cancellationToken);
         if (response is null)
+        {
             return [];
+        }
 
         var       json = await response.Content.ReadAsStringAsync(cancellationToken);
         using var doc  = JsonDocument.Parse(json);
@@ -372,10 +388,16 @@ public partial class AniListProvider : IMetadataProvider
         if (doc.RootElement.TryGetProperty("data", out var data))
         {
             if (data.TryGetProperty("Page", out var page) && page.TryGetProperty("media", out var mediaList))
+            {
                 foreach (var m in mediaList.EnumerateArray())
+                {
                     list.Add(MapMedia(m));
+                }
+            }
             else if (data.TryGetProperty("Media", out var media))
+            {
                 list.Add(MapMedia(media));
+            }
         }
 
         return list;
@@ -418,10 +440,14 @@ public partial class AniListProvider : IMetadataProvider
         }
 
         if (m.TryGetProperty("genres", out var genres))
+        {
             metadata.Genres = genres.EnumerateArray().Select(g => g.GetString() ?? "").ToList();
+        }
 
         if (m.TryGetProperty("synonyms", out var syns))
+        {
             metadata.Synonyms = syns.EnumerateArray().Select(s => s.GetString() ?? "").ToList();
+        }
 
         return metadata;
     }
@@ -445,7 +471,9 @@ public partial class AniListProvider : IMetadataProvider
     private static string CleanHtml(string? html)
     {
         if (string.IsNullOrEmpty(html))
+        {
             return "";
+        }
 
         return HtmlTagRegex().Replace(html, "").Trim();
     }

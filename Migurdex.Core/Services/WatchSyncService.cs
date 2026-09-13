@@ -33,16 +33,16 @@ public sealed class WatchSyncService
     };
 
     private readonly AniListListClient _aniListClient;
-    private readonly MalListClient?    _malClient;
-    private readonly OAuthTokenStore   _tokenStore;
 
     private readonly Func<string, string, int, double, string?, CancellationToken, Task<EpisodeMappingResult>>
         _episodeMapper;
 
     private readonly string                    _filePath;
-    private readonly Lock                      _lock  = new();
-    private          List<SyncQueueItem>       _queue = [];
+    private readonly Lock                      _lock = new();
     private readonly ILogger<WatchSyncService> _logger;
+    private readonly MalListClient?            _malClient;
+    private readonly OAuthTokenStore           _tokenStore;
+    private          List<SyncQueueItem>       _queue = [];
 
     public WatchSyncService(AniListListClient                                                     aniListClient,
         OAuthTokenStore                                                                           tokenStore,

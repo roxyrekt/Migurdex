@@ -98,7 +98,11 @@ public class SearchResultsView : BaseView
         };
 
         var promptResult =
-            FuzzyPrompt.ShowDynamic($"Sonuçlar: {_query}", mappedStream, FormatSearchResults, cancelChoice, stats: scanStats);
+            FuzzyPrompt.ShowDynamic($"Sonuçlar: {_query}",
+                                    mappedStream,
+                                    FormatSearchResults,
+                                    cancelChoice,
+                                    stats: scanStats);
         var selection = promptResult?.Selection;
 
         _scanned = true;

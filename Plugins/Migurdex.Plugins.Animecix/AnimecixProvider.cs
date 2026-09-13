@@ -304,7 +304,7 @@ public class AnimecixProvider : IAnimeProvider
                     if (s.TryGetProperty("number", out var numProp))
                     {
                         seasonNum = numProp.ValueKind == JsonValueKind.Number
-                                        ? (int)numProp.GetDouble()
+                                        ? (int) numProp.GetDouble()
                                         : int.TryParse(numProp.GetString(), out var parsedNum)
                                             ? parsedNum
                                             : 1;

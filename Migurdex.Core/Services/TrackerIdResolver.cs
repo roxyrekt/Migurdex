@@ -2,24 +2,25 @@ using Microsoft.Extensions.Logging;
 using Migurdex.Shared.Enums;
 using Migurdex.Shared.Interfaces;
 using Migurdex.Shared.Models;
+using System.Text.RegularExpressions;
 
 namespace Migurdex.Core.Services;
 
 public sealed class TrackerIdResolver : ITrackerIdResolver
 {
-    public const  double MinSimilarity         = 0.80;
-    private const double AmbiguityGap          = 0.05;
-    private const double ExactTieEpsilon       = 1e-9;
-    private const double YearBonus             = 0.05;
-    private const double FormatBonus           = 0.03;
-    private const double SeasonBonus           = 0.05;
-    private const double SeasonMismatchPenalty = -0.10;
-    private const double ContainmentFloor      = 0.90;
-    private const int    MaxTitlesToQuery      = 2;
+    public const     double                     MinSimilarity         = 0.80;
+    private const    double                     AmbiguityGap          = 0.05;
+    private const    double                     ExactTieEpsilon       = 1e-9;
+    private const    double                     YearBonus             = 0.05;
+    private const    double                     FormatBonus           = 0.03;
+    private const    double                     SeasonBonus           = 0.05;
+    private const    double                     SeasonMismatchPenalty = -0.10;
+    private const    double                     ContainmentFloor      = 0.90;
+    private const    int                        MaxTitlesToQuery      = 2;
+    private readonly ILogger<TrackerIdResolver> _logger;
 
     private readonly IReadOnlyList<IMetadataProvider> _providers;
     private readonly TrackerMappingStore              _store;
-    private readonly ILogger<TrackerIdResolver>       _logger;
 
     public TrackerIdResolver(
         IEnumerable<IMetadataProvider> providers,
@@ -31,14 +32,17 @@ public sealed class TrackerIdResolver : ITrackerIdResolver
         _logger    = logger;
     }
 
-    private IMetadataProvider? AniList => _providers.FirstOrDefault(p =>
-                                                                        p.Name.Equals(
-                                                                            "AniList",
-                                                                            StringComparison.OrdinalIgnoreCase));
+    private IMetadataProvider? AniList =>
+        _providers.FirstOrDefault(p =>
+                                      p.Name.Equals(
+                                          "AniList",
+                                          StringComparison.OrdinalIgnoreCase));
 
-    private IMetadataProvider? Jikan => _providers.FirstOrDefault(p =>
-                                                                      p.Name.Equals(
-                                                                          "Jikan", StringComparison.OrdinalIgnoreCase));
+    private IMetadataProvider? Jikan =>
+        _providers.FirstOrDefault(p =>
+                                      p.Name.Equals(
+                                          "Jikan",
+                                          StringComparison.OrdinalIgnoreCase));
 
     public async Task<TrackerResolveResult> ResolveFromProviderAsync(
         string                        providerName,
@@ -49,7 +53,9 @@ public sealed class TrackerIdResolver : ITrackerIdResolver
         IReadOnlyList<SeasonMapping>? seasonMappings    = null,
         CancellationToken             cancellationToken = default)
     {
-        if (_store.TryGet(providerName, providerId, out var cached) && cached is not null && !string.IsNullOrWhiteSpace(cached.AniListId))
+        if (_store.TryGet(providerName, providerId, out var cached)
+            && cached is not null
+            && !string.IsNullOrWhiteSpace(cached.AniListId))
         {
             return new TrackerResolveResult
             {
@@ -59,9 +65,11 @@ public sealed class TrackerIdResolver : ITrackerIdResolver
             };
         }
 
-        var shortcuts = seasonMappings?.Where(m => !string.IsNullOrWhiteSpace(m.AniListId) ||
-                                                                  !string.IsNullOrWhiteSpace(m.MyAnimeListId))
-                                           .ToArray() ?? [];
+        var shortcuts = seasonMappings
+                        ?.Where(m => !string.IsNullOrWhiteSpace(m.AniListId)
+                                     || !string.IsNullOrWhiteSpace(m.MyAnimeListId))
+                        .ToArray()
+                        ?? [];
         foreach (var shortcut in shortcuts)
         {
             var meta = await ResolveFromTrackerAsync(shortcut.AniListId, shortcut.MyAnimeListId, cancellationToken);
@@ -71,7 +79,9 @@ public sealed class TrackerIdResolver : ITrackerIdResolver
             }
 
             var anilistId = meta.AniListId ?? shortcut.AniListId;
-            if (string.IsNullOrWhiteSpace(anilistId) && !string.IsNullOrWhiteSpace(meta.MyAnimeListId) && AniList is AniListProvider aniList)
+            if (string.IsNullOrWhiteSpace(anilistId)
+                && !string.IsNullOrWhiteSpace(meta.MyAnimeListId)
+                && AniList is AniListProvider aniList)
             {
                 var aniMeta = await aniList.GetMetadataByMalIdAsync(meta.MyAnimeListId, cancellationToken);
                 anilistId = aniMeta?.AniListId;
@@ -92,7 +102,10 @@ public sealed class TrackerIdResolver : ITrackerIdResolver
                 Score         = 1.0
             };
             _store.Set(entry);
-            return new TrackerResolveResult { Entry = entry };
+            return new TrackerResolveResult
+            {
+                Entry = entry
+            };
         }
 
         var distinctTitles = titles
@@ -104,7 +117,10 @@ public sealed class TrackerIdResolver : ITrackerIdResolver
 
         if (distinctTitles.Length == 0)
         {
-            return new TrackerResolveResult { Ambiguous = true };
+            return new TrackerResolveResult
+            {
+                Ambiguous = true
+            };
         }
 
         var queries    = BuildQueries(distinctTitles);
@@ -171,15 +187,21 @@ public sealed class TrackerIdResolver : ITrackerIdResolver
 
         if (candidates.Count == 0)
         {
-            return new TrackerResolveResult { Ambiguous = true };
+            return new TrackerResolveResult
+            {
+                Ambiguous = true
+            };
         }
 
         var (_, providerSeason) = TitleNormalizer.SplitSeason(distinctTitles[0]);
-        int? providerYear = year ?? TryParseYear(distinctTitles.Skip(1).FirstOrDefault());
+        var providerYear = year ?? TryParseYear(distinctTitles.Skip(1).FirstOrDefault());
 
         var ranked = candidates.Values
                                .Select(m => (Metadata: m,
-                                             Raw: ScoreCandidate(m, distinctTitles, providerSeason, providerYear,
+                                             Raw: ScoreCandidate(m,
+                                                                 distinctTitles,
+                                                                 providerSeason,
+                                                                 providerYear,
                                                                  format)))
                                .OrderByDescending(x => x.Raw)
                                .Take(3)
@@ -198,8 +220,13 @@ public sealed class TrackerIdResolver : ITrackerIdResolver
         if (top.Raw < MinSimilarity)
         {
             _logger.LogInformation("tracker resolve: below threshold ({Score:F2}) for '{Title}'",
-                                   top.Raw, distinctTitles[0]);
-            return new TrackerResolveResult { Ambiguous = true, Candidates = scored };
+                                   top.Raw,
+                                   distinctTitles[0]);
+            return new TrackerResolveResult
+            {
+                Ambiguous  = true,
+                Candidates = scored
+            };
         }
 
         if (ranked.Length > 1 && top.Raw - ranked[1].Raw < AmbiguityGap)
@@ -212,77 +239,33 @@ public sealed class TrackerIdResolver : ITrackerIdResolver
                              .ThenByDescending(x => x.Metadata.Year ?? 0)
                              .First();
                 var winnerEps = winner.Metadata.TotalEpisodes ?? 0;
-                var uniqueMax = winnerEps > 0 && tied.All(x =>
-                                                              ReferenceEquals(x.Metadata, winner.Metadata)
-                                                              || (x.Metadata.TotalEpisodes ?? 0) < winnerEps);
+                var uniqueMax = winnerEps > 0
+                                && tied.All(x =>
+                                                ReferenceEquals(x.Metadata, winner.Metadata)
+                                                || (x.Metadata.TotalEpisodes ?? 0) < winnerEps);
 
                 if (uniqueMax)
                 {
                     _logger.LogInformation(
                         "tracker resolve: exact tie broken by episodes for '{Title}' -> {Id}",
-                        distinctTitles[0], winner.Metadata.ExternalId);
+                        distinctTitles[0],
+                        winner.Metadata.ExternalId);
                     return await BuildResolvedAsync(providerName, providerId, winner, scored, cancellationToken);
                 }
             }
 
             _logger.LogInformation("tracker resolve: ambiguous ({A:F2} vs {B:F2}) for '{Title}'",
-                                   top.Raw, ranked[1].Raw, distinctTitles[0]);
-            return new TrackerResolveResult { Ambiguous = true, Candidates = scored };
+                                   top.Raw,
+                                   ranked[1].Raw,
+                                   distinctTitles[0]);
+            return new TrackerResolveResult
+            {
+                Ambiguous  = true,
+                Candidates = scored
+            };
         }
 
         return await BuildResolvedAsync(providerName, providerId, top, scored, cancellationToken);
-    }
-
-    private async Task<TrackerResolveResult> BuildResolvedAsync(
-        string                               providerName,
-        string                               providerId,
-        (MediaMetadata Metadata, double Raw) top,
-        TrackerCandidate[]                   scored,
-        CancellationToken                    cancellationToken = default)
-    {
-        var anilistId = top.Metadata.AniListId
-                        ?? (top.Metadata.Source == MetadataSource.AniList ? top.Metadata.ExternalId : null);
-        var malId = top.Metadata.MyAnimeListId
-                    ?? (top.Metadata.Source == MetadataSource.Jikan ? top.Metadata.ExternalId : null);
-
-        if (string.IsNullOrWhiteSpace(anilistId) && !string.IsNullOrWhiteSpace(malId) &&
-            AniList is AniListProvider aniList)
-        {
-            try
-            {
-                var aniMeta = await aniList.GetMetadataByMalIdAsync(malId, cancellationToken);
-                anilistId = aniMeta?.AniListId ?? aniMeta?.ExternalId;
-            }
-            catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
-            {
-                _logger.LogWarning(ex, "tracker resolve: mal->anilist bridge failed for '{MalId}'", malId);
-            }
-        }
-
-        if (string.IsNullOrWhiteSpace(anilistId))
-        {
-            _logger.LogInformation("tracker resolve: mal-only entry for '{Title}' has no anilist id, asking user",
-                                   top.Metadata.Title);
-            return new TrackerResolveResult { Ambiguous = true, Candidates = scored };
-        }
-
-        var resolved = new TrackerMappingEntry
-        {
-            ProviderName  = providerName,
-            ProviderId    = providerId,
-            AniListId     = anilistId,
-            MyAnimeListId = malId,
-            MatchedTitle  = top.Metadata.Title,
-            Score         = Math.Min(top.Raw, 1.0)
-        };
-
-        _store.Set(resolved);
-
-        return new TrackerResolveResult
-        {
-            Entry      = resolved,
-            Candidates = scored
-        };
     }
 
     public async Task<MediaMetadata?> ResolveFromTrackerAsync(
@@ -340,6 +323,63 @@ public sealed class TrackerIdResolver : ITrackerIdResolver
         return null;
     }
 
+    private async Task<TrackerResolveResult> BuildResolvedAsync(
+        string                               providerName,
+        string                               providerId,
+        (MediaMetadata Metadata, double Raw) top,
+        TrackerCandidate[]                   scored,
+        CancellationToken                    cancellationToken = default)
+    {
+        var anilistId = top.Metadata.AniListId
+                        ?? (top.Metadata.Source == MetadataSource.AniList ? top.Metadata.ExternalId : null);
+        var malId = top.Metadata.MyAnimeListId
+                    ?? (top.Metadata.Source == MetadataSource.Jikan ? top.Metadata.ExternalId : null);
+
+        if (string.IsNullOrWhiteSpace(anilistId)
+            && !string.IsNullOrWhiteSpace(malId)
+            && AniList is AniListProvider aniList)
+        {
+            try
+            {
+                var aniMeta = await aniList.GetMetadataByMalIdAsync(malId, cancellationToken);
+                anilistId = aniMeta?.AniListId ?? aniMeta?.ExternalId;
+            }
+            catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
+            {
+                _logger.LogWarning(ex, "tracker resolve: mal->anilist bridge failed for '{MalId}'", malId);
+            }
+        }
+
+        if (string.IsNullOrWhiteSpace(anilistId))
+        {
+            _logger.LogInformation("tracker resolve: mal-only entry for '{Title}' has no anilist id, asking user",
+                                   top.Metadata.Title);
+            return new TrackerResolveResult
+            {
+                Ambiguous  = true,
+                Candidates = scored
+            };
+        }
+
+        var resolved = new TrackerMappingEntry
+        {
+            ProviderName  = providerName,
+            ProviderId    = providerId,
+            AniListId     = anilistId,
+            MyAnimeListId = malId,
+            MatchedTitle  = top.Metadata.Title,
+            Score         = Math.Min(top.Raw, 1.0)
+        };
+
+        _store.Set(resolved);
+
+        return new TrackerResolveResult
+        {
+            Entry      = resolved,
+            Candidates = scored
+        };
+    }
+
     private static double ScoreCandidate(
         MediaMetadata  candidate,
         string[]       providerTitles,
@@ -347,7 +387,10 @@ public sealed class TrackerIdResolver : ITrackerIdResolver
         int?           providerYear,
         ContentFormat? providerFormat)
     {
-        var variants = new List<string> { candidate.Title };
+        var variants = new List<string>
+        {
+            candidate.Title
+        };
         if (!string.IsNullOrWhiteSpace(candidate.EnglishTitle))
         {
             variants.Add(candidate.EnglishTitle);
@@ -374,8 +417,8 @@ public sealed class TrackerIdResolver : ITrackerIdResolver
             foreach (var pt in providerTitles)
             {
                 var (ptBase, _) = TitleNormalizer.SplitSeason(pt);
-                var exactRatio  = TitleNormalizer.Ratio(variant, pt);
-                var baseRatio   = TitleNormalizer.Ratio(candBase, string.IsNullOrEmpty(ptBase) ? pt : ptBase);
+                var exactRatio = TitleNormalizer.Ratio(variant, pt);
+                var baseRatio  = TitleNormalizer.Ratio(candBase, string.IsNullOrEmpty(ptBase) ? pt : ptBase);
 
                 if (candSeason > 1 && providerSeason == 1)
                 {
@@ -405,8 +448,9 @@ public sealed class TrackerIdResolver : ITrackerIdResolver
             best += YearBonus;
         }
 
-        if (providerFormat.HasValue && providerFormat != ContentFormat.Unknown
-                                    && candidate.Format == providerFormat)
+        if (providerFormat.HasValue
+            && providerFormat != ContentFormat.Unknown
+            && candidate.Format == providerFormat)
         {
             best += FormatBonus;
         }
@@ -529,7 +573,7 @@ public sealed class TrackerIdResolver : ITrackerIdResolver
             return null;
         }
 
-        var m = System.Text.RegularExpressions.Regex.Match(s, @"\b(19\d{2}|20\d{2})\b");
+        var m = Regex.Match(s, @"\b(19\d{2}|20\d{2})\b");
         return m.Success && int.TryParse(m.Value, out var y) ? y : null;
     }
 }

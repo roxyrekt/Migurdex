@@ -34,7 +34,8 @@ public class FavoritesView : BaseView
 
             if (favorites.Count == 0)
             {
-                FuzzyPrompt.Show("Favoriler", [
+                FuzzyPrompt.Show("Favoriler",
+                [
                     new FuzzyChoice
                     {
                         Display       = "[grey]Henüz favori eklenmedi.[/]",
@@ -136,7 +137,10 @@ public class FavoritesView : BaseView
 
                 var actionChoice = FuzzyPrompt.Show(selectedFav.AnimeTitle,
                                                     actionChoices,
-                                                    headerLines: [$"[grey]Sağlayıcı:[/] [bold mediumpurple1]{Markup.Escape(selectedFav.ProviderName)}[/]"]);
+                                                    headerLines:
+                                                    [
+                                                        $"[grey]Sağlayıcı:[/] [bold mediumpurple1]{Markup.Escape(selectedFav.ProviderName)}[/]"
+                                                    ]);
 
                 if (actionChoice == null || actionChoice.Searchable == "Geri")
                 {

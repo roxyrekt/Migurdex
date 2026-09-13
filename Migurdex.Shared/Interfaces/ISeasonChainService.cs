@@ -8,5 +8,7 @@ public interface ISeasonChainService
     EntryAlignment     AlignEntry(AnimeDetails    details,   SeasonChain       chain);
 
     CanonicalEpisode? TranslateToCanonical(
-        EntryAlignment alignment, int? providerSeason, double number);
+        EntryAlignment alignment,
+        int?           providerSeason,
+        double         number);
 }

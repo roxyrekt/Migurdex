@@ -119,6 +119,7 @@ public static class FuzzyPrompt
                     grid.AddRow(new Markup(header));
                 }
             }
+
             grid.AddRow(new Text(string.Empty));
             grid.AddRow(new Markup($"[bold cyan]Filtre:[/] {FormatQueryWithCursor(query, textCursorIndex)}"));
             grid.AddRow(new Text(string.Empty));
