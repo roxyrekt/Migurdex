@@ -5,7 +5,7 @@ namespace Migurdex.Cli.Services;
 
 public interface IMpvPlayerService
 {
-    Task PlayAsync(
+    Task<SyncOutcome> PlayAsync(
         string                      videoUrl,
         WatchHistoryEntry           historyEntry,
         Dictionary<string, string>? headers           = null,

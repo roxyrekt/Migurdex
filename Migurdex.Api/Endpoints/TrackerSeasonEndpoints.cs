@@ -11,6 +11,7 @@ public static class TrackerSeasonEndpoints
     {
         app.MapGet("/api/v1/tracker/seasons", GetSeasonChain);
         app.MapGet("/api/v1/tracker/align", AlignEntry);
+        app.MapGet("/api/v1/tracker/episode", MapEpisode);
 
         return app;
     }
@@ -39,7 +40,8 @@ public static class TrackerSeasonEndpoints
         {
             logger.LogWarning(ex, "season chain failed '{Id}'", anilistId);
             return Results.Problem("Sezon zinciri hatası.",
-                                   statusCode: StatusCodes.Status502BadGateway, title: "Upstream hata");
+                                   statusCode: StatusCodes.Status502BadGateway,
+                                   title: "Upstream hata");
         }
     }
 
@@ -59,8 +61,9 @@ public static class TrackerSeasonEndpoints
             return ApiErrors.BadRequest("provider ve id boş olamaz.");
         }
 
-        var animeProvider = loader.Providers.OfType<IAnimeProvider>().FirstOrDefault(p =>
-                p.Name.Equals(provider, StringComparison.OrdinalIgnoreCase));
+        var animeProvider = loader.Providers.OfType<IAnimeProvider>()
+                                  .FirstOrDefault(p =>
+                                                      p.Name.Equals(provider, StringComparison.OrdinalIgnoreCase));
         if (animeProvider is null)
         {
             return ApiErrors.NotFound($"Sağlayıcı '{provider}' bulunamadı.");
@@ -75,35 +78,28 @@ public static class TrackerSeasonEndpoints
             }
 
             var mappings = details.SeasonMappings ?? [];
-            var direct = mappings.FirstOrDefault(m =>
-                                                     !string.IsNullOrWhiteSpace(m.AniListId) ||
-                                                     !string.IsNullOrWhiteSpace(m.MyAnimeListId));
-
-            string? anilistId = direct?.AniListId;
-            if (string.IsNullOrWhiteSpace(anilistId) && !string.IsNullOrWhiteSpace(direct?.MyAnimeListId))
-            {
-                var viaMal = await resolver.ResolveFromTrackerAsync(null, direct.MyAnimeListId, cancellationToken);
-                anilistId = viaMal?.AniListId;
-            }
+            var (anilistId, fuzzy) = await ResolveAniListIdAsync(resolver,
+                                                                 animeProvider.Name,
+                                                                 id.Trim(),
+                                                                 mappings,
+                                                                 details.GetAllTitles(),
+                                                                 cancellationToken);
 
             if (string.IsNullOrWhiteSpace(anilistId))
             {
-                var resolved = await resolver.ResolveFromProviderAsync(
-                                   animeProvider.Name, id.Trim(), details.GetAllTitles(),
-                                   seasonMappings: mappings, cancellationToken: cancellationToken);
-                anilistId = resolved.Entry?.AniListId;
-                if (string.IsNullOrWhiteSpace(anilistId))
+                return Results.Ok(new
                 {
-                    return Results.Ok(new
+                    details = new
                     {
-                        details    = new { details.Title, details.Format },
-                        resolved   = resolved.Entry,
-                        ambiguous  = resolved.Ambiguous,
-                        candidates = resolved.Candidates,
-                        chain      = (object?)null,
-                        alignment  = (object?)null
-                    });
-                }
+                        details.Title,
+                        details.Format
+                    },
+                    resolved   = fuzzy?.Entry,
+                    ambiguous  = fuzzy?.Ambiguous ?? false,
+                    candidates = fuzzy?.Candidates ?? [],
+                    chain      = (object?) null,
+                    alignment  = (object?) null
+                });
             }
 
             var chain = await seasons.GetSeasonChainAsync(anilistId, cancellationToken);
@@ -111,10 +107,14 @@ public static class TrackerSeasonEndpoints
             {
                 return Results.Ok(new
                 {
-                    details = new { details.Title, details.Format },
+                    details = new
+                    {
+                        details.Title,
+                        details.Format
+                    },
                     anilistId,
-                    chain     = (object?)null,
-                    alignment = (object?)null
+                    chain     = (object?) null,
+                    alignment = (object?) null
                 });
             }
 
@@ -137,7 +137,121 @@ public static class TrackerSeasonEndpoints
         {
             logger.LogWarning(ex, "align failed for {Provider}:{Id}", provider, id);
             return Results.Problem("Hizalama hatası.",
-                                   statusCode: StatusCodes.Status502BadGateway, title: "Upstream hata");
+                                   statusCode: StatusCodes.Status502BadGateway,
+                                   title: "Upstream hata");
+        }
+    }
+
+    private static async Task<(string? AniListId, TrackerResolveResult? Fuzzy)> ResolveAniListIdAsync(
+        ITrackerIdResolver           resolver,
+        string                       providerName,
+        string                       id,
+        IReadOnlyList<SeasonMapping> mappings,
+        IEnumerable<string>          titles,
+        CancellationToken            cancellationToken)
+    {
+        var direct = mappings.FirstOrDefault(m =>
+                                                 !string.IsNullOrWhiteSpace(m.AniListId)
+                                                 || !string.IsNullOrWhiteSpace(m.MyAnimeListId));
+
+        if (!string.IsNullOrWhiteSpace(direct?.AniListId))
+        {
+            return (direct.AniListId, null);
+        }
+
+        if (!string.IsNullOrWhiteSpace(direct?.MyAnimeListId))
+        {
+            var viaMal = await resolver.ResolveFromTrackerAsync(null, direct.MyAnimeListId, cancellationToken);
+            if (!string.IsNullOrWhiteSpace(viaMal?.AniListId))
+            {
+                return (viaMal.AniListId, null);
+            }
+        }
+
+        var resolved = await resolver.ResolveFromProviderAsync(
+                           providerName,
+                           id,
+                           titles,
+                           seasonMappings: mappings,
+                           cancellationToken: cancellationToken);
+        return (resolved.Entry?.AniListId, resolved);
+    }
+
+    private static async Task<IResult> MapEpisode(
+        string?             provider,
+        string?             id,
+        int?                season,
+        double?             episode,
+        PluginLoader        loader,
+        ITrackerIdResolver  resolver,
+        ISeasonChainService seasons,
+        ILoggerFactory      loggerFactory,
+        CancellationToken   cancellationToken)
+    {
+        var logger = loggerFactory.CreateLogger("TrackerSeasonEndpoints");
+
+        if (string.IsNullOrWhiteSpace(provider) || string.IsNullOrWhiteSpace(id) || episode is null)
+        {
+            return ApiErrors.BadRequest("provider, id ve episode boş olamaz.");
+        }
+
+        var animeProvider = loader.Providers.OfType<IAnimeProvider>()
+                                  .FirstOrDefault(p =>
+                                                      p.Name.Equals(provider, StringComparison.OrdinalIgnoreCase));
+        if (animeProvider is null)
+        {
+            return ApiErrors.NotFound($"Sağlayıcı '{provider}' bulunamadı.");
+        }
+
+        try
+        {
+            var details = await animeProvider.GetDetailsAsync(id.Trim(), cancellationToken);
+            if (details is null)
+            {
+                return ApiErrors.NotFound("Detay bulunamadı.");
+            }
+
+            var (anilistId, _) = await ResolveAniListIdAsync(resolver,
+                                                             animeProvider.Name,
+                                                             id.Trim(),
+                                                             details.SeasonMappings ?? [],
+                                                             details.GetAllTitles(),
+                                                             cancellationToken);
+            if (string.IsNullOrWhiteSpace(anilistId))
+            {
+                return ApiErrors.NotFound("Tracker ID çözülemedi.");
+            }
+
+            var chain = await seasons.GetSeasonChainAsync(anilistId, cancellationToken);
+            if (chain is null)
+            {
+                return ApiErrors.NotFound("Sezon zinciri kurulamadı.");
+            }
+
+            var alignment = seasons.AlignEntry(details, chain);
+            var canonical = seasons.TranslateToCanonical(alignment, season, episode.Value);
+            if (canonical is null)
+            {
+                return ApiErrors.NotFound("Bölüm eşlenemedi.");
+            }
+
+            var entry = chain.Entries.FirstOrDefault(e => e.SeasonNumber == canonical.Season);
+            return Results.Ok(new TrackerEpisodeMapping
+            {
+                AniListId     = entry?.AniListId ?? anilistId,
+                MyAnimeListId = entry?.MyAnimeListId,
+                Season        = canonical.Season,
+                Episode       = canonical.Number,
+                TotalEpisodes = entry?.TotalEpisodes,
+                IsOverflow    = canonical.IsOverflow
+            });
+        }
+        catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
+        {
+            logger.LogWarning(ex, "episode map failed for {Provider}:{Id} ep {Episode}", provider, id, episode);
+            return Results.Problem("Bölüm eşleme hatası.",
+                                   statusCode: StatusCodes.Status502BadGateway,
+                                   title: "Upstream hata");
         }
     }
 }

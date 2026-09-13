@@ -9,8 +9,8 @@ namespace Migurdex.Core.Services;
 public sealed class SeasonChainService : ISeasonChainService
 {
     private const           int      MaxChainLength = 8;
-    private static readonly TimeSpan ChainCacheTtl  = TimeSpan.FromHours(6);
-    private static readonly TimeSpan ErrorCacheTtl  = TimeSpan.FromMinutes(1);
+    private static readonly TimeSpan _chainCacheTtl = TimeSpan.FromHours(6);
+    private static readonly TimeSpan _errorCacheTtl = TimeSpan.FromMinutes(1);
 
     private readonly IReadOnlyList<IMetadataProvider>                                    _providers;
     private readonly IMemoryCache                                                        _cache;
@@ -29,10 +29,11 @@ public sealed class SeasonChainService : ISeasonChainService
         _relationsResolver = relationsResolver;
     }
 
-    private IMetadataProvider? AniList => _providers.FirstOrDefault(p =>
-                                                                        p.Name.Equals(
-                                                                            "AniList",
-                                                                            StringComparison.OrdinalIgnoreCase));
+    private IMetadataProvider? AniList =>
+        _providers.FirstOrDefault(p =>
+                                      p.Name.Equals(
+                                          "AniList",
+                                          StringComparison.OrdinalIgnoreCase));
 
     public async Task<SeasonChain?> GetSeasonChainAsync(string anilistId, CancellationToken cancellationToken = default)
     {
@@ -69,13 +70,17 @@ public sealed class SeasonChainService : ISeasonChainService
             return null;
         }
 
-        var path   = new List<MediaMetadata> { root };
-        var seen   = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { root.ExternalId };
+        var path = new List<MediaMetadata>
+        {
+            root
+        };
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            root.ExternalId
+        };
         var cursor = root.ExternalId;
         var memo   = new Dictionary<string, IReadOnlyList<RelationEdge>>(StringComparer.OrdinalIgnoreCase);
 
-        // Traversal sırasında hata olursa zincir eksik kalabilir; o zaman
-        // 6 saatlik cache'e yazılmaz (kısa TTL ile tekrar denenir).
         var fetchError = false;
 
         var headCapped = true;
@@ -91,7 +96,8 @@ public sealed class SeasonChainService : ISeasonChainService
 
             var prequel = edges.FirstOrDefault(e =>
                                                    e.RelationType.Equals(
-                                                       "PREQUEL", StringComparison.OrdinalIgnoreCase));
+                                                       "PREQUEL",
+                                                       StringComparison.OrdinalIgnoreCase));
             if (prequel is null || !seen.Add(prequel.Id))
             {
                 headCapped = false;
@@ -194,13 +200,19 @@ public sealed class SeasonChainService : ISeasonChainService
 
         truncated = truncated || headTruncated || fetchError;
 
-        var chain                = new SeasonChain { RootAniListId = ordered[0].ExternalId };
-        var firstTv              = ordered.FindIndex(m => m.Format == ContentFormat.Tv);
-        if (firstTv < 0) firstTv = 0;
-        var seasonNo             = 0;
+        var chain = new SeasonChain
+        {
+            RootAniListId = ordered[0].ExternalId
+        };
+        var anySeasonFormat = ordered.Any(m => IsSeasonFormat(m.Format));
+        var firstTv         = anySeasonFormat ? ordered.FindIndex(m => m.Format == ContentFormat.Tv) : 0;
+        if (firstTv < 0)
+            firstTv = 0;
+        var seasonNo = 0;
         for (var i = 0; i < ordered.Count; i++)
         {
-            var season = i >= firstTv && IsSeasonFormat(ordered[i].Format) ? ++seasonNo : 0;
+            var isSeason = anySeasonFormat ? IsSeasonFormat(ordered[i].Format) : true;
+            var season   = i >= firstTv && isSeason ? ++seasonNo : 0;
             chain.Entries.Add(ToEntry(season, ordered[i]));
         }
 
@@ -211,12 +223,14 @@ public sealed class SeasonChainService : ISeasonChainService
         }
 
         chain.Truncated = truncated;
-        _cache.Set(cacheKey, chain, fetchError ? ErrorCacheTtl : ChainCacheTtl);
+        _cache.Set(cacheKey, chain, fetchError ? _errorCacheTtl : _chainCacheTtl);
         return chain;
     }
 
     private async Task<(IReadOnlyList<RelationEdge> Edges, bool Failed)> GetRelationsAsync(
-        string id, Dictionary<string, IReadOnlyList<RelationEdge>> memo, CancellationToken cancellationToken)
+        string                                          id,
+        Dictionary<string, IReadOnlyList<RelationEdge>> memo,
+        CancellationToken                               cancellationToken)
     {
         if (memo.TryGetValue(id, out var memoized))
         {
@@ -276,7 +290,8 @@ public sealed class SeasonChainService : ISeasonChainService
             var chainEntry = chain.Entries.FirstOrDefault(c =>
                                                               (!string.IsNullOrWhiteSpace(mapping.AniListId)
                                                                && mapping.AniListId.Equals(
-                                                                   c.AniListId, StringComparison.OrdinalIgnoreCase))
+                                                                   c.AniListId,
+                                                                   StringComparison.OrdinalIgnoreCase))
                                                               || (!string.IsNullOrWhiteSpace(mapping.MyAnimeListId)
                                                                   && mapping.MyAnimeListId.Equals(
                                                                       c.MyAnimeListId,
@@ -293,9 +308,10 @@ public sealed class SeasonChainService : ISeasonChainService
             {
                 count = episodes.Count;
 
-                if (providerSeasons.Length == 1 && tv.Count > 1
-                                                && chainEntry.TotalEpisodes.HasValue &&
-                                                count > chainEntry.TotalEpisodes.Value)
+                if (providerSeasons.Length == 1
+                    && tv.Count > 1
+                    && chainEntry.TotalEpisodes.HasValue
+                    && count > chainEntry.TotalEpisodes.Value)
                 {
                     var expandIdx = tv.FindIndex(c => c.SeasonNumber == chainEntry.SeasonNumber);
                     if (expandIdx >= 0
@@ -404,8 +420,6 @@ public sealed class SeasonChainService : ISeasonChainService
                 {
                     if (ps == 0)
                     {
-                        // Özel bölümler kanonik TV sezonlarını tüketmemeli;
-                        // zincirdeki numarasız (S0) girdiye bağlanır.
                         var special = chain.Entries.FirstOrDefault(e => e.SeasonNumber == 0);
                         if (special is not null)
                         {
@@ -491,8 +505,8 @@ public sealed class SeasonChainService : ISeasonChainService
                 && s.ProviderEpisodeCount > s.CanonicalEpisodeCount.Value)
             {
                 alignment.Warnings.Add(
-                    $"S{s.CanonicalSeasonNumber}: provider {s.ProviderEpisodeCount} bölüm veriyor, " +
-                    $"kanonik {s.CanonicalEpisodeCount} (recap/özel karışmış olabilir).");
+                    $"S{s.CanonicalSeasonNumber}: provider {s.ProviderEpisodeCount} bölüm veriyor, "
+                    + $"kanonik {s.CanonicalEpisodeCount} (recap/özel karışmış olabilir).");
             }
         }
 
@@ -505,7 +519,9 @@ public sealed class SeasonChainService : ISeasonChainService
     }
 
     public CanonicalEpisode? TranslateToCanonical(
-        EntryAlignment alignment, int? providerSeason, double number)
+        EntryAlignment alignment,
+        int?           providerSeason,
+        double         number)
     {
         if (alignment.Seasons.Count == 0)
         {
@@ -574,8 +590,6 @@ public sealed class SeasonChainService : ISeasonChainService
                 }
             }
 
-            // Dilim aralığının altında kalan numaralar (örn. 0) son dilime
-            // taşmamalı; ilk dilime aynen verilir.
             if (number < group[0].StartOffset)
             {
                 return new CanonicalEpisode
@@ -618,9 +632,15 @@ public sealed class SeasonChainService : ISeasonChainService
     }
 
     private static List<(SeasonChainEntry Entry, int Offset)> SpanSeasons(
-        List<SeasonChainEntry> tv, int startIdx, int episodeCount, HashSet<int> usedChain)
+        List<SeasonChainEntry> tv,
+        int                    startIdx,
+        int                    episodeCount,
+        HashSet<int>           usedChain)
     {
-        var single = new List<(SeasonChainEntry, int)> { (tv[startIdx], 1) };
+        var single = new List<(SeasonChainEntry, int)>
+        {
+            (tv[startIdx], 1)
+        };
 
         for (var k = tv.Count - startIdx; k >= 2; k--)
         {
@@ -653,8 +673,11 @@ public sealed class SeasonChainService : ISeasonChainService
     }
 
     private static bool TryExpandAbsolute(
-        List<SeasonChainEntry> tv, int startIdx, int episodeCount, EntryAlignment alignment,
-        int providerSeason = 1)
+        List<SeasonChainEntry> tv,
+        int                    startIdx,
+        int                    episodeCount,
+        EntryAlignment         alignment,
+        int                    providerSeason = 1)
     {
         for (var k = tv.Count - startIdx; k >= 2; k--)
         {
@@ -698,7 +721,9 @@ public sealed class SeasonChainService : ISeasonChainService
     }
 
     private static EntryNumberingMode DetectNumberingMode(
-        List<Episode> episodes, EntryAlignment alignment, List<SeasonChainEntry> tv)
+        List<Episode>          episodes,
+        EntryAlignment         alignment,
+        List<SeasonChainEntry> tv)
     {
         var distinctSeasons = episodes.Select(e => e.Season ?? 1).Distinct().Count();
         if (distinctSeasons > 1)

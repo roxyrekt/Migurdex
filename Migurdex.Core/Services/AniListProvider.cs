@@ -168,7 +168,8 @@ public partial class AniListProvider : IMetadataProvider
     }
 
     public async Task<IReadOnlyList<RelationEdge>> QueryAnimeRelationsAsync(
-        string id, CancellationToken cancellationToken = default)
+        string            id,
+        CancellationToken cancellationToken = default)
     {
         const string query = """
                              query ($id: Int) {
@@ -194,11 +195,15 @@ public partial class AniListProvider : IMetadataProvider
             var requestBody = new
             {
                 query,
-                variables = new { id = int.Parse(id) }
+                variables = new
+                {
+                    id = int.Parse(id)
+                }
             };
 
             using var response = await PostGraphQLAsync(requestBody, cancellationToken);
-            if (response is null) return result;
+            if (response is null)
+                return result;
 
             var       json = await response.Content.ReadAsStringAsync(cancellationToken);
             using var doc  = JsonDocument.Parse(json);
@@ -239,7 +244,9 @@ public partial class AniListProvider : IMetadataProvider
     }
 
     private async Task<string?> QueryRelatedIdAsync(
-        string id, string relationType, CancellationToken cancellationToken = default)
+        string            id,
+        string            relationType,
+        CancellationToken cancellationToken = default)
     {
         var query = """
                         query ($id: Int) {
@@ -271,7 +278,8 @@ public partial class AniListProvider : IMetadataProvider
             };
 
             using var response = await PostGraphQLAsync(requestBody, cancellationToken);
-            if (response is null) return null;
+            if (response is null)
+                return null;
 
             var       json = await response.Content.ReadAsStringAsync(cancellationToken);
             using var doc  = JsonDocument.Parse(json);
@@ -314,8 +322,6 @@ public partial class AniListProvider : IMetadataProvider
             var delay = TimeSpan.FromSeconds(2);
             if (response.Headers.RetryAfter?.Delta is { } delta)
             {
-                // Uzun cooldown'larda (örn. 60s) bekleyip tekrar vurmak yerine
-                // hemen vazgeç; zincir/çözümleme eksik veriyle değil, boş dönsün.
                 if (delta >= TimeSpan.FromSeconds(30))
                 {
                     _logger.LogWarning("AniList 429, cooldown {Delay}s çok uzun; tekrar denenmeyecek",
@@ -355,7 +361,8 @@ public partial class AniListProvider : IMetadataProvider
         };
 
         using var response = await PostGraphQLAsync(requestBody, cancellationToken);
-        if (response is null) return [];
+        if (response is null)
+            return [];
 
         var       json = await response.Content.ReadAsStringAsync(cancellationToken);
         using var doc  = JsonDocument.Parse(json);
@@ -367,7 +374,8 @@ public partial class AniListProvider : IMetadataProvider
             if (data.TryGetProperty("Page", out var page) && page.TryGetProperty("media", out var mediaList))
                 foreach (var m in mediaList.EnumerateArray())
                     list.Add(MapMedia(m));
-            else if (data.TryGetProperty("Media", out var media)) list.Add(MapMedia(media));
+            else if (data.TryGetProperty("Media", out var media))
+                list.Add(MapMedia(media));
         }
 
         return list;
@@ -436,7 +444,8 @@ public partial class AniListProvider : IMetadataProvider
 
     private static string CleanHtml(string? html)
     {
-        if (string.IsNullOrEmpty(html)) return "";
+        if (string.IsNullOrEmpty(html))
+            return "";
 
         return HtmlTagRegex().Replace(html, "").Trim();
     }

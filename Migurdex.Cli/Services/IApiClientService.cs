@@ -75,6 +75,19 @@ public interface IApiClientService
     Task<ApiResult<MediaMetadata?>> LookupTrackerAsync(string? anilistId,
         string?                                                malId             = null,
         CancellationToken                                      cancellationToken = default);
+
+    Task<ApiResult<TrackerEpisodeMapping?>> MapTrackerEpisodeAsync(string provider,
+        string                                                                providerId,
+        int                                                                   season,
+        double                                                                episode,
+        CancellationToken                                                     cancellationToken = default);
+
+    Task<bool> SaveTrackerMappingAsync(string provider,
+        string                                          providerId,
+        string                                          anilistId,
+        string?                                         malId             = null,
+        string?                                         matchedTitle      = null,
+        CancellationToken                               cancellationToken = default);
 }
 
 public class ProviderInfo

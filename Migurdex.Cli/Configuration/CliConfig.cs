@@ -7,6 +7,7 @@ public class CliConfig
     public bool         EnableDiscordRpc         { get; set; } = true;
     public string       DiscordRpcTitleMode      { get; set; } = "İçerik";
     public bool         EnableIncognitoMode      { get; set; } = false;
+    public bool         ShowPlayerLogs           { get; set; } = false;
     public bool         AutoSelectBestSource     { get; set; } = false;
     public double       AutoSelectTimeoutSeconds { get; set; } = 5;
     public List<string> DisabledProviders        { get; set; } = [];

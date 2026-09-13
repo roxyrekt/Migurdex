@@ -1,5 +1,6 @@
 using Migurdex.Cli.Configuration;
 using Migurdex.Cli.Services;
+using Migurdex.Core.Services;
 using Migurdex.Shared.Enums;
 using Spectre.Console;
 
@@ -10,12 +11,22 @@ public class SettingsView : BaseView
     private static readonly string[]              _rpcTitleModes = ["Migurdex", "Sağlayıcı", "İçerik"];
     private readonly        IApiClientService     _apiClient;
     private readonly        IConfigurationService _configService;
+    private readonly        OAuthTokenStore       _tokenStore;
+    private readonly        AniListOAuthClient    _aniListOAuth;
+    private readonly        MalOAuthClient        _malOAuth;
     private                 string?               _lastProviderName;
 
-    public SettingsView(IConfigurationService configService, IApiClientService apiClient)
+    public SettingsView(IConfigurationService configService,
+        IApiClientService                     apiClient,
+        OAuthTokenStore                       tokenStore,
+        AniListOAuthClient                    aniListOAuth,
+        MalOAuthClient                        malOAuth)
     {
         _configService = configService;
         _apiClient     = apiClient;
+        _tokenStore    = tokenStore;
+        _aniListOAuth  = aniListOAuth;
+        _malOAuth      = malOAuth;
     }
 
     public override string GetRpcState()
@@ -62,9 +73,27 @@ public class SettingsView : BaseView
             },
             new()
             {
+                Id          = "PlayerLogs",
+                Label       = "Oynatıcı Logları",
+                ValueGetter = c => c.ShowPlayerLogs ? "Açık" : "Kapalı"
+            },
+            new()
+            {
                 Id          = "Api",
                 Label       = "API Adresi",
                 ValueGetter = c => c.ApiBaseUrl
+            },
+            new()
+            {
+                Id          = "AniList",
+                Label       = "AniList",
+                ValueGetter = _ => AniListStatus()
+            },
+            new()
+            {
+                Id          = "MyAnimeList",
+                Label       = "MyAnimeList",
+                ValueGetter = _ => MalStatus()
             },
             new()
             {
@@ -169,6 +198,210 @@ public class SettingsView : BaseView
         return _rpcTitleModes.Contains(mode) ? mode! : "İçerik";
     }
 
+    private string AniListStatus()
+    {
+        if (!_tokenStore.TryGet(WatchSyncService.ProviderName, out var token) || token is null)
+        {
+            return "Bağlı değil";
+        }
+
+        if (token.IsExpired)
+        {
+            return "Süresi dolmuş";
+        }
+
+        return token.NeedsRefresh ? "Bağlı (yenilenecek)" : "Bağlı";
+    }
+
+    private string AniListDetail()
+    {
+        if (!_tokenStore.TryGet(WatchSyncService.ProviderName, out var token) || token is null)
+        {
+            return "AniList bağlı değil. Bağlanmak için Enter'a basın.";
+        }
+
+        if (token.IsExpired)
+        {
+            return "AniList token süresi dolmuş. Yenilemek için Enter'a basın.";
+        }
+
+        return $"AniList bağlı. Token son kullanma: {token.ExpiresAtUtc:u}.";
+    }
+
+    private void RunAniListLogin()
+    {
+        if (!AniListAppCredentials.IsConfigured)
+        {
+            Toast.Show("[red]AniList istemci bilgisi eksik; giriş yapılamıyor.[/]");
+            return;
+        }
+
+        if (_tokenStore.TryGet(WatchSyncService.ProviderName, out var existing)
+            && existing is not null
+            && !existing.IsExpired)
+        {
+            Toast.Show(AniListDetail());
+            if (AnsiConsole.Confirm("AniList bağlantısı kesilsin mi?", false))
+            {
+                _tokenStore.Remove(WatchSyncService.ProviderName);
+                Toast.Show("[green]AniList çıkış yapıldı.[/]");
+            }
+
+            return;
+        }
+
+        var redirectUri = AniListOAuthDefaults.LoopbackRedirectUri;
+        BrowserHelper.OpenBrowser(_aniListOAuth.BuildAuthorizeUrl(redirectUri));
+
+        AnsiConsole.MarkupLine("[cyan]Tarayıcıda AniList onayını verin.[/] [grey](Esc: vazgeç)[/]");
+
+        string? code = null;
+        using (var cts = new CancellationTokenSource())
+        {
+            var waitTask = LoopbackCodeReceiver.WaitForCodeAsync(AniListOAuthDefaults.LoopbackPort,
+                                                                 AniListOAuthDefaults.CallbackPath,
+                                                                 TimeSpan.FromMinutes(2),
+                                                                 cancellationToken: cts.Token);
+            while (!waitTask.IsCompleted)
+            {
+                if (Console.KeyAvailable && Console.ReadKey(true).Key == ConsoleKey.Escape)
+                {
+                    cts.Cancel();
+                    Toast.Show("[grey]Vazgeçildi.[/]");
+                    return;
+                }
+
+                Thread.Sleep(200);
+            }
+
+            if (waitTask.Status == TaskStatus.RanToCompletion)
+            {
+                code = waitTask.Result;
+            }
+        }
+
+        if (string.IsNullOrWhiteSpace(code))
+        {
+            code = AnsiConsole.Ask("Kod (boş = vazgeç):", string.Empty)?.Trim();
+            if (string.IsNullOrEmpty(code))
+            {
+                return;
+            }
+        }
+
+        var token = _aniListOAuth.ExchangeCodeAsync(code, redirectUri).GetAwaiter().GetResult();
+        if (token is null)
+        {
+            Toast.Show("[red]Token alınamadı; tekrar deneyin.[/]");
+            return;
+        }
+
+        _tokenStore.Set(token);
+        Toast.Show("[green]AniList bağlantısı kuruldu.[/]");
+    }
+
+    private string MalStatus()
+    {
+        if (!_tokenStore.TryGet(WatchSyncService.MalProviderName, out var token) || token is null)
+        {
+            return "Bağlı değil";
+        }
+
+        if (token.IsExpired)
+        {
+            return "Süresi dolmuş";
+        }
+
+        return token.NeedsRefresh ? "Bağlı (yenilenecek)" : "Bağlı";
+    }
+
+    private string MalDetail()
+    {
+        if (!_tokenStore.TryGet(WatchSyncService.MalProviderName, out var token) || token is null)
+        {
+            return "MyAnimeList bağlı değil. Bağlanmak için Enter'a basın.";
+        }
+
+        if (token.IsExpired)
+        {
+            return "MyAnimeList token süresi dolmuş. Yenilemek için Enter'a basın.";
+        }
+
+        return $"MyAnimeList bağlı. Token son kullanma: {token.ExpiresAtUtc:u}.";
+    }
+
+    private void RunMalLogin()
+    {
+        if (!MalAppCredentials.IsConfigured)
+        {
+            Toast.Show("[red]MyAnimeList istemci bilgisi eksik; giriş yapılamıyor.[/]");
+            return;
+        }
+
+        if (_tokenStore.TryGet(WatchSyncService.MalProviderName, out var existing)
+            && existing is not null
+            && !existing.IsExpired)
+        {
+            Toast.Show(MalDetail());
+            if (AnsiConsole.Confirm("MyAnimeList bağlantısı kesilsin mi?", false))
+            {
+                _tokenStore.Remove(WatchSyncService.MalProviderName);
+                Toast.Show("[green]MyAnimeList çıkış yapıldı.[/]");
+            }
+
+            return;
+        }
+
+        var redirectUri = MalAppCredentials.LoopbackRedirectUri;
+        BrowserHelper.OpenBrowser(_malOAuth.BuildAuthorizeUrl(redirectUri));
+
+        AnsiConsole.MarkupLine("[cyan]Tarayıcıda MyAnimeList onayını verin.[/] [grey](Esc: vazgeç)[/]");
+
+        string? code = null;
+        using (var cts = new CancellationTokenSource())
+        {
+            var waitTask = LoopbackCodeReceiver.WaitForCodeAsync(MalAppCredentials.LoopbackPort,
+                                                                 MalAppCredentials.CallbackPath,
+                                                                 TimeSpan.FromMinutes(2),
+                                                                 cancellationToken: cts.Token);
+            while (!waitTask.IsCompleted)
+            {
+                if (Console.KeyAvailable && Console.ReadKey(true).Key == ConsoleKey.Escape)
+                {
+                    cts.Cancel();
+                    Toast.Show("[grey]Vazgeçildi.[/]");
+                    return;
+                }
+
+                Thread.Sleep(200);
+            }
+
+            if (waitTask.Status == TaskStatus.RanToCompletion)
+            {
+                code = waitTask.Result;
+            }
+        }
+
+        if (string.IsNullOrWhiteSpace(code))
+        {
+            code = AnsiConsole.Ask("Kod (boş = vazgeç):", string.Empty)?.Trim();
+            if (string.IsNullOrEmpty(code))
+            {
+                return;
+            }
+        }
+
+        var token = _malOAuth.ExchangeCodeAsync(code, redirectUri).GetAwaiter().GetResult();
+        if (token is null)
+        {
+            Toast.Show("[red]Token alınamadı; tekrar deneyin.[/]");
+            return;
+        }
+
+        _tokenStore.Set(token);
+        Toast.Show("[green]MyAnimeList bağlantısı kuruldu.[/]");
+    }
+
     private static string NextRpcTitleMode(string? current)
     {
         var idx = Array.IndexOf(_rpcTitleModes, NormalizeRpcTitleMode(current));
@@ -206,6 +439,9 @@ public class SettingsView : BaseView
             case "Incognito":
                 config.EnableIncognitoMode = !config.EnableIncognitoMode;
                 break;
+            case "PlayerLogs":
+                config.ShowPlayerLogs = !config.ShowPlayerLogs;
+                break;
             case "Api":
                 var apiUrl = (AnsiConsole.Ask("API adresi:", config.ApiBaseUrl ?? string.Empty) ?? string.Empty).Trim()
                     .TrimEnd('/');
@@ -223,6 +459,12 @@ public class SettingsView : BaseView
                 }
 
                 config.ApiBaseUrl = apiUrl;
+                break;
+            case "AniList":
+                RunAniListLogin();
+                break;
+            case "MyAnimeList":
+                RunMalLogin();
                 break;
             case "Providers":
                 ConfigureProviders(config);

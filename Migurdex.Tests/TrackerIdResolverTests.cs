@@ -131,7 +131,9 @@ public sealed class TrackerIdResolverTests
         pv.Synonyms.Add("Bleach");
         var resolver = CreateResolver([pv, series], NewTempDir());
 
-        var result = await resolver.ResolveFromProviderAsync("X", "bleach", ["Bleach"],
+        var result = await resolver.ResolveFromProviderAsync("X",
+                                                             "bleach",
+                                                             ["Bleach"],
                                                              cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.NotNull(result.Entry);
@@ -147,7 +149,9 @@ public sealed class TrackerIdResolverTests
         b.TotalEpisodes = 12;
         var resolver = CreateResolver([a, b], NewTempDir());
 
-        var result = await resolver.ResolveFromProviderAsync("X", "same", ["Same Title"],
+        var result = await resolver.ResolveFromProviderAsync("X",
+                                                             "same",
+                                                             ["Same Title"],
                                                              cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.Null(result.Entry);
@@ -159,7 +163,9 @@ public sealed class TrackerIdResolverTests
     {
         var resolver = CreateResolver([Meta("21", "One Piece", "13", 1999)], NewTempDir());
 
-        var result = await resolver.ResolveFromProviderAsync("TurkAnime", "one-piece", ["One Piece"],
+        var result = await resolver.ResolveFromProviderAsync("TurkAnime",
+                                                             "one-piece",
+                                                             ["One Piece"],
                                                              cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.NotNull(result.Entry);
@@ -173,7 +179,9 @@ public sealed class TrackerIdResolverTests
     {
         var resolver = CreateResolver([Meta("1", "Completely Different Show")], NewTempDir());
 
-        var result = await resolver.ResolveFromProviderAsync("TurkAnime", "naruto", ["Naruto"],
+        var result = await resolver.ResolveFromProviderAsync("TurkAnime",
+                                                             "naruto",
+                                                             ["Naruto"],
                                                              cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.Null(result.Entry);
@@ -184,12 +192,15 @@ public sealed class TrackerIdResolverTests
     public async Task Resolve_CloseCandidates_IsAmbiguous()
     {
         var resolver = CreateResolver(
-        [
-            Meta("1", "Naruto"),
-            Meta("2", "NARUTO")
-        ], NewTempDir());
+            [
+                Meta("1", "Naruto"),
+                Meta("2", "NARUTO")
+            ],
+            NewTempDir());
 
-        var result = await resolver.ResolveFromProviderAsync("TurkAnime", "naruto", ["Naruto"],
+        var result = await resolver.ResolveFromProviderAsync("TurkAnime",
+                                                             "naruto",
+                                                             ["Naruto"],
                                                              cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.True(result.Ambiguous);
@@ -199,16 +210,23 @@ public sealed class TrackerIdResolverTests
     [Fact]
     public async Task Resolve_SecondCall_HitsCache()
     {
-        var data     = new List<MediaMetadata> { Meta("21", "One Piece") };
+        var data = new List<MediaMetadata>
+        {
+            Meta("21", "One Piece")
+        };
         var dir      = NewTempDir();
         var resolver = CreateResolver(data, dir);
 
-        var first = await resolver.ResolveFromProviderAsync("TurkAnime", "one-piece", ["One Piece"],
+        var first = await resolver.ResolveFromProviderAsync("TurkAnime",
+                                                            "one-piece",
+                                                            ["One Piece"],
                                                             cancellationToken: TestContext.Current.CancellationToken);
         Assert.False(first.FromCache);
 
         data.Clear();
-        var second = await resolver.ResolveFromProviderAsync("TurkAnime", "one-piece", ["One Piece"],
+        var second = await resolver.ResolveFromProviderAsync("TurkAnime",
+                                                             "one-piece",
+                                                             ["One Piece"],
                                                              cancellationToken: TestContext.Current.CancellationToken);
         Assert.True(second.FromCache);
         Assert.Equal("21", second.Entry!.AniListId);
@@ -217,15 +235,25 @@ public sealed class TrackerIdResolverTests
     [Fact]
     public async Task Resolve_SeasonMappingShortcut_SkipsSearch()
     {
-        var data     = new List<MediaMetadata> { Meta("99", "Attack on Titan", "16498") };
+        var data = new List<MediaMetadata>
+        {
+            Meta("99", "Attack on Titan", "16498")
+        };
         var resolver = CreateResolver(data, dir: NewTempDir());
 
         var mappings = new List<SeasonMapping>
         {
-            new() { SeasonNumber = 1, AniListId = "99", MyAnimeListId = "16498" }
+            new()
+            {
+                SeasonNumber  = 1,
+                AniListId     = "99",
+                MyAnimeListId = "16498"
+            }
         };
 
-        var result = await resolver.ResolveFromProviderAsync("TurkAnime", "xyz", ["xyz alakasız"],
+        var result = await resolver.ResolveFromProviderAsync("TurkAnime",
+                                                             "xyz",
+                                                             ["xyz alakasız"],
                                                              seasonMappings: mappings,
                                                              cancellationToken: TestContext.Current.CancellationToken);
 
@@ -237,12 +265,16 @@ public sealed class TrackerIdResolverTests
     public async Task Resolve_YearBonus_PrefersCorrectYear()
     {
         var resolver = CreateResolver(
-        [
-            Meta("1", "Fate Stay Night", year: 2006),
-            Meta("2", "Fate Stay Night", year: 2014)
-        ], NewTempDir());
+            [
+                Meta("1", "Fate Stay Night", year: 2006),
+                Meta("2", "Fate Stay Night", year: 2014)
+            ],
+            NewTempDir());
 
-        var result = await resolver.ResolveFromProviderAsync("TurkAnime", "fate", ["Fate Stay Night"], year: 2014,
+        var result = await resolver.ResolveFromProviderAsync("TurkAnime",
+                                                             "fate",
+                                                             ["Fate Stay Night"],
+                                                             year: 2014,
                                                              cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.NotNull(result.Entry);
@@ -257,7 +289,9 @@ public sealed class TrackerIdResolverTests
         s2.EnglishTitle = "Jujutsu Kaisen Season 2";
         var resolver = CreateResolver([s1, s2], NewTempDir());
 
-        var result = await resolver.ResolveFromProviderAsync("TurkAnime", "jjk-s2", ["Jujutsu Kaisen 2. Sezon"],
+        var result = await resolver.ResolveFromProviderAsync("TurkAnime",
+                                                             "jjk-s2",
+                                                             ["Jujutsu Kaisen 2. Sezon"],
                                                              cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.NotNull(result.Entry);
@@ -279,7 +313,9 @@ public sealed class TrackerIdResolverTests
         ]);
         var resolver = CreateResolver([s2], NewTempDir());
 
-        var result = await resolver.ResolveFromProviderAsync("TurkAnime", "jjk-s2", ["Jujutsu Kaisen 2. Sezon"],
+        var result = await resolver.ResolveFromProviderAsync("TurkAnime",
+                                                             "jjk-s2",
+                                                             ["Jujutsu Kaisen 2. Sezon"],
                                                              cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.NotNull(result.Entry);
@@ -294,7 +330,9 @@ public sealed class TrackerIdResolverTests
         var s3       = Meta("182255", "Sousou no Frieren 2nd Season");
         var resolver = CreateResolver([s1, s2, s3], NewTempDir());
 
-        var result = await resolver.ResolveFromProviderAsync("TurkAnime", "frieren", ["Frieren"],
+        var result = await resolver.ResolveFromProviderAsync("TurkAnime",
+                                                             "frieren",
+                                                             ["Frieren"],
                                                              cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.Null(result.Entry);
@@ -310,7 +348,9 @@ public sealed class TrackerIdResolverTests
         var longer   = Meta("2", "Monster Musume no Iru Nichijou");
         var resolver = CreateResolver([exact, longer], NewTempDir());
 
-        var result = await resolver.ResolveFromProviderAsync("TurkAnime", "monster", ["Monster"],
+        var result = await resolver.ResolveFromProviderAsync("TurkAnime",
+                                                             "monster",
+                                                             ["Monster"],
                                                              cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.NotNull(result.Entry);
@@ -326,7 +366,9 @@ public sealed class TrackerIdResolverTests
         s2.TotalEpisodes = 24;
         var resolver = CreateResolver([s1, s2], NewTempDir());
 
-        var result = await resolver.ResolveFromProviderAsync("TurkAnime", "vinland", ["Vinland Saga"],
+        var result = await resolver.ResolveFromProviderAsync("TurkAnime",
+                                                             "vinland",
+                                                             ["Vinland Saga"],
                                                              cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.NotNull(result.Entry);
@@ -342,7 +384,9 @@ public sealed class TrackerIdResolverTests
         mha.EnglishTitle = "My Hero Academia";
         var resolver = CreateResolver([hero, mha], NewTempDir());
 
-        var result = await resolver.ResolveFromProviderAsync("TurkAnime", "mha", ["My Hero Academia"],
+        var result = await resolver.ResolveFromProviderAsync("TurkAnime",
+                                                             "mha",
+                                                             ["My Hero Academia"],
                                                              cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.NotNull(result.Entry);
@@ -353,16 +397,15 @@ public sealed class TrackerIdResolverTests
     [Fact]
     public async Task Resolve_SeasonTwoQuery_DoesNotInflateSeasonOneViaContainment()
     {
-        // Kısa sorgu adı S1'in tam adıyla birebir örtüşmüyor; S1 yalnızca
-        // kapsama (containment) ile 0.90'a çıkabilirdi. Koruma kapalıyken
-        // S1 haksız kazanırdı; açıkken sonuç en fazla belirsiz kalmalı.
         var s1 = Meta("101348", "Mob Psycho 100");
         var s2 = Meta("136430", "Mob Psycho 100 2nd Season");
         s1.TotalEpisodes = 25;
         s2.TotalEpisodes = 12;
         var resolver = CreateResolver([s1, s2], NewTempDir());
 
-        var result = await resolver.ResolveFromProviderAsync("TurkAnime", "mob", ["Mob Psycho Season 2"],
+        var result = await resolver.ResolveFromProviderAsync("TurkAnime",
+                                                             "mob",
+                                                             ["Mob Psycho Season 2"],
                                                              cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.True(result.Ambiguous || result.Entry?.AniListId == "136430");
@@ -379,11 +422,21 @@ public sealed class TrackerIdResolverTests
         var resolver = CreateResolver([s1], NewTempDir());
         var mappings = new List<SeasonMapping>
         {
-            new() { SeasonNumber = 1, AniListId = "no-such-id" },
-            new() { SeasonNumber = 1, AniListId = "113415" }
+            new()
+            {
+                SeasonNumber = 1,
+                AniListId    = "no-such-id"
+            },
+            new()
+            {
+                SeasonNumber = 1,
+                AniListId    = "113415"
+            }
         };
 
-        var result = await resolver.ResolveFromProviderAsync("TurkAnime", "jjk", ["Jujutsu Kaisen"],
+        var result = await resolver.ResolveFromProviderAsync("TurkAnime",
+                                                             "jjk",
+                                                             ["Jujutsu Kaisen"],
                                                              seasonMappings: mappings,
                                                              cancellationToken: TestContext.Current.CancellationToken);
 
@@ -406,7 +459,9 @@ public sealed class TrackerIdResolverTests
         };
         var resolver = CreateResolver([jikanOnly], NewTempDir());
 
-        var result = await resolver.ResolveFromProviderAsync("TurkAnime", "obscure", ["Some Obscure Anime"],
+        var result = await resolver.ResolveFromProviderAsync("TurkAnime",
+                                                             "obscure",
+                                                             ["Some Obscure Anime"],
                                                              cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.Null(result.Entry);
@@ -427,7 +482,11 @@ public sealed class TrackerIdResolverTests
         cts.Cancel();
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
-            resolver.ResolveFromProviderAsync("TurkAnime", "x", ["Naruto"], cancellationToken: cts.Token));
+                                                                    resolver.ResolveFromProviderAsync(
+                                                                        "TurkAnime",
+                                                                        "x",
+                                                                        ["Naruto"],
+                                                                        cancellationToken: cts.Token));
     }
 
     private sealed class CancellingMetadataProvider : IMetadataProvider
@@ -435,8 +494,8 @@ public sealed class TrackerIdResolverTests
         public string Name => "AniList";
 
         public Task<List<MediaMetadata>> SearchMetadataAsync(string title,
-            ContentFormat                                  expectedFormat    = ContentFormat.Unknown,
-            CancellationToken                              cancellationToken = default)
+            ContentFormat                                           expectedFormat    = ContentFormat.Unknown,
+            CancellationToken                                       cancellationToken = default)
         {
             return Task.FromException<List<MediaMetadata>>(new TaskCanceledException());
         }
@@ -539,7 +598,9 @@ public sealed class TrackerIdResolverTests
         cts.Cancel();
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
-            provider.QueryAnimeRelationsAsync("113415", cts.Token));
+                                                                    provider.QueryAnimeRelationsAsync(
+                                                                        "113415",
+                                                                        cts.Token));
         Assert.Equal(1, handler.Calls);
     }
 

@@ -1,4 +1,5 @@
 using Migurdex.Api.Common;
+using Migurdex.Core.Services;
 using Migurdex.Shared.Enums;
 using Migurdex.Shared.Interfaces;
 using Migurdex.Shared.Models;
@@ -11,6 +12,7 @@ public static class TrackerResolveEndpoints
     {
         app.MapGet("/api/v1/tracker/resolve", ResolveFromProvider);
         app.MapGet("/api/v1/tracker/lookup", LookupFromTracker);
+        app.MapPost("/api/v1/tracker/mapping", SaveMapping);
 
         return app;
     }
@@ -79,8 +81,7 @@ public static class TrackerResolveEndpoints
         }
     }
 
-    private static async Task<IResult> LookupFromTracker(
-        string?            anilistId,
+    private static async Task<IResult> LookupFromTracker(        string?            anilistId,
         string?            malId,
         ITrackerIdResolver resolver,
         ILoggerFactory     loggerFactory,
@@ -106,6 +107,43 @@ public static class TrackerResolveEndpoints
             logger.LogWarning(ex, "tracker lookup failed anilist:{A} mal:{M}", anilistId, malId);
             return Results.Problem("Tracker arama hatası.",
                                    statusCode: StatusCodes.Status502BadGateway, title: "Upstream hata");
+        }
+    }
+
+    private static IResult SaveMapping(
+        SaveTrackerMappingRequest? request,
+        TrackerMappingStore        store,
+        ILoggerFactory             loggerFactory)
+    {
+        var logger = loggerFactory.CreateLogger("TrackerResolveEndpoints");
+
+        if (request is null
+            || string.IsNullOrWhiteSpace(request.Provider)
+            || string.IsNullOrWhiteSpace(request.ProviderId)
+            || string.IsNullOrWhiteSpace(request.AniListId))
+        {
+            return ApiErrors.BadRequest("provider, providerId ve anilistId boş olamaz.");
+        }
+
+        try
+        {
+            store.Set(new TrackerMappingEntry
+            {
+                ProviderName  = request.Provider.Trim(),
+                ProviderId    = request.ProviderId.Trim(),
+                AniListId     = request.AniListId.Trim(),
+                MyAnimeListId = string.IsNullOrWhiteSpace(request.MyAnimeListId) ? null : request.MyAnimeListId.Trim(),
+                MatchedTitle  = request.MatchedTitle.Trim(),
+                Score         = 1.0
+            });
+            return Results.Ok();
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "tracker mapping save failed for {Provider}:{Id}",
+                              request.Provider, request.ProviderId);
+            return Results.Problem("Eşleşme kaydedilemedi.",
+                                   statusCode: StatusCodes.Status502BadGateway, title: "Kayıt hatası");
         }
     }
 }

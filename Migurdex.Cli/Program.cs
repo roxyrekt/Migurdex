@@ -2,14 +2,27 @@ using Microsoft.Extensions.DependencyInjection;
 using Migurdex.Cli.Services;
 using Migurdex.Cli.Tui;
 using Migurdex.Cli.Tui.Views;
+using Migurdex.Core.Services;
+using Migurdex.Shared.Models;
 using Spectre.Console;
 
 namespace Migurdex.Cli;
 
 public static class Program
 {
-    public static async Task Main(string[] args)
+    public static async Task<int> Main(string[] args)
     {
+        if (args.Length > 0 && args[0].Equals("auth", StringComparison.OrdinalIgnoreCase))
+        {
+            var authServices = new ServiceCollection();
+            ConfigureServices(authServices);
+            using var authProvider = authServices.BuildServiceProvider();
+            return await AuthCommand.RunAsync(args[1..],
+                                              authProvider.GetRequiredService<OAuthTokenStore>(),
+                                              authProvider.GetRequiredService<AniListOAuthClient>(),
+                                              authProvider.GetRequiredService<MalOAuthClient>());
+        }
+
         AppDomain.CurrentDomain.ProcessExit += (s, e) => RestoreCursor();
         Console.CancelKeyPress += (s, e) =>
         {
@@ -57,10 +70,13 @@ public static class Program
         var navigator = serviceProvider.GetRequiredService<ITuiNavigator>();
         var mainMenu  = serviceProvider.GetRequiredService<MainMenuView>();
 
+        _ = Task.Run(() => serviceProvider.GetRequiredService<WatchSyncService>().FlushQueueAsync());
+
         navigator.Start(mainMenu);
 
         AnsiConsole.Clear();
         RestoreCursor();
+        return 0;
     }
 
     private static void RestoreCursor()
@@ -79,6 +95,28 @@ public static class Program
         services.AddSingleton<HttpClient>();
         services.AddSingleton<IApiClientService, ApiClientService>();
 
+        services.AddSingleton<OAuthTokenStore>();
+        services.AddSingleton<AniListOAuthClient>(_ => new AniListOAuthClient(new CliBridge(),
+                                                                              AniListAppCredentials.ClientId,
+                                                                              AniListAppCredentials
+                                                                                  .ClientSecret));
+        services.AddSingleton<MalOAuthClient>(_ => new MalOAuthClient(new CliBridge(),
+                                                                      MalAppCredentials.ClientId));
+        services.AddSingleton<WatchSyncService>(sp =>
+        {
+            var api      = sp.GetRequiredService<IApiClientService>();
+            var store    = sp.GetRequiredService<OAuthTokenStore>();
+            var aniOauth = sp.GetRequiredService<AniListOAuthClient>();
+            var malOauth = sp.GetRequiredService<MalOAuthClient>();
+            var aniList  = new AniListListClient(new CliBridge(), aniOauth, store);
+            var mal      = new MalListClient(new CliBridge(), malOauth, store);
+            return new WatchSyncService(aniList,
+                                        store,
+                                        (provider, animeId, season, episode, title, ct) =>
+                                            MapEpisodeAsync(api, provider, animeId, season, episode, title, ct),
+                                        malClient: mal);
+        });
+
         services.AddSingleton<ITuiNavigator, TuiNavigator>();
 
         services.AddTransient<MainMenuView>();
@@ -90,5 +128,50 @@ public static class Program
         services.AddTransient<FavoritesView>();
         services.AddTransient<WatchHistoryView>();
         services.AddTransient<SettingsView>();
+    }
+
+    private static async Task<EpisodeMappingResult> MapEpisodeAsync(IApiClientService api,
+        string                                                                        provider,
+        string                                                                        animeId,
+        int                                                                           season,
+        double                                                                        episode,
+        string?                                                                       title,
+        CancellationToken                                                             cancellationToken)
+    {
+        try
+        {
+            var result = await api.MapTrackerEpisodeAsync(provider, animeId, season, episode, cancellationToken);
+            if (result.IsSuccess && result.Data is not null)
+            {
+                return new EpisodeMappingResult
+                {
+                    Mapping = result.Data
+                };
+            }
+
+            if (string.IsNullOrWhiteSpace(title))
+            {
+                return new EpisodeMappingResult();
+            }
+
+            var resolved = await api.ResolveTrackerIdAsync(provider,
+                                                           animeId,
+                                                           [title],
+                                                           cancellationToken: cancellationToken);
+            if (resolved.IsSuccess && resolved.Data is not null && resolved.Data.Ambiguous)
+            {
+                return new EpisodeMappingResult
+                {
+                    Ambiguous  = true,
+                    Candidates = resolved.Data.Candidates
+                };
+            }
+
+            return new EpisodeMappingResult();
+        }
+        catch
+        {
+            return new EpisodeMappingResult();
+        }
     }
 }

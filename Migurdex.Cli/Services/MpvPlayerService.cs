@@ -1,6 +1,8 @@
 using Migurdex.Cli.Configuration;
 using Migurdex.Cli.Utils;
+using Migurdex.Core.Services;
 using Migurdex.Shared.Models;
+using Spectre.Console;
 using System.Diagnostics;
 using System.IO.Pipes;
 using System.Net.Sockets;
@@ -14,18 +16,21 @@ public class MpvPlayerService : IMpvPlayerService
     private readonly IConfigurationService _configService;
     private readonly IHistoryService       _historyService;
     private readonly IDiscordRpcService    _rpcService;
+    private readonly WatchSyncService      _syncService;
 
     public MpvPlayerService(
         IConfigurationService configService,
         IHistoryService       historyService,
-        IDiscordRpcService    rpcService)
+        IDiscordRpcService    rpcService,
+        WatchSyncService      syncService)
     {
         _configService  = configService;
         _historyService = historyService;
         _rpcService     = rpcService;
+        _syncService    = syncService;
     }
 
-    public async Task PlayAsync(
+    public async Task<SyncOutcome> PlayAsync(
         string                      videoUrl,
         WatchHistoryEntry           historyEntry,
         Dictionary<string, string>? headers           = null,
@@ -122,7 +127,7 @@ public class MpvPlayerService : IMpvPlayerService
         var mediaTitle = animeTitle;
         if (historyEntry.EpisodeNumber > 0)
         {
-            var season  = Math.Max(1, historyEntry.Season);
+            var season = Math.Max(1, historyEntry.Season);
             var episode = historyEntry.EpisodeNumber % 1 == 0
                               ? ((int) historyEntry.EpisodeNumber).ToString()
                               : historyEntry.EpisodeNumber.ToString("0.#",
@@ -143,6 +148,12 @@ public class MpvPlayerService : IMpvPlayerService
             argList.Add($"--force-media-title={mediaTitle}");
         }
 
+        if (!_configService.Config.ShowPlayerLogs)
+        {
+            argList.Add("--terminal=no");
+            argList.Add("--really-quiet");
+        }
+
         var psi = new ProcessStartInfo
         {
             FileName               = playerPath,
@@ -160,6 +171,16 @@ public class MpvPlayerService : IMpvPlayerService
         using var process = Process.Start(psi) ?? throw new InvalidOperationException("Medya oynatıcı başlatılamadı.");
         ChildProcessTracker.Track(process);
 
+        if (!_configService.Config.ShowPlayerLogs)
+        {
+            AnsiConsole.Clear();
+            AnsiConsole.MarkupLine($"[grey]~~[/] [bold cyan]Oynatılıyor:[/] [white]{Markup.Escape(historyEntry.AnimeTitle)}[/] [grey]~~[/]");
+            if (!string.IsNullOrWhiteSpace(mediaTitle))
+            {
+                AnsiConsole.MarkupLine($"[grey]{Markup.Escape(mediaTitle)}[/]");
+            }
+        }
+
         _rpcService.UpdatePlaybackPresence(
             historyEntry.AnimeTitle,
             historyEntry.EpisodeTitle,
@@ -173,7 +194,8 @@ public class MpvPlayerService : IMpvPlayerService
 
         await Task.Delay(1000, cancellationToken);
 
-        _ = Task.Run(() => MonitorIpcAsync(ipcPath, historyEntry, process, cancellationToken), cancellationToken);
+        var monitorTask = Task.Run(() => MonitorIpcAsync(ipcPath, historyEntry, process, cancellationToken),
+                                   cancellationToken);
 
         await process.WaitForExitAsync(cancellationToken);
 
@@ -202,15 +224,34 @@ public class MpvPlayerService : IMpvPlayerService
                 // ignored
             }
         }
+
+        SyncOutcome syncOutcome;
+        try
+        {
+            syncOutcome = await monitorTask;
+        }
+        catch
+        {
+            syncOutcome = new SyncOutcome
+            {
+                Kind = SyncOutcomeKind.Queued
+            };
+        }
+
+        return syncOutcome;
     }
 
-    private async Task MonitorIpcAsync(string ipcPath,
-        WatchHistoryEntry                     historyEntry,
-        Process                               process,
-        CancellationToken                     cancellationToken)
+    private async Task<SyncOutcome> MonitorIpcAsync(string ipcPath,
+        WatchHistoryEntry                                  historyEntry,
+        Process                                            process,
+        CancellationToken                                  cancellationToken)
     {
         var     isWindows = OperatingSystem.IsWindows();
         Stream? stream    = null;
+        var syncOutcome = new SyncOutcome
+        {
+            Kind = SyncOutcomeKind.None
+        };
 
         try
         {
@@ -246,7 +287,10 @@ public class MpvPlayerService : IMpvPlayerService
 
                 if (socket == null)
                 {
-                    return;
+                    return new SyncOutcome
+                    {
+                        Kind = SyncOutcomeKind.None
+                    };
                 }
 
                 stream = new NetworkStream(socket, true);
@@ -339,8 +383,24 @@ public class MpvPlayerService : IMpvPlayerService
         finally
         {
             _historyService.SaveWatchProgress(historyEntry);
+
+            if (!_configService.Config.EnableIncognitoMode)
+            {
+                syncOutcome = await _syncService.SyncAsync(new SyncWatchEntry
+                {
+                    Provider    = historyEntry.ProviderName,
+                    AnimeTitle  = historyEntry.AnimeTitle,
+                    AnimeId     = historyEntry.AnimeId,
+                    Season      = historyEntry.Season,
+                    Episode     = historyEntry.EpisodeNumber,
+                    IsCompleted = historyEntry.IsCompleted
+                });
+            }
+
             stream?.Dispose();
         }
+
+        return syncOutcome;
     }
 
     private static string? FindPlayerExecutable(string playerExe)

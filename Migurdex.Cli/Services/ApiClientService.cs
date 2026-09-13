@@ -533,6 +533,55 @@ public class ApiClientService : IApiClientService
         }
     }
 
+    public async Task<ApiResult<TrackerEpisodeMapping?>> MapTrackerEpisodeAsync(string provider,
+        string                                                                          providerId,
+        int                                                                             season,
+        double                                                                          episode,
+        CancellationToken                                                               cancellationToken = default)
+    {
+        try
+        {
+            var url = $"api/v1/tracker/episode?provider={Uri.EscapeDataString(provider)}" +
+                      $"&id={Uri.EscapeDataString(providerId)}" +
+                      $"&season={season}" +
+                      $"&episode={episode.ToString(System.Globalization.CultureInfo.InvariantCulture)}";
+
+            var mapping = await _httpClient.GetFromJsonAsync<TrackerEpisodeMapping>(url, JsonOpts,
+                                                                                    cancellationToken);
+            return ApiResult<TrackerEpisodeMapping?>.Ok(mapping);
+        }
+        catch
+        {
+            return ApiResult<TrackerEpisodeMapping?>.Fail(null, "Bölüm eşlenemedi.");
+        }
+    }
+
+    public async Task<bool> SaveTrackerMappingAsync(string provider,
+        string                                                   providerId,
+        string                                                   anilistId,
+        string?                                                  malId             = null,
+        string?                                                  matchedTitle      = null,
+        CancellationToken                                        cancellationToken = default)
+    {
+        try
+        {
+            using var response = await _httpClient.PostAsJsonAsync("api/v1/tracker/mapping",
+                new SaveTrackerMappingRequest
+                {
+                    Provider      = provider,
+                    ProviderId    = providerId,
+                    AniListId     = anilistId,
+                    MyAnimeListId = malId,
+                    MatchedTitle  = matchedTitle ?? string.Empty
+                }, JsonOpts, cancellationToken);
+            return response.IsSuccessStatusCode;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
     private static void AppendApiLog(string path, string? line)
     {
         if (string.IsNullOrEmpty(line)) return;

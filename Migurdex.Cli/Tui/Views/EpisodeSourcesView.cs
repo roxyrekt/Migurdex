@@ -393,15 +393,25 @@ public class EpisodeSourcesView : BaseView
                         historyEntry.TotalDurationSeconds = existingHistory.TotalDurationSeconds;
                     }
 
-                    _playerService.PlayAsync(bestSource.Url,
-                                             historyEntry,
-                                             bestSource.Headers,
-                                             bestSource.Subtitles,
-                                             CancellationToken.None)
-                                  .GetAwaiter()
-                                  .GetResult();
+                    var autoSyncOutcome = _playerService.PlayAsync(bestSource.Url,
+                                                                   historyEntry,
+                                                                   bestSource.Headers,
+                                                                   bestSource.Subtitles,
+                                                                   CancellationToken.None)
+                                                        .GetAwaiter()
+                                                        .GetResult();
 
-                    PushPlaybackMenu(navigator, bestSource, historyEntry, provider, animeId, animeTitle, episode);
+                    SyncAmbiguityPrompt.HandleAfterPlayback(_serviceProvider, autoSyncOutcome);
+                    SyncAmbiguityPrompt.ShowPlaybackNotification(autoSyncOutcome);
+
+                    PushPlaybackMenu(navigator,
+                                     bestSource,
+                                     historyEntry,
+                                     provider,
+                                     animeId,
+                                     animeTitle,
+                                     episode,
+                                     autoSyncOutcome);
                     return;
                 }
             }
@@ -509,12 +519,25 @@ public class EpisodeSourcesView : BaseView
                           });
 
         AnsiConsole.MarkupLine("[green]OK:[/] Oynatıcı başlatıldı.");
-        _playerService
-            .PlayAsync(selectedSource.Url, selectedHistoryEntry, selectedSource.Headers, selectedSource.Subtitles)
-            .GetAwaiter()
-            .GetResult();
+        var syncOutcome = _playerService
+                          .PlayAsync(selectedSource.Url,
+                                     selectedHistoryEntry,
+                                     selectedSource.Headers,
+                                     selectedSource.Subtitles)
+                          .GetAwaiter()
+                          .GetResult();
 
-        PushPlaybackMenu(navigator, selectedSource, selectedHistoryEntry, provider, animeId, animeTitle, episode);
+        SyncAmbiguityPrompt.HandleAfterPlayback(_serviceProvider, syncOutcome);
+        SyncAmbiguityPrompt.ShowPlaybackNotification(syncOutcome);
+
+        PushPlaybackMenu(navigator,
+                         selectedSource,
+                         selectedHistoryEntry,
+                         provider,
+                         animeId,
+                         animeTitle,
+                         episode,
+                         syncOutcome);
     }
 
     private void PushPlaybackMenu(ITuiNavigator navigator,
@@ -523,7 +546,8 @@ public class EpisodeSourcesView : BaseView
         string                                  provider,
         string                                  animeId,
         string                                  animeTitle,
-        Episode                                 episode)
+        Episode                                 episode,
+        SyncOutcome?                            syncOutcome = null)
     {
         var playbackMenu = (PlaybackMenuView) _serviceProvider.GetService(typeof(PlaybackMenuView))!;
         playbackMenu.SetTarget(provider,
@@ -533,7 +557,8 @@ public class EpisodeSourcesView : BaseView
                                _allEpisodes,
                                selectedSource,
                                historyEntry,
-                               _cachedSources);
+                               _cachedSources,
+                               syncOutcome);
         navigator.Push(playbackMenu);
     }
 

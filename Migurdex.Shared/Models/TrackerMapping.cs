@@ -24,3 +24,12 @@ public sealed class TrackerResolveResult
     public bool                            FromCache  { get; set; }
     public IReadOnlyList<TrackerCandidate> Candidates { get; set; } = [];
 }
+
+public sealed class SaveTrackerMappingRequest
+{
+    public string  Provider      { get; set; } = string.Empty;
+    public string  ProviderId    { get; set; } = string.Empty;
+    public string  AniListId     { get; set; } = string.Empty;
+    public string? MyAnimeListId { get; set; }
+    public string  MatchedTitle  { get; set; } = string.Empty;
+}

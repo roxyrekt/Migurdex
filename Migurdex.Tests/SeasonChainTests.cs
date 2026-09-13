@@ -22,11 +22,11 @@ public sealed class SeasonChainTests
 
         public Task<List<MediaMetadata>> SearchMetadataAsync(string title,
             ContentFormat                                           expectedFormat    = ContentFormat.Unknown,
-            CancellationToken                                       cancellationToken = default)
-            => Task.FromResult(_byId.Values.ToList());
+            CancellationToken                                       cancellationToken = default) =>
+            Task.FromResult(_byId.Values.ToList());
 
-        public Task<MediaMetadata?> GetMetadataByIdAsync(string id, CancellationToken cancellationToken = default)
-            => Task.FromResult(_byId.GetValueOrDefault(id));
+        public Task<MediaMetadata?> GetMetadataByIdAsync(string id, CancellationToken cancellationToken = default) =>
+            Task.FromResult(_byId.GetValueOrDefault(id));
     }
 
     private static MediaMetadata Meta(string id, string title, string? malId, int? eps)
@@ -65,7 +65,12 @@ public sealed class SeasonChainTests
             }
 
             edges.TryAdd(from, []);
-            edges[from].Add(new RelationEdge { RelationType = "SEQUEL", Id = to });
+            edges[from]
+                .Add(new RelationEdge
+                {
+                    RelationType = "SEQUEL",
+                    Id           = to
+                });
         }
 
         foreach (var (from, to) in prequels)
@@ -76,7 +81,12 @@ public sealed class SeasonChainTests
             }
 
             edges.TryAdd(from, []);
-            edges[from].Add(new RelationEdge { RelationType = "PREQUEL", Id = to });
+            edges[from]
+                .Add(new RelationEdge
+                {
+                    RelationType = "PREQUEL",
+                    Id           = to
+                });
         }
 
         return new SeasonChainService(
@@ -86,24 +96,33 @@ public sealed class SeasonChainTests
             (id, _) => Task.FromResult<IReadOnlyList<RelationEdge>>(edges.GetValueOrDefault(id, [])));
     }
 
-    private static Dictionary<string, MediaMetadata> JjkChainData() => new()
-    {
-        ["113415"] = Meta("113415", "Jujutsu Kaisen", "40748", 24),
-        ["145064"] = Meta("145064", "Jujutsu Kaisen 2nd Season", "51009", 23),
-        ["60683"]  = Meta("60683", "Jujutsu Kaisen S3", "57658", 12)
-    };
+    private static Dictionary<string, MediaMetadata> JjkChainData() =>
+        new()
+        {
+            ["113415"] = Meta("113415", "Jujutsu Kaisen", "40748", 24),
+            ["145064"] = Meta("145064", "Jujutsu Kaisen 2nd Season", "51009", 23),
+            ["60683"]  = Meta("60683", "Jujutsu Kaisen S3", "57658", 12)
+        };
 
-    private static Dictionary<string, string?> JjkSequels() => new()
-    {
-        ["113415"] = "145064",
-        ["145064"] = "60683",
-        ["60683"]  = null
-    };
+    private static Dictionary<string, string?> JjkSequels() =>
+        new()
+        {
+            ["113415"] = "145064",
+            ["145064"] = "60683",
+            ["60683"]  = null
+        };
 
-    private static AnimeDetails Details(string title,           int seasons, int perSeason,
-        List<SeasonMapping>?                   mappings = null, int startSeason = 1)
+    private static AnimeDetails Details(string title,
+        int                                    seasons,
+        int                                    perSeason,
+        List<SeasonMapping>?                   mappings    = null,
+        int                                    startSeason = 1)
     {
-        var d = new AnimeDetails { Title = title, SeasonMappings = mappings ?? [] };
+        var d = new AnimeDetails
+        {
+            Title          = title,
+            SeasonMappings = mappings ?? []
+        };
         for (var s = 0; s < seasons; s++)
         {
             for (var n = 1; n <= perSeason; n++)
@@ -145,11 +164,12 @@ public sealed class SeasonChainTests
     [Fact]
     public async Task Chain_Cycle_Stops()
     {
-        var svc = Create(JjkChainData(), new Dictionary<string, string?>
-        {
-            ["113415"] = "145064",
-            ["145064"] = "113415"
-        });
+        var svc = Create(JjkChainData(),
+                         new Dictionary<string, string?>
+                         {
+                             ["113415"] = "145064",
+                             ["145064"] = "113415"
+                         });
 
         var chain = await svc.GetSeasonChainAsync("113415", TestContext.Current.CancellationToken);
 
@@ -160,11 +180,13 @@ public sealed class SeasonChainTests
     [Fact]
     public async Task Chain_FromSeasonTwo_WalksBackToRoot()
     {
-        var svc = Create(JjkChainData(), JjkSequels(), new Dictionary<string, string?>
-        {
-            ["145064"] = "113415",
-            ["60683"]  = "145064"
-        });
+        var svc = Create(JjkChainData(),
+                         JjkSequels(),
+                         new Dictionary<string, string?>
+                         {
+                             ["145064"] = "113415",
+                             ["60683"]  = "145064"
+                         });
 
         var chain = await svc.GetSeasonChainAsync("145064", TestContext.Current.CancellationToken);
 
@@ -190,18 +212,20 @@ public sealed class SeasonChainTests
             Format        = ContentFormat.Movie,
             Synonyms      = []
         };
-        var svc = Create(data, new Dictionary<string, string?>
-        {
-            ["113415"] = "145064",
-            ["145064"] = "60683",
-            ["131573"] = "113415",
-            ["60683"]  = null
-        }, new Dictionary<string, string?>
-        {
-            ["113415"] = "131573",
-            ["145064"] = "113415",
-            ["60683"]  = "145064"
-        });
+        var svc = Create(data,
+                         new Dictionary<string, string?>
+                         {
+                             ["113415"] = "145064",
+                             ["145064"] = "60683",
+                             ["131573"] = "113415",
+                             ["60683"]  = null
+                         },
+                         new Dictionary<string, string?>
+                         {
+                             ["113415"] = "131573",
+                             ["145064"] = "113415",
+                             ["60683"]  = "145064"
+                         });
 
         var chain = await svc.GetSeasonChainAsync("145064", TestContext.Current.CancellationToken);
 
@@ -222,15 +246,32 @@ public sealed class SeasonChainTests
         {
             for (var n = 1; n <= count; n++)
             {
-                details.Episodes.Add(new Episode { Id = $"e{s}-{n}", Number = n, Season = s });
+                details.Episodes.Add(new Episode
+                {
+                    Id     = $"e{s}-{n}",
+                    Number = n,
+                    Season = s
+                });
             }
         }
 
         details.SeasonMappings =
         [
-            new SeasonMapping { SeasonNumber = 1, MyAnimeListId = "40748" },
-            new SeasonMapping { SeasonNumber = 2, MyAnimeListId = "51009" },
-            new SeasonMapping { SeasonNumber = 3, MyAnimeListId = "57658" }
+            new SeasonMapping
+            {
+                SeasonNumber  = 1,
+                MyAnimeListId = "40748"
+            },
+            new SeasonMapping
+            {
+                SeasonNumber  = 2,
+                MyAnimeListId = "51009"
+            },
+            new SeasonMapping
+            {
+                SeasonNumber  = 3,
+                MyAnimeListId = "57658"
+            }
         ];
 
         var align = svc.AlignEntry(details, chain);
@@ -246,8 +287,16 @@ public sealed class SeasonChainTests
     {
         var svc   = Create(JjkChainData(), JjkSequels());
         var chain = (await svc.GetSeasonChainAsync("113415", TestContext.Current.CancellationToken))!;
-        var details = Details("Jujutsu Kaisen", 1, 25,
-                              [new SeasonMapping { SeasonNumber = 1, MyAnimeListId = "40748" }]);
+        var details = Details("Jujutsu Kaisen",
+                              1,
+                              25,
+                              [
+                                  new SeasonMapping
+                                  {
+                                      SeasonNumber  = 1,
+                                      MyAnimeListId = "40748"
+                                  }
+                              ]);
 
         var align = svc.AlignEntry(details, chain);
 
@@ -271,7 +320,7 @@ public sealed class SeasonChainTests
         Assert.Equal(1, align.Seasons[0].CanonicalSeasonNumber);
         var ep = svc.TranslateToCanonical(align, null, 12);
         Assert.NotNull(ep);
-        Assert.Equal((1, 12), (ep.Season, (int)ep.Number));
+        Assert.Equal((1, 12), (ep.Season, (int) ep.Number));
     }
 
     [Fact]
@@ -305,15 +354,15 @@ public sealed class SeasonChainTests
 
         var ep24 = svc.TranslateToCanonical(align, null, 24);
         Assert.NotNull(ep24);
-        Assert.Equal((1, 24), (ep24.Season, (int)ep24.Number));
+        Assert.Equal((1, 24), (ep24.Season, (int) ep24.Number));
 
         var ep25 = svc.TranslateToCanonical(align, null, 25);
         Assert.NotNull(ep25);
-        Assert.Equal((2, 1), (ep25.Season, (int)ep25.Number));
+        Assert.Equal((2, 1), (ep25.Season, (int) ep25.Number));
 
         var ep48 = svc.TranslateToCanonical(align, null, 48);
         Assert.NotNull(ep48);
-        Assert.Equal((3, 1), (ep48.Season, (int)ep48.Number));
+        Assert.Equal((3, 1), (ep48.Season, (int) ep48.Number));
     }
 
     [Fact]
@@ -327,14 +376,27 @@ public sealed class SeasonChainTests
         {
             for (var n = 1; n <= count; n++)
             {
-                details.Episodes.Add(new Episode { Id = $"e{s}-{n}", Number = n, Season = s });
+                details.Episodes.Add(new Episode
+                {
+                    Id     = $"e{s}-{n}",
+                    Number = n,
+                    Season = s
+                });
             }
         }
 
         details.SeasonMappings =
         [
-            new SeasonMapping { SeasonNumber = 1, MyAnimeListId = "40748" },
-            new SeasonMapping { SeasonNumber = 2, MyAnimeListId = "51009" }
+            new SeasonMapping
+            {
+                SeasonNumber  = 1,
+                MyAnimeListId = "40748"
+            },
+            new SeasonMapping
+            {
+                SeasonNumber  = 2,
+                MyAnimeListId = "51009"
+            }
         ];
 
         var align = svc.AlignEntry(details, chain);
@@ -357,23 +419,36 @@ public sealed class SeasonChainTests
         {
             for (var n = 1; n <= count; n++)
             {
-                details.Episodes.Add(new Episode { Id = $"e{s}-{n}", Number = n, Season = s });
+                details.Episodes.Add(new Episode
+                {
+                    Id     = $"e{s}-{n}",
+                    Number = n,
+                    Season = s
+                });
             }
         }
 
-        details.SeasonMappings = [new SeasonMapping { SeasonNumber = 1, MyAnimeListId = "40748" }];
+        details.SeasonMappings =
+        [
+            new SeasonMapping
+            {
+                SeasonNumber  = 1,
+                MyAnimeListId = "40748"
+            }
+        ];
 
         var align = svc.AlignEntry(details, chain);
 
         Assert.Equal(3, align.Seasons.Count);
         Assert.Equal(
-            [1, 2, 3], align.Seasons.OrderBy(s => s.ProviderSeasonNumber).Select(s => s.CanonicalSeasonNumber));
+            [1, 2, 3],
+            align.Seasons.OrderBy(s => s.ProviderSeasonNumber).Select(s => s.CanonicalSeasonNumber));
         Assert.Contains(align.Warnings, w => w.Contains("25"));
         Assert.Contains(align.Warnings, w => w.Contains("ID yok"));
 
         var ep = svc.TranslateToCanonical(align, 2, 5);
         Assert.NotNull(ep);
-        Assert.Equal((2, 5), (ep.Season, (int)ep.Number));
+        Assert.Equal((2, 5), (ep.Season, (int) ep.Number));
     }
 
     [Fact]
@@ -391,18 +466,20 @@ public sealed class SeasonChainTests
             Format        = ContentFormat.Movie,
             Synonyms      = []
         };
-        var svc = Create(data, new Dictionary<string, string?>
-        {
-            ["113415"] = "131573",
-            ["131573"] = "145064",
-            ["145064"] = "60683",
-            ["60683"]  = null
-        }, new Dictionary<string, string?>
-        {
-            ["131573"] = "113415",
-            ["145064"] = "131573",
-            ["60683"]  = "145064"
-        });
+        var svc = Create(data,
+                         new Dictionary<string, string?>
+                         {
+                             ["113415"] = "131573",
+                             ["131573"] = "145064",
+                             ["145064"] = "60683",
+                             ["60683"]  = null
+                         },
+                         new Dictionary<string, string?>
+                         {
+                             ["131573"] = "113415",
+                             ["145064"] = "131573",
+                             ["60683"]  = "145064"
+                         });
 
         var chain = await svc.GetSeasonChainAsync("113415", TestContext.Current.CancellationToken);
 
@@ -421,8 +498,15 @@ public sealed class SeasonChainTests
             ["21"]     = Meta("21", "ONE PIECE", null, null)
         };
         data["167404"].Format = ContentFormat.Ova;
-        var svc = Create(data, new Dictionary<string, string?> { ["167404"] = "21" },
-                         new Dictionary<string, string?> { ["21"]           = "167404" });
+        var svc = Create(data,
+                         new Dictionary<string, string?>
+                         {
+                             ["167404"] = "21"
+                         },
+                         new Dictionary<string, string?>
+                         {
+                             ["21"] = "167404"
+                         });
 
         var chain = await svc.GetSeasonChainAsync("21", TestContext.Current.CancellationToken);
 
@@ -444,8 +528,15 @@ public sealed class SeasonChainTests
             ["21"]     = Meta("21", "ONE PIECE", null, null)
         };
         data["167404"].Format = ContentFormat.Ova;
-        var svc = Create(data, new Dictionary<string, string?> { ["167404"] = "21" },
-                         new Dictionary<string, string?> { ["21"]           = "167404" });
+        var svc = Create(data,
+                         new Dictionary<string, string?>
+                         {
+                             ["167404"] = "21"
+                         },
+                         new Dictionary<string, string?>
+                         {
+                             ["21"] = "167404"
+                         });
 
         var chain = await svc.GetSeasonChainAsync("167404", TestContext.Current.CancellationToken);
 
@@ -457,6 +548,41 @@ public sealed class SeasonChainTests
     }
 
     [Fact]
+    public async Task Chain_MovieOnlyFranchise_AssignsSequentialSeasons()
+    {
+        var data = new Dictionary<string, MediaMetadata>
+        {
+            ["1"] = Meta("1", "Movie 1", null, 1),
+            ["2"] = Meta("2", "Movie 2", null, 1),
+            ["3"] = Meta("3", "Movie 3", null, 1)
+        };
+        data["1"].Format = ContentFormat.Movie;
+        data["2"].Format = ContentFormat.Movie;
+        data["3"].Format = ContentFormat.Movie;
+
+        var svc = Create(data,
+                         new Dictionary<string, string?>
+                         {
+                             ["1"] = "2",
+                             ["2"] = "3"
+                         },
+                         new Dictionary<string, string?>
+                         {
+                             ["2"] = "1",
+                             ["3"] = "2"
+                         });
+
+        var chain = await svc.GetSeasonChainAsync("1", TestContext.Current.CancellationToken);
+
+        Assert.NotNull(chain);
+        Assert.Equal(3, chain.Entries.Count);
+        Assert.Equal(1, chain.Entries[0].SeasonNumber);
+        Assert.Equal(2, chain.Entries[1].SeasonNumber);
+        Assert.Equal(3, chain.Entries[2].SeasonNumber);
+        Assert.Equal("1", chain.RootAniListId);
+    }
+
+    [Fact]
     public void Translate_NoSeasons_ReturnsNull()
     {
         var svc   = Create(JjkChainData(), JjkSequels());
@@ -465,21 +591,23 @@ public sealed class SeasonChainTests
         Assert.Null(svc.TranslateToCanonical(align, 1, 1));
     }
 
-    private static Dictionary<string, MediaMetadata> BleachChainData() => new()
-    {
-        ["269"]   = Meta("269", "BLEACH", "269", 366),
-        ["16463"] = Meta("16463", "BLEACH S2", "5150", 13),
-        ["16545"] = Meta("16545", "BLEACH S3", "5151", 13),
-        ["16546"] = Meta("16546", "BLEACH S4", "5152", 14)
-    };
+    private static Dictionary<string, MediaMetadata> BleachChainData() =>
+        new()
+        {
+            ["269"]   = Meta("269", "BLEACH", "269", 366),
+            ["16463"] = Meta("16463", "BLEACH S2", "5150", 13),
+            ["16545"] = Meta("16545", "BLEACH S3", "5151", 13),
+            ["16546"] = Meta("16546", "BLEACH S4", "5152", 14)
+        };
 
-    private static Dictionary<string, string?> BleachSequels() => new()
-    {
-        ["269"]   = "16463",
-        ["16463"] = "16545",
-        ["16545"] = "16546",
-        ["16546"] = null
-    };
+    private static Dictionary<string, string?> BleachSequels() =>
+        new()
+        {
+            ["269"]   = "16463",
+            ["16463"] = "16545",
+            ["16545"] = "16546",
+            ["16546"] = null
+        };
 
     [Fact]
     public async Task Align_GroupSpanning_ExpandsToSlices()
@@ -492,7 +620,12 @@ public sealed class SeasonChainTests
         {
             for (var n = 1; n <= count; n++)
             {
-                details.Episodes.Add(new Episode { Id = $"e{s}-{n}", Number = n, Season = s });
+                details.Episodes.Add(new Episode
+                {
+                    Id     = $"e{s}-{n}",
+                    Number = n,
+                    Season = s
+                });
             }
         }
 
@@ -505,12 +638,12 @@ public sealed class SeasonChainTests
 
         var ep20 = svc.TranslateToCanonical(align, 2, 20);
         Assert.NotNull(ep20);
-        Assert.Equal((3, 7), (ep20.Season, (int)ep20.Number));
+        Assert.Equal((3, 7), (ep20.Season, (int) ep20.Number));
         Assert.False(ep20.IsOverflow);
 
         var ep40 = svc.TranslateToCanonical(align, 2, 40);
         Assert.NotNull(ep40);
-        Assert.Equal((4, 14), (ep40.Season, (int)ep40.Number));
+        Assert.Equal((4, 14), (ep40.Season, (int) ep40.Number));
 
         var ep41 = svc.TranslateToCanonical(align, 2, 41);
         Assert.NotNull(ep41);
@@ -523,11 +656,23 @@ public sealed class SeasonChainTests
         var svc     = Create(JjkChainData(), JjkSequels());
         var chain   = (await svc.GetSeasonChainAsync("113415", TestContext.Current.CancellationToken))!;
         var details = Details("Jujutsu Kaisen", 1, 0);
-        details.SeasonMappings = [new SeasonMapping { SeasonNumber = 1, AniListId = "113415" }];
+        details.SeasonMappings =
+        [
+            new SeasonMapping
+            {
+                SeasonNumber = 1,
+                AniListId    = "113415"
+            }
+        ];
         details.Episodes.Clear();
         for (var i = 1; i <= 47; i++)
         {
-            details.Episodes.Add(new Episode { Id = $"e{i}", Number = i, Season = 1 });
+            details.Episodes.Add(new Episode
+            {
+                Id     = $"e{i}",
+                Number = i,
+                Season = 1
+            });
         }
 
         var align = svc.AlignEntry(details, chain);
@@ -538,7 +683,7 @@ public sealed class SeasonChainTests
 
         var ep25 = svc.TranslateToCanonical(align, 1, 25);
         Assert.NotNull(ep25);
-        Assert.Equal((2, 1), (ep25.Season, (int)ep25.Number));
+        Assert.Equal((2, 1), (ep25.Season, (int) ep25.Number));
         Assert.False(ep25.IsOverflow);
     }
 
@@ -552,7 +697,12 @@ public sealed class SeasonChainTests
         // 47 canonical (24 + 23), provider has 49 (2 extra recaps)
         for (var i = 1; i <= 49; i++)
         {
-            details.Episodes.Add(new Episode { Id = $"e{i}", Number = i, Season = 1 });
+            details.Episodes.Add(new Episode
+            {
+                Id     = $"e{i}",
+                Number = i,
+                Season = 1
+            });
         }
 
         var align = svc.AlignEntry(details, chain);
@@ -562,7 +712,7 @@ public sealed class SeasonChainTests
 
         var ep49 = svc.TranslateToCanonical(align, 1, 49);
         Assert.NotNull(ep49);
-        Assert.Equal((2, 25), (ep49.Season, (int)ep49.Number));
+        Assert.Equal((2, 25), (ep49.Season, (int) ep49.Number));
         Assert.True(ep49.IsOverflow);
     }
 
@@ -586,15 +736,25 @@ public sealed class SeasonChainTests
 
         var details = Details("Series", 2, 0);
         details.Episodes.Clear();
-        // P1 has 24 eps (spans S1 + S2), P2 has 12 eps (should map to S3, not S2!)
+
         for (var i = 1; i <= 24; i++)
         {
-            details.Episodes.Add(new Episode { Id = $"e1-{i}", Number = i, Season = 1 });
+            details.Episodes.Add(new Episode
+            {
+                Id     = $"e1-{i}",
+                Number = i,
+                Season = 1
+            });
         }
 
         for (var i = 1; i <= 12; i++)
         {
-            details.Episodes.Add(new Episode { Id = $"e2-{i}", Number = i, Season = 2 });
+            details.Episodes.Add(new Episode
+            {
+                Id     = $"e2-{i}",
+                Number = i,
+                Season = 2
+            });
         }
 
         var align = svc.AlignEntry(details, chain);
@@ -617,20 +777,35 @@ public sealed class SeasonChainTests
         var chain   = (await svc.GetSeasonChainAsync("269", TestContext.Current.CancellationToken))!;
         var details = Details("Bleach", 3, 0);
         details.Episodes.Clear();
-        // P1 has 366 eps (S1), P2 has 40 eps (spans S2[13] + S3[13] + S4[14]), P3 has 10 eps (maps to S5!)
+
         for (var i = 1; i <= 366; i++)
         {
-            details.Episodes.Add(new Episode { Id = $"e1-{i}", Number = i, Season = 1 });
+            details.Episodes.Add(new Episode
+            {
+                Id     = $"e1-{i}",
+                Number = i,
+                Season = 1
+            });
         }
 
         for (var i = 1; i <= 40; i++)
         {
-            details.Episodes.Add(new Episode { Id = $"e2-{i}", Number = i, Season = 2 });
+            details.Episodes.Add(new Episode
+            {
+                Id     = $"e2-{i}",
+                Number = i,
+                Season = 2
+            });
         }
 
         for (var i = 1; i <= 10; i++)
         {
-            details.Episodes.Add(new Episode { Id = $"e3-{i}", Number = i, Season = 3 });
+            details.Episodes.Add(new Episode
+            {
+                Id     = $"e3-{i}",
+                Number = i,
+                Season = 3
+            });
         }
 
         var align = svc.AlignEntry(details, chain);
@@ -650,11 +825,23 @@ public sealed class SeasonChainTests
         var svc     = Create(BleachChainData(), BleachSequels());
         var chain   = (await svc.GetSeasonChainAsync("269", TestContext.Current.CancellationToken))!;
         var details = Details("Bleach 2nd Season", 1, 0);
-        details.SeasonMappings = [new SeasonMapping { SeasonNumber = 2, AniListId = "16463" }];
+        details.SeasonMappings =
+        [
+            new SeasonMapping
+            {
+                SeasonNumber = 2,
+                AniListId    = "16463"
+            }
+        ];
         details.Episodes.Clear();
         for (var i = 1; i <= 40; i++)
         {
-            details.Episodes.Add(new Episode { Id = $"e{i}", Number = i, Season = 2 });
+            details.Episodes.Add(new Episode
+            {
+                Id     = $"e{i}",
+                Number = i,
+                Season = 2
+            });
         }
 
         var align = svc.AlignEntry(details, chain);
@@ -665,7 +852,7 @@ public sealed class SeasonChainTests
 
         var ep = svc.TranslateToCanonical(align, 2, 20);
         Assert.NotNull(ep);
-        Assert.Equal((3, 7), (ep.Season, (int)ep.Number));
+        Assert.Equal((3, 7), (ep.Season, (int) ep.Number));
     }
 
     [Fact]
@@ -677,7 +864,12 @@ public sealed class SeasonChainTests
         details.Episodes.Clear();
         for (var i = 1; i <= 23; i++)
         {
-            details.Episodes.Add(new Episode { Id = $"e{i}", Number = i, Season = 1 });
+            details.Episodes.Add(new Episode
+            {
+                Id     = $"e{i}",
+                Number = i,
+                Season = 1
+            });
         }
 
         var align = svc.AlignEntry(details, chain);
@@ -715,7 +907,12 @@ public sealed class SeasonChainTests
             ["2"] = Meta("2", "Series OVA", "2", 3)
         };
         data["2"].Format = ContentFormat.Movie;
-        var svc = Create(data, new Dictionary<string, string?> { ["1"] = "2", ["2"] = null });
+        var svc = Create(data,
+                         new Dictionary<string, string?>
+                         {
+                             ["1"] = "2",
+                             ["2"] = null
+                         });
 
         var chain = await svc.GetSeasonChainAsync("1", TestContext.Current.CancellationToken);
         Assert.NotNull(chain);
@@ -724,12 +921,22 @@ public sealed class SeasonChainTests
         details.Episodes.Clear();
         for (var i = 1; i <= 3; i++)
         {
-            details.Episodes.Add(new Episode { Id = $"e0-{i}", Number = i, Season = 0 });
+            details.Episodes.Add(new Episode
+            {
+                Id     = $"e0-{i}",
+                Number = i,
+                Season = 0
+            });
         }
 
         for (var i = 1; i <= 12; i++)
         {
-            details.Episodes.Add(new Episode { Id = $"e1-{i}", Number = i, Season = 1 });
+            details.Episodes.Add(new Episode
+            {
+                Id     = $"e1-{i}",
+                Number = i,
+                Season = 1
+            });
         }
 
         var align = svc.AlignEntry(details, chain);
@@ -749,7 +956,12 @@ public sealed class SeasonChainTests
         details.Episodes.Clear();
         for (var i = 1; i <= 47; i++)
         {
-            details.Episodes.Add(new Episode { Id = $"e{i}", Number = i, Season = 1 });
+            details.Episodes.Add(new Episode
+            {
+                Id     = $"e{i}",
+                Number = i,
+                Season = 1
+            });
         }
 
         var align = svc.AlignEntry(details, chain);
@@ -758,7 +970,7 @@ public sealed class SeasonChainTests
         var ep = svc.TranslateToCanonical(align, 1, 49);
         Assert.NotNull(ep);
         Assert.Equal(2, ep.Season);
-        Assert.Equal(25, (int)ep.Number);
+        Assert.Equal(25, (int) ep.Number);
         Assert.True(ep.IsOverflow);
     }
 
@@ -773,7 +985,12 @@ public sealed class SeasonChainTests
         {
             for (var n = 1; n <= count; n++)
             {
-                details.Episodes.Add(new Episode { Id = $"e{s}-{n}", Number = n, Season = s });
+                details.Episodes.Add(new Episode
+                {
+                    Id     = $"e{s}-{n}",
+                    Number = n,
+                    Season = s
+                });
             }
         }
 
@@ -782,7 +999,7 @@ public sealed class SeasonChainTests
         var ep = svc.TranslateToCanonical(align, 2, 0);
         Assert.NotNull(ep);
         Assert.Equal(2, ep.Season);
-        Assert.Equal(0, (int)ep.Number);
+        Assert.Equal(0, (int) ep.Number);
         Assert.False(ep.IsOverflow);
     }
 
@@ -791,8 +1008,22 @@ public sealed class SeasonChainTests
     {
         var edges = new Dictionary<string, List<RelationEdge>>
         {
-            ["1"] = [new RelationEdge { RelationType = "SEQUEL", Id = "2" }],
-            ["2"] = [new RelationEdge { RelationType = "SEQUEL", Id = "3" }]
+            ["1"] =
+            [
+                new RelationEdge
+                {
+                    RelationType = "SEQUEL",
+                    Id           = "2"
+                }
+            ],
+            ["2"] =
+            [
+                new RelationEdge
+                {
+                    RelationType = "SEQUEL",
+                    Id           = "3"
+                }
+            ]
         };
         var data = new Dictionary<string, MediaMetadata>
         {
@@ -826,10 +1057,10 @@ public sealed class SeasonChainTests
     [Fact]
     public async Task Chain_RelationsMemoized_RootQueriedOnce()
     {
-        var calls = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
-        var data  = JjkChainData();
+        var calls   = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        var data    = JjkChainData();
         var sequels = JjkSequels();
-        var edges = new Dictionary<string, List<RelationEdge>>();
+        var edges   = new Dictionary<string, List<RelationEdge>>();
         foreach (var (from, to) in sequels)
         {
             if (to is null)
@@ -838,7 +1069,12 @@ public sealed class SeasonChainTests
             }
 
             edges.TryAdd(from, []);
-            edges[from].Add(new RelationEdge { RelationType = "SEQUEL", Id = to });
+            edges[from]
+                .Add(new RelationEdge
+                {
+                    RelationType = "SEQUEL",
+                    Id           = to
+                });
         }
 
         Task<IReadOnlyList<RelationEdge>> Counting(string id, CancellationToken _)

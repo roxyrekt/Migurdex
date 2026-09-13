@@ -85,9 +85,11 @@ public static class FuzzyPrompt
         string                   title,
         IEnumerable<FuzzyChoice> choices,
         int                      pageSize         = 15,
-        string?                  initialSelection = null)
+        string?                  initialSelection = null,
+        IEnumerable<string>?     headerLines      = null)
     {
         var choicesList     = choices.ToList();
+        var headersList     = headerLines?.Where(h => !string.IsNullOrWhiteSpace(h)).ToList();
         var query           = string.Empty;
         var cursorIndex     = ResolveInitialCursor(choicesList, initialSelection);
         var textCursorIndex = 0;
@@ -110,6 +112,13 @@ public static class FuzzyPrompt
             grid.AddColumn();
 
             grid.AddRow(new Markup($"[grey]~~[/] [bold cyan]{title.TrimEnd(':')}[/] [grey]~~[/]"));
+            if (headersList != null)
+            {
+                foreach (var header in headersList)
+                {
+                    grid.AddRow(new Markup(header));
+                }
+            }
             grid.AddRow(new Text(string.Empty));
             grid.AddRow(new Markup($"[bold cyan]Filtre:[/] {FormatQueryWithCursor(query, textCursorIndex)}"));
             grid.AddRow(new Text(string.Empty));
