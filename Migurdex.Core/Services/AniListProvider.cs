@@ -1,20 +1,25 @@
-using Migurdex.Shared.Enums;
-using Migurdex.Shared.Interfaces;
-using Migurdex.Shared.Models;
+using System.Net;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
+using Migurdex.Shared.Enums;
+using Migurdex.Shared.Interfaces;
+using Migurdex.Shared.Models;
 
 namespace Migurdex.Core.Services;
 
 public partial class AniListProvider : IMetadataProvider
 {
-    private readonly HttpClient _httpClient;
+    private readonly HttpClient               _httpClient;
+    private readonly ILogger<AniListProvider> _logger;
 
-    public AniListProvider(ISharedBridge bridge)
+    public AniListProvider(ISharedBridge bridge, ILogger<AniListProvider>? logger = null)
     {
         _httpClient = bridge.CreateHttpClient();
         _httpClient.DefaultRequestHeaders.Add("User-Agent", "Migurdex/1.0");
+        _logger = logger ?? NullLogger<AniListProvider>.Instance;
     }
 
     public string Name => "AniList";
@@ -90,9 +95,14 @@ public partial class AniListProvider : IMetadataProvider
                                      }
                              """;
 
+        if (!int.TryParse(id, out var numericId))
+        {
+            return null;
+        }
+
         var variables = new
         {
-            id = int.Parse(id)
+            id = numericId
         };
 
         var list = await FetchListFromAniList(query, variables, cancellationToken);
@@ -141,7 +151,7 @@ public partial class AniListProvider : IMetadataProvider
 
             return list.FirstOrDefault();
         }
-        catch
+        catch (Exception) when (!cancellationToken.IsCancellationRequested)
         {
             return null;
         }
@@ -149,21 +159,103 @@ public partial class AniListProvider : IMetadataProvider
 
     public async Task<string?> QuerySequelIdAsync(string id, CancellationToken cancellationToken = default)
     {
+        return await QueryRelatedIdAsync(id, "SEQUEL", cancellationToken);
+    }
+
+    public async Task<string?> QueryPrequelIdAsync(string id, CancellationToken cancellationToken = default)
+    {
+        return await QueryRelatedIdAsync(id, "PREQUEL", cancellationToken);
+    }
+
+    public async Task<IReadOnlyList<RelationEdge>> QueryAnimeRelationsAsync(
+        string id, CancellationToken cancellationToken = default)
+    {
         const string query = """
-                                 query ($id: Int) {
-                                   Media(id: $id) {
-                                     relations {
-                                       edges {
-                                         relationType
-                                         node {
-                                           id
-                                           type
-                                         }
-                                       }
+                             query ($id: Int) {
+                               Media(id: $id) {
+                                 relations {
+                                   edges {
+                                     relationType
+                                     node {
+                                       id
+                                       type
+                                       format
                                      }
                                    }
                                  }
+                               }
+                             }
                              """;
+
+        var result = new List<RelationEdge>();
+
+        try
+        {
+            var requestBody = new
+            {
+                query,
+                variables = new { id = int.Parse(id) }
+            };
+
+            using var response = await PostGraphQLAsync(requestBody, cancellationToken);
+            if (response is null) return result;
+
+            var       json = await response.Content.ReadAsStringAsync(cancellationToken);
+            using var doc  = JsonDocument.Parse(json);
+
+            if (doc.RootElement.TryGetProperty("data", out var data)
+                && data.TryGetProperty("Media", out var media)
+                && media.TryGetProperty("relations", out var relations)
+                && relations.TryGetProperty("edges", out var edges))
+                foreach (var edge in edges.EnumerateArray())
+                {
+                    if (!edge.TryGetProperty("node", out var node)
+                        || !node.TryGetProperty("type", out var typeProp)
+                        || typeProp.GetString() != "ANIME"
+                        || !node.TryGetProperty("id", out var idProp))
+                        continue;
+
+                    var relType = edge.TryGetProperty("relationType", out var relProp)
+                                      ? relProp.GetString() ?? ""
+                                      : "";
+                    var formatStr = node.TryGetProperty("format", out var fmtProp)
+                                        ? fmtProp.GetString()
+                                        : null;
+
+                    result.Add(new RelationEdge
+                    {
+                        RelationType = relType,
+                        Id           = idProp.GetInt32().ToString(),
+                        Format       = MapFormat(formatStr)
+                    });
+                }
+        }
+        catch (Exception) when (!cancellationToken.IsCancellationRequested)
+        {
+            // ignored
+        }
+
+        return result;
+    }
+
+    private async Task<string?> QueryRelatedIdAsync(
+        string id, string relationType, CancellationToken cancellationToken = default)
+    {
+        var query = """
+                        query ($id: Int) {
+                          Media(id: $id) {
+                            relations {
+                              edges {
+                                relationType
+                                node {
+                                  id
+                                  type
+                                }
+                              }
+                            }
+                          }
+                        }
+                    """;
 
         try
         {
@@ -178,13 +270,8 @@ public partial class AniListProvider : IMetadataProvider
                 variables
             };
 
-            var content = new StringContent(JsonSerializer.Serialize(requestBody), Encoding.UTF8, "application/json");
-
-            var response = await _httpClient.PostAsync("https://graphql.anilist.co", content, cancellationToken);
-            if (!response.IsSuccessStatusCode)
-            {
-                return null;
-            }
+            using var response = await PostGraphQLAsync(requestBody, cancellationToken);
+            if (response is null) return null;
 
             var       json = await response.Content.ReadAsStringAsync(cancellationToken);
             using var doc  = JsonDocument.Parse(json);
@@ -193,32 +280,68 @@ public partial class AniListProvider : IMetadataProvider
                 && data.TryGetProperty("Media", out var media)
                 && media.TryGetProperty("relations", out var relations)
                 && relations.TryGetProperty("edges", out var edges))
-            {
                 foreach (var edge in edges.EnumerateArray())
                 {
                     var relType = edge.TryGetProperty("relationType", out var relTypeProp)
                                       ? relTypeProp.GetString()
                                       : null;
 
-                    if (relType == "SEQUEL")
-                    {
+                    if (relType == relationType)
                         if (edge.TryGetProperty("node", out var node)
                             && node.TryGetProperty("id", out var nodeIdProp)
                             && node.TryGetProperty("type", out var typeProp)
                             && typeProp.GetString() == "ANIME")
-                        {
                             return nodeIdProp.GetInt32().ToString();
-                        }
-                    }
                 }
-            }
         }
-        catch
+        catch (Exception) when (!cancellationToken.IsCancellationRequested)
         {
             // ignored
         }
 
         return null;
+    }
+
+    private async Task<HttpResponseMessage?> PostGraphQLAsync(
+        object            requestBody,
+        CancellationToken cancellationToken = default)
+    {
+        var content  = new StringContent(JsonSerializer.Serialize(requestBody), Encoding.UTF8, "application/json");
+        var response = await _httpClient.PostAsync("https://graphql.anilist.co", content, cancellationToken);
+
+        if (response.StatusCode == HttpStatusCode.TooManyRequests)
+        {
+            var delay = TimeSpan.FromSeconds(2);
+            if (response.Headers.RetryAfter?.Delta is { } delta)
+            {
+                // Uzun cooldown'larda (örn. 60s) bekleyip tekrar vurmak yerine
+                // hemen vazgeç; zincir/çözümleme eksik veriyle değil, boş dönsün.
+                if (delta >= TimeSpan.FromSeconds(30))
+                {
+                    _logger.LogWarning("AniList 429, cooldown {Delay}s çok uzun; tekrar denenmeyecek",
+                                       delta.TotalSeconds);
+                    response.Dispose();
+                    return null;
+                }
+
+                delay = delta;
+            }
+
+            _logger.LogWarning("AniList 429, {Delay}s sonra tekrar denenecek", delay.TotalSeconds);
+            await Task.Delay(delay, cancellationToken);
+
+            response.Dispose();
+            content  = new StringContent(JsonSerializer.Serialize(requestBody), Encoding.UTF8, "application/json");
+            response = await _httpClient.PostAsync("https://graphql.anilist.co", content, cancellationToken);
+        }
+
+        if (!response.IsSuccessStatusCode)
+        {
+            response.Dispose();
+            return null;
+        }
+
+        return response;
     }
 
     private async Task<List<MediaMetadata>> FetchListFromAniList(string query,
@@ -230,13 +353,9 @@ public partial class AniListProvider : IMetadataProvider
             query,
             variables
         };
-        var content = new StringContent(JsonSerializer.Serialize(requestBody), Encoding.UTF8, "application/json");
 
-        var response = await _httpClient.PostAsync("https://graphql.anilist.co", content, cancellationToken);
-        if (!response.IsSuccessStatusCode)
-        {
-            return [];
-        }
+        using var response = await PostGraphQLAsync(requestBody, cancellationToken);
+        if (response is null) return [];
 
         var       json = await response.Content.ReadAsStringAsync(cancellationToken);
         using var doc  = JsonDocument.Parse(json);
@@ -246,16 +365,9 @@ public partial class AniListProvider : IMetadataProvider
         if (doc.RootElement.TryGetProperty("data", out var data))
         {
             if (data.TryGetProperty("Page", out var page) && page.TryGetProperty("media", out var mediaList))
-            {
                 foreach (var m in mediaList.EnumerateArray())
-                {
                     list.Add(MapMedia(m));
-                }
-            }
-            else if (data.TryGetProperty("Media", out var media))
-            {
-                list.Add(MapMedia(media));
-            }
+            else if (data.TryGetProperty("Media", out var media)) list.Add(MapMedia(media));
         }
 
         return list;
@@ -290,21 +402,18 @@ public partial class AniListProvider : IMetadataProvider
             Format = MapFormat(m.TryGetProperty("format", out var f) ? f.GetString() : "")
         };
 
+        metadata.AniListId = metadata.ExternalId;
+
         if (m.TryGetProperty("idMal", out var malIdProp) && malIdProp.ValueKind != JsonValueKind.Null)
         {
             metadata.MyAnimeListId = malIdProp.GetInt32().ToString();
-            metadata.AniListId     = metadata.ExternalId;
         }
 
         if (m.TryGetProperty("genres", out var genres))
-        {
             metadata.Genres = genres.EnumerateArray().Select(g => g.GetString() ?? "").ToList();
-        }
 
         if (m.TryGetProperty("synonyms", out var syns))
-        {
             metadata.Synonyms = syns.EnumerateArray().Select(s => s.GetString() ?? "").ToList();
-        }
 
         return metadata;
     }
@@ -327,10 +436,7 @@ public partial class AniListProvider : IMetadataProvider
 
     private static string CleanHtml(string? html)
     {
-        if (string.IsNullOrEmpty(html))
-        {
-            return "";
-        }
+        if (string.IsNullOrEmpty(html)) return "";
 
         return HtmlTagRegex().Replace(html, "").Trim();
     }

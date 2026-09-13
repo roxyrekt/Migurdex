@@ -177,7 +177,7 @@ public class AnimecixProvider : IAnimeProvider
     {
         try
         {
-            var detailsUrl = $"{BaseUrl}/secure/titles/{animeId}";
+            var detailsUrl = $"{BaseUrl}/secure/titles/{animeId}?seasonNumber=1&page=1&perPage=200";
             var response   = await _httpClient.GetAsync(detailsUrl, cancellationToken);
             if (!response.IsSuccessStatusCode)
             {
@@ -304,7 +304,7 @@ public class AnimecixProvider : IAnimeProvider
                     if (s.TryGetProperty("number", out var numProp))
                     {
                         seasonNum = numProp.ValueKind == JsonValueKind.Number
-                                        ? (int) numProp.GetDouble()
+                                        ? (int)numProp.GetDouble()
                                         : int.TryParse(numProp.GetString(), out var parsedNum)
                                             ? parsedNum
                                             : 1;
@@ -616,7 +616,7 @@ public class AnimecixProvider : IAnimeProvider
                 _logger.LogInformation("loading movie sources directly from title details for: {TitleId}",
                                        titleId);
 
-                var detailsUrl = $"{BaseUrl}/secure/titles/{titleId}";
+                var detailsUrl = $"{BaseUrl}/secure/titles/{titleId}?seasonNumber=1";
                 var response   = await _httpClient.GetAsync(detailsUrl, cancellationToken);
                 if (!response.IsSuccessStatusCode)
                 {

@@ -1,20 +1,23 @@
-using Migurdex.Cli.Configuration;
-using Migurdex.Cli.Utils;
-using Migurdex.Shared.Models;
 using System.Diagnostics;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Runtime.CompilerServices;
 using System.Text.Json;
+using Migurdex.Cli.Configuration;
+using Migurdex.Cli.Utils;
+using Migurdex.Shared.Enums;
+using Migurdex.Shared.Models;
 
 namespace Migurdex.Cli.Services;
 
 public class ApiClientService : IApiClientService
 {
-    private static readonly JsonSerializerOptions _jsonOpts = new()
+    private static readonly JsonSerializerOptions JsonOpts = new()
     {
         PropertyNameCaseInsensitive = true
     };
+
+    private static readonly Lock ApiLogLock = new();
 
     private readonly IConfigurationService _configService;
     private readonly HttpClient            _httpClient;
@@ -36,28 +39,6 @@ public class ApiClientService : IApiClientService
         _httpClient.BaseAddress = baseAddress;
     }
 
-    private static readonly Lock _apiLogLock = new();
-
-    private static void AppendApiLog(string path, string? line)
-    {
-        if (string.IsNullOrEmpty(line))
-        {
-            return;
-        }
-
-        try
-        {
-            lock (_apiLogLock)
-            {
-                File.AppendAllText(path, line + Environment.NewLine);
-            }
-        }
-        catch
-        {
-            // ignored
-        }
-    }
-
     public async Task<bool> IsApiOnlineAsync(CancellationToken cancellationToken = default)
     {
         try
@@ -75,10 +56,7 @@ public class ApiClientService : IApiClientService
 
     public async Task<bool> TryStartApiDaemonAsync(CancellationToken cancellationToken = default)
     {
-        if (await IsApiOnlineAsync(cancellationToken))
-        {
-            return true;
-        }
+        if (await IsApiOnlineAsync(cancellationToken)) return true;
 
         var cliDir            = AppContext.BaseDirectory;
         var isWindows         = OperatingSystem.IsWindows();
@@ -124,10 +102,7 @@ public class ApiClientService : IApiClientService
             }
         }
 
-        if (apiPath == null)
-        {
-            return false;
-        }
+        if (apiPath == null) return false;
 
         string? apiLogPath = null;
         try
@@ -137,9 +112,7 @@ public class ApiClientService : IApiClientService
             apiLogPath = Path.Combine(logDir, "api.log");
 
             if (new FileInfo(apiLogPath).Exists && new FileInfo(apiLogPath).Length > 5 * 1024 * 1024)
-            {
                 File.Delete(apiLogPath);
-            }
         }
         catch
         {
@@ -179,10 +152,7 @@ public class ApiClientService : IApiClientService
 
             for (var i = 0; i < 40; i++)
             {
-                if (await IsApiOnlineAsync(cancellationToken))
-                {
-                    return true;
-                }
+                if (await IsApiOnlineAsync(cancellationToken)) return true;
 
                 await Task.Delay(250, cancellationToken);
             }
@@ -202,7 +172,7 @@ public class ApiClientService : IApiClientService
         {
             var providers =
                 await _httpClient.GetFromJsonAsync<List<ProviderInfo>>("api/v1/providers",
-                                                                       _jsonOpts,
+                                                                       JsonOpts,
                                                                        cancellationToken);
             return ApiResult<IReadOnlyList<ProviderInfo>>.Ok(providers ?? []);
         }
@@ -218,14 +188,11 @@ public class ApiClientService : IApiClientService
     {
         try
         {
-            var url = $"api/v1/anime/search?q={Uri.EscapeDataString(query)}";
-            if (!string.IsNullOrEmpty(provider))
-            {
-                url += $"&provider={Uri.EscapeDataString(provider)}";
-            }
+            var url                                  = $"api/v1/anime/search?q={Uri.EscapeDataString(query)}";
+            if (!string.IsNullOrEmpty(provider)) url += $"&provider={Uri.EscapeDataString(provider)}";
 
             var results =
-                await _httpClient.GetFromJsonAsync<List<SearchResultWrapper>>(url, _jsonOpts, cancellationToken);
+                await _httpClient.GetFromJsonAsync<List<SearchResultWrapper>>(url, JsonOpts, cancellationToken);
 
             var disabled = _configService.Config.DisabledProviders;
             var failedProviders = results?.Where(r => r.Data is null && r.Error is not null)
@@ -239,10 +206,8 @@ public class ApiClientService : IApiClientService
                         ?? [];
 
             if (failedProviders.Count > 0 && items.Count == 0)
-            {
                 return ApiResult<IReadOnlyList<SearchResult>>.Fail(items,
                                                                    $"Arama başarısız ({string.Join(", ", failedProviders)}).");
-            }
 
             return ApiResult<IReadOnlyList<SearchResult>>.Ok(items);
         }
@@ -257,11 +222,8 @@ public class ApiClientService : IApiClientService
         [EnumeratorCancellation] CancellationToken                                    cancellationToken = default,
         StreamScanStats?                                                              stats             = null)
     {
-        var url = $"api/v1/anime/search?q={Uri.EscapeDataString(query)}&stream=true";
-        if (!string.IsNullOrEmpty(provider))
-        {
-            url += $"&provider={Uri.EscapeDataString(provider)}";
-        }
+        var url                                  = $"api/v1/anime/search?q={Uri.EscapeDataString(query)}&stream=true";
+        if (!string.IsNullOrEmpty(provider)) url += $"&provider={Uri.EscapeDataString(provider)}";
 
         using var request = new HttpRequestMessage(HttpMethod.Get, url);
         request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("text/event-stream"));
@@ -271,10 +233,7 @@ public class ApiClientService : IApiClientService
         if (!response.IsSuccessStatusCode)
         {
             var apiError = await ReadApiErrorAsync(response, cancellationToken);
-            if (stats is not null)
-            {
-                Interlocked.Increment(ref stats.Errors);
-            }
+            if (stats is not null) Interlocked.Increment(ref stats.Errors);
 
             yield return new StreamedSearchResult
             {
@@ -294,15 +253,9 @@ public class ApiClientService : IApiClientService
         while (!cancellationToken.IsCancellationRequested)
         {
             var line = await reader.ReadLineAsync(cancellationToken);
-            if (line == null)
-            {
-                break;
-            }
+            if (line == null) break;
 
-            if (string.IsNullOrEmpty(line))
-            {
-                continue;
-            }
+            if (string.IsNullOrEmpty(line)) continue;
 
             if (line.StartsWith("event:", StringComparison.Ordinal))
             {
@@ -316,10 +269,7 @@ public class ApiClientService : IApiClientService
                 var evt  = currentEvent;
                 currentEvent = null;
 
-                if (string.Equals(evt, "done", StringComparison.OrdinalIgnoreCase))
-                {
-                    yield break;
-                }
+                if (string.Equals(evt, "done", StringComparison.OrdinalIgnoreCase)) yield break;
 
                 if (string.Equals(evt, "providerError", StringComparison.OrdinalIgnoreCase)
                     || string.Equals(evt, "error", StringComparison.OrdinalIgnoreCase))
@@ -327,7 +277,7 @@ public class ApiClientService : IApiClientService
                     ProviderStreamError? err = null;
                     try
                     {
-                        err = JsonSerializer.Deserialize<ProviderStreamError>(data, _jsonOpts);
+                        err = JsonSerializer.Deserialize<ProviderStreamError>(data, JsonOpts);
                     }
                     catch
                     {
@@ -339,14 +289,9 @@ public class ApiClientService : IApiClientService
                         if (_configService.Config.DisabledProviders.Contains(
                                 err.Provider,
                                 StringComparer.OrdinalIgnoreCase))
-                        {
                             continue;
-                        }
 
-                        if (stats is not null)
-                        {
-                            Interlocked.Increment(ref stats.Errors);
-                        }
+                        if (stats is not null) Interlocked.Increment(ref stats.Errors);
 
                         yield return new StreamedSearchResult
                         {
@@ -362,7 +307,7 @@ public class ApiClientService : IApiClientService
                 StreamedSearchResult? result = null;
                 try
                 {
-                    result = JsonSerializer.Deserialize<StreamedSearchResult>(data, _jsonOpts);
+                    result = JsonSerializer.Deserialize<StreamedSearchResult>(data, JsonOpts);
                 }
                 catch
                 {
@@ -374,14 +319,9 @@ public class ApiClientService : IApiClientService
                     if (_configService.Config.DisabledProviders.Contains(
                             result.Provider,
                             StringComparer.OrdinalIgnoreCase))
-                    {
                         continue;
-                    }
 
-                    if (stats is not null)
-                    {
-                        Interlocked.Increment(ref stats.Received);
-                    }
+                    if (stats is not null) Interlocked.Increment(ref stats.Received);
 
                     yield return result;
                 }
@@ -396,7 +336,7 @@ public class ApiClientService : IApiClientService
         try
         {
             var url     = $"api/v1/anime/{Uri.EscapeDataString(provider)}/{Uri.EscapeDataString(animeId)}";
-            var details = await _httpClient.GetFromJsonAsync<AnimeDetails>(url, _jsonOpts, cancellationToken);
+            var details = await _httpClient.GetFromJsonAsync<AnimeDetails>(url, JsonOpts, cancellationToken);
             return details is not null
                        ? ApiResult<AnimeDetails?>.Ok(details)
                        : ApiResult<AnimeDetails?>.Fail(null, "Anime detayları alınamadı.");
@@ -415,7 +355,7 @@ public class ApiClientService : IApiClientService
         {
             var url =
                 $"api/v1/anime/{Uri.EscapeDataString(provider)}/groups?episodeId={Uri.EscapeDataString(episodeId)}";
-            var groups = await _httpClient.GetFromJsonAsync<List<string>>(url, _jsonOpts, cancellationToken);
+            var groups = await _httpClient.GetFromJsonAsync<List<string>>(url, JsonOpts, cancellationToken);
             return ApiResult<IReadOnlyList<string>>.Ok(groups ?? []);
         }
         catch
@@ -433,12 +373,9 @@ public class ApiClientService : IApiClientService
         {
             var url =
                 $"api/v1/anime/{Uri.EscapeDataString(provider)}/sources?episodeId={Uri.EscapeDataString(episodeId)}";
-            if (!string.IsNullOrEmpty(group))
-            {
-                url += $"&group={Uri.EscapeDataString(group)}";
-            }
+            if (!string.IsNullOrEmpty(group)) url += $"&group={Uri.EscapeDataString(group)}";
 
-            var sources = await _httpClient.GetFromJsonAsync<List<VideoSource>>(url, _jsonOpts, cancellationToken);
+            var sources = await _httpClient.GetFromJsonAsync<List<VideoSource>>(url, JsonOpts, cancellationToken);
             return ApiResult<IReadOnlyList<VideoSource>>.Ok(sources ?? []);
         }
         catch
@@ -455,10 +392,7 @@ public class ApiClientService : IApiClientService
     {
         var url =
             $"api/v1/anime/{Uri.EscapeDataString(provider)}/sources?episodeId={Uri.EscapeDataString(episodeId)}&stream=true";
-        if (!string.IsNullOrEmpty(group))
-        {
-            url += $"&group={Uri.EscapeDataString(group)}";
-        }
+        if (!string.IsNullOrEmpty(group)) url += $"&group={Uri.EscapeDataString(group)}";
 
         using var request = new HttpRequestMessage(HttpMethod.Get, url);
         request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("text/event-stream"));
@@ -467,10 +401,7 @@ public class ApiClientService : IApiClientService
             await _httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
         if (!response.IsSuccessStatusCode)
         {
-            if (stats is not null)
-            {
-                Interlocked.Increment(ref stats.Errors);
-            }
+            if (stats is not null) Interlocked.Increment(ref stats.Errors);
 
             yield break;
         }
@@ -483,15 +414,9 @@ public class ApiClientService : IApiClientService
         while (!cancellationToken.IsCancellationRequested)
         {
             var line = await reader.ReadLineAsync(cancellationToken);
-            if (line == null)
-            {
-                break;
-            }
+            if (line == null) break;
 
-            if (string.IsNullOrEmpty(line))
-            {
-                continue;
-            }
+            if (string.IsNullOrEmpty(line)) continue;
 
             if (line.StartsWith("event:", StringComparison.Ordinal))
             {
@@ -505,18 +430,12 @@ public class ApiClientService : IApiClientService
                 var evt  = currentEvent;
                 currentEvent = null;
 
-                if (string.Equals(evt, "done", StringComparison.OrdinalIgnoreCase))
-                {
-                    yield break;
-                }
+                if (string.Equals(evt, "done", StringComparison.OrdinalIgnoreCase)) yield break;
 
                 if (string.Equals(evt, "providerError", StringComparison.OrdinalIgnoreCase)
                     || string.Equals(evt, "error", StringComparison.OrdinalIgnoreCase))
                 {
-                    if (stats is not null)
-                    {
-                        Interlocked.Increment(ref stats.Errors);
-                    }
+                    if (stats is not null) Interlocked.Increment(ref stats.Errors);
 
                     continue;
                 }
@@ -524,7 +443,7 @@ public class ApiClientService : IApiClientService
                 VideoSource? source = null;
                 try
                 {
-                    source = JsonSerializer.Deserialize<VideoSource>(data, _jsonOpts);
+                    source = JsonSerializer.Deserialize<VideoSource>(data, JsonOpts);
                 }
                 catch
                 {
@@ -533,10 +452,7 @@ public class ApiClientService : IApiClientService
 
                 if (source != null)
                 {
-                    if (stats is not null)
-                    {
-                        Interlocked.Increment(ref stats.Received);
-                    }
+                    if (stats is not null) Interlocked.Increment(ref stats.Received);
 
                     yield return source;
                 }
@@ -552,13 +468,85 @@ public class ApiClientService : IApiClientService
             var results =
                 await _httpClient.GetFromJsonAsync<List<ExtractorResponse>>(
                     "api/v1/extractors",
-                    _jsonOpts,
+                    JsonOpts,
                     cancellationToken);
             return ApiResult<IReadOnlyList<string>>.Ok(results?.Select(r => r.Name).ToList() ?? []);
         }
         catch
         {
             return ApiResult<IReadOnlyList<string>>.Fail([], "Extractor listesi alınamadı.");
+        }
+    }
+
+    public async Task<ApiResult<TrackerResolveResult?>> ResolveTrackerIdAsync(string provider,
+        string                                                                       providerId,
+        IReadOnlyList<string>                                                        titles,
+        int?                                                                         year              = null,
+        ContentFormat?                                                               format            = null,
+        CancellationToken                                                            cancellationToken = default)
+    {
+        try
+        {
+            if (titles.Count == 0) return ApiResult<TrackerResolveResult?>.Fail(null, "En az bir başlık gerekli.");
+
+            var url = $"api/v1/tracker/resolve?provider={Uri.EscapeDataString(provider)}" +
+                      $"&id={Uri.EscapeDataString(providerId)}" +
+                      $"&title={Uri.EscapeDataString(titles[0])}";
+            if (titles.Count > 1 && !string.IsNullOrWhiteSpace(titles[1]))
+                url += $"&title2={Uri.EscapeDataString(titles[1])}";
+
+            if (year.HasValue) url += $"&year={year.Value}";
+
+            if (format.HasValue && format.Value != ContentFormat.Unknown)
+                url += $"&format={format.Value}";
+
+            var result = await _httpClient.GetFromJsonAsync<TrackerResolveResult>(url, JsonOpts, cancellationToken);
+            return ApiResult<TrackerResolveResult?>.Ok(result);
+        }
+        catch
+        {
+            return ApiResult<TrackerResolveResult?>.Fail(null, "Tracker ID çözülemedi.");
+        }
+    }
+
+    public async Task<ApiResult<MediaMetadata?>> LookupTrackerAsync(string? anilistId,
+        string?                                                             malId             = null,
+        CancellationToken                                                   cancellationToken = default)
+    {
+        try
+        {
+            if (string.IsNullOrWhiteSpace(anilistId) && string.IsNullOrWhiteSpace(malId))
+                return ApiResult<MediaMetadata?>.Fail(null, "anilistId veya malId gerekli.");
+
+            var url                                        = "api/v1/tracker/lookup?";
+            if (!string.IsNullOrWhiteSpace(anilistId)) url += $"anilistId={Uri.EscapeDataString(anilistId)}";
+
+            if (!string.IsNullOrWhiteSpace(malId))
+                url += $"{(url.EndsWith('?') ? "" : "&")}malId={Uri.EscapeDataString(malId)}";
+
+            var meta = await _httpClient.GetFromJsonAsync<MediaMetadata>(url, JsonOpts, cancellationToken);
+            return ApiResult<MediaMetadata?>.Ok(meta);
+        }
+        catch
+        {
+            return ApiResult<MediaMetadata?>.Fail(null, "Tracker kaydı bulunamadı.");
+        }
+    }
+
+    private static void AppendApiLog(string path, string? line)
+    {
+        if (string.IsNullOrEmpty(line)) return;
+
+        try
+        {
+            lock (ApiLogLock)
+            {
+                File.AppendAllText(path, line + Environment.NewLine);
+            }
+        }
+        catch
+        {
+            // ignored
         }
     }
 
@@ -572,16 +560,14 @@ public class ApiClientService : IApiClientService
             if (doc.RootElement.TryGetProperty("error", out var err)
                 && err.ValueKind == JsonValueKind.String
                 && !string.IsNullOrWhiteSpace(err.GetString()))
-            {
                 return err.GetString()!;
-            }
         }
         catch
         {
             // ignored
         }
 
-        return $"HTTP {(int) response.StatusCode}";
+        return $"HTTP {(int)response.StatusCode}";
     }
 
     private class ExtractorResponse

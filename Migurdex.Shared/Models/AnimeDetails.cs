@@ -60,10 +60,10 @@ public partial class AnimeDetails
         }
     }
 
-    [GeneratedRegex(@"\b(?:Season|Sezon)\s*(\d+)\b", RegexOptions.IgnoreCase)]
+    [GeneratedRegex(@"\b(?:Season|Sezon|Part|K[ıi]s[ıi]m)\s*(\d+)\b", RegexOptions.IgnoreCase)]
     private static partial Regex SeasonPrefixRegex();
 
-    [GeneratedRegex(@"\b(\d+)(?:st|nd|rd|th)?\.?\s*(?:Season|Sezon)\b", RegexOptions.IgnoreCase)]
+    [GeneratedRegex(@"\b(\d+)(?:st|nd|rd|th)?\.?\s*(?:Season|Sezon|Part|K[ıi]s[ıi]m)\b", RegexOptions.IgnoreCase)]
     private static partial Regex SeasonSuffixRegex();
 
     [GeneratedRegex(@"\b(I|II|III|IV|V|VI|VII|VIII|IX|X)\b$", RegexOptions.IgnoreCase)]

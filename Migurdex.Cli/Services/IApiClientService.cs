@@ -1,5 +1,6 @@
-using Migurdex.Shared.Models;
 using System.Text.Json;
+using Migurdex.Shared.Enums;
+using Migurdex.Shared.Models;
 
 namespace Migurdex.Cli.Services;
 
@@ -63,6 +64,17 @@ public interface IApiClientService
         StreamScanStats?                                            stats             = null);
 
     Task<ApiResult<IReadOnlyList<string>>> GetExtractorsAsync(CancellationToken cancellationToken = default);
+
+    Task<ApiResult<TrackerResolveResult?>> ResolveTrackerIdAsync(string provider,
+        string                                                          providerId,
+        IReadOnlyList<string>                                           titles,
+        int?                                                            year              = null,
+        ContentFormat?                                                  format            = null,
+        CancellationToken                                               cancellationToken = default);
+
+    Task<ApiResult<MediaMetadata?>> LookupTrackerAsync(string? anilistId,
+        string?                                                malId             = null,
+        CancellationToken                                      cancellationToken = default);
 }
 
 public class ProviderInfo
