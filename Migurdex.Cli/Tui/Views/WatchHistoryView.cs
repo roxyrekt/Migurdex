@@ -86,18 +86,24 @@ public class WatchHistoryView : BaseView
 
         while (historyRunning)
         {
-            AnsiConsole.Clear();
-            AnsiConsole.MarkupLine("[grey]~~[/] [yellow]Geçmiş[/] [grey]~~[/]");
-            AnsiConsole.WriteLine();
-
             var fullHistory = _historyService.GetWatchHistory();
 
             if (fullHistory.Count == 0)
             {
-                AnsiConsole.MarkupLine("[grey]Geçmiş boş.[/]");
-                AnsiConsole.WriteLine();
-                AnsiConsole.MarkupLine("[grey]Geri dönmek için bir tuşa basın...[/]");
-                Console.ReadKey(true);
+                FuzzyPrompt.Show("Geçmiş", [
+                    new FuzzyChoice
+                    {
+                        Display       = "[grey]Henüz izleme geçmişi yok.[/]",
+                        DisplayActive = "[grey]Henüz izleme geçmişi yok.[/]",
+                        Searchable    = "Henüz izleme geçmişi yok"
+                    },
+                    new FuzzyChoice
+                    {
+                        Display       = "[red]Geri[/]",
+                        DisplayActive = "[bold red]Geri[/]",
+                        Searchable    = "Geri"
+                    }
+                ]);
                 navigator.Pop();
                 return;
             }
@@ -119,7 +125,7 @@ public class WatchHistoryView : BaseView
                 Searchable    = "Geri"
             });
 
-            var choice = FuzzyPrompt.Show("Devam et:", choices, initialSelection: _lastSelectedSearchable);
+            var choice = FuzzyPrompt.Show("Geçmiş", choices, initialSelection: _lastSelectedSearchable);
 
             if (choice == null || choice.Searchable == "Geri")
             {
@@ -285,10 +291,6 @@ public class WatchHistoryView : BaseView
                 return false;
             }
 
-            AnsiConsole.Clear();
-            AnsiConsole.MarkupLine("[grey]~~[/] [yellow]Geçmişi Yönet[/] [grey]~~[/]");
-            AnsiConsole.WriteLine();
-
             var choices = BuildHistoryChoices(groupedHistory);
             choices.Add(new FuzzyChoice
             {
@@ -303,7 +305,7 @@ public class WatchHistoryView : BaseView
                 Searchable    = "Geri"
             });
 
-            var choice = FuzzyPrompt.Show("Kayıt:", choices, initialSelection: manageSelected);
+            var choice = FuzzyPrompt.Show("Geçmişi Yönet", choices, initialSelection: manageSelected);
 
             if (choice == null || choice.Searchable == "Geri")
             {
@@ -312,7 +314,7 @@ public class WatchHistoryView : BaseView
 
             if (choice.Searchable == "Tümünü Temizle")
             {
-                if (AnsiConsole.Confirm("[bold red]Hepsi silinsin mi?[/]"))
+                if (AnsiConsole.Confirm("[bold red]Tüm izleme geçmişi silinsin mi?[/]"))
                 {
                     _historyService.ClearWatchHistory();
                     _lastSelectedSearchable = null;
@@ -330,7 +332,7 @@ public class WatchHistoryView : BaseView
 
             manageSelected = choice.Searchable;
 
-            var actionChoice = FuzzyPrompt.Show($"İşlem ({selectedHistory.AnimeTitle}):",
+            var actionChoice = FuzzyPrompt.Show(selectedHistory.AnimeTitle,
             [
                 new FuzzyChoice
                 {
@@ -340,8 +342,8 @@ public class WatchHistoryView : BaseView
                 },
                 new FuzzyChoice
                 {
-                    Display       = "[red]Sil[/]",
-                    DisplayActive = "[bold red]Sil[/]",
+                    Display       = "[red]Kayıttan Sil[/]",
+                    DisplayActive = "[bold red]Kayıttan Sil[/]",
                     Searchable    = "Sil"
                 },
                 new FuzzyChoice
@@ -350,7 +352,8 @@ public class WatchHistoryView : BaseView
                     DisplayActive = "[bold white]Geri[/]",
                     Searchable    = "Geri"
                 }
-            ]);
+            ],
+            headerLines: [$"[grey]Sağlayıcı:[/] [bold mediumpurple1]{Markup.Escape(selectedHistory.ProviderName)}[/]  [grey]•[/]  [grey]Son:[/] [bold gold1]{GetFormattedEpisodeText(selectedHistory)}[/]"]);
 
             if (actionChoice == null || actionChoice.Searchable == "Geri")
             {

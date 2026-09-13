@@ -124,7 +124,7 @@ public class SettingsView : BaseView
         while (settingsRunning)
         {
             AnsiConsole.Clear();
-            AnsiConsole.MarkupLine("[grey]~~[/] [yellow]Ayarlar[/] [grey]~~[/]");
+            AnsiConsole.MarkupLine("[grey]~~[/] [bold cyan]Ayarlar[/] [grey]~~[/]");
             AnsiConsole.WriteLine();
 
             var config = _configService.Config;
@@ -519,7 +519,7 @@ public class SettingsView : BaseView
         while (active)
         {
             AnsiConsole.Clear();
-            AnsiConsole.MarkupLine("[grey]~~[/] [yellow]Sağlayıcı Yönetimi[/] [grey]~~[/]");
+            AnsiConsole.MarkupLine("[grey]~~[/] [bold cyan]Sağlayıcı Yönetimi[/] [grey]~~[/]");
             AnsiConsole.WriteLine();
 
             if (providers.Count == 0)
@@ -609,7 +609,7 @@ public class SettingsView : BaseView
         while (active)
         {
             AnsiConsole.Clear();
-            AnsiConsole.MarkupLine("[grey]~~[/] [yellow]Sıralama Öncelikleri[/] [grey]~~[/]");
+            AnsiConsole.MarkupLine("[grey]~~[/] [bold cyan]Sıralama Öncelikleri[/] [grey]~~[/]");
             AnsiConsole.WriteLine();
 
             var choices = new List<FuzzyChoice>
@@ -859,7 +859,7 @@ public class SettingsView : BaseView
         while (true)
         {
             AnsiConsole.Clear();
-            AnsiConsole.MarkupLine($"[grey]~~[/] [yellow]{Markup.Escape(title)}[/] [grey]~~[/]");
+            AnsiConsole.MarkupLine($"[grey]~~[/] [bold cyan]{Markup.Escape(title)}[/] [grey]~~[/]");
             AnsiConsole.MarkupLine(
                 "[green]Otomatik:[/] [grey]kural yok ·[/] [red]Asla:[/] [grey]otomatik seçilmez ·[/] [gold1]Sadece:[/] [grey]yalnız işaretliler otomatik seçilir[/]");
             AnsiConsole.WriteLine();

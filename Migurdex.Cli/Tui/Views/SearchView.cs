@@ -23,10 +23,6 @@ public class SearchView : BaseView
 
     public override void Render(ITuiNavigator navigator)
     {
-        AnsiConsole.Clear();
-        AnsiConsole.MarkupLine("[grey]~~[/] [yellow]Arama[/] [grey]~~[/]");
-        AnsiConsole.WriteLine();
-
         var searchHistory = _historyService.GetSearchHistory();
         var choices = new List<FuzzyChoice>
         {
@@ -54,9 +50,16 @@ public class SearchView : BaseView
             });
         }
 
-        var preChoice = FuzzyPrompt.Show("Arama:", choices, initialSelection: _lastSelectedSearchable);
+        choices.Add(new FuzzyChoice
+        {
+            Display       = "[red]Geri[/]",
+            DisplayActive = "[bold red]Geri[/]",
+            Searchable    = "Geri"
+        });
 
-        if (preChoice == null)
+        var preChoice = FuzzyPrompt.Show("Arama", choices, initialSelection: _lastSelectedSearchable);
+
+        if (preChoice == null || preChoice.Searchable == "Geri")
         {
             navigator.Pop();
             return;
@@ -73,7 +76,10 @@ public class SearchView : BaseView
         string query;
         if (preChoice.Searchable == "Arama yap...")
         {
-            query = AnsiConsole.Ask<string>("[bold cyan]Ad: [/]").Trim();
+            AnsiConsole.Clear();
+            AnsiConsole.MarkupLine("[grey]~~[/] [bold cyan]Anime Arama[/] [grey]~~[/]");
+            AnsiConsole.WriteLine();
+            query = AnsiConsole.Ask<string>("[bold cyan]Anime Adı:[/] ").Trim();
             if (string.IsNullOrWhiteSpace(query))
             {
                 navigator.Pop();
@@ -102,10 +108,6 @@ public class SearchView : BaseView
                 return;
             }
 
-            AnsiConsole.Clear();
-            AnsiConsole.MarkupLine("[grey]~~[/] [yellow]Geçmişi Yönet[/] [grey]~~[/]");
-            AnsiConsole.WriteLine();
-
             var choices = searchHistory.Select(q => new FuzzyChoice
                                        {
                                            Display       = $"[silver]{Markup.Escape(q)}[/]",
@@ -117,7 +119,7 @@ public class SearchView : BaseView
             choices.Add(new FuzzyChoice
             {
                 Display       = "[red]Tümünü Temizle[/]",
-                DisplayActive = "[bold red]Tümünü Temizle[/]",
+                DisplayActive = "[bold red reverse]Tümünü Temizle[/]",
                 Searchable    = "Tümünü Temizle"
             });
 
@@ -128,7 +130,7 @@ public class SearchView : BaseView
                 Searchable    = "Geri"
             });
 
-            var choice = FuzzyPrompt.Show("Silinecek kayıt:", choices);
+            var choice = FuzzyPrompt.Show("Arama Geçmişi", choices);
 
             if (choice == null || choice.Searchable == "Geri")
             {
@@ -137,7 +139,7 @@ public class SearchView : BaseView
 
             if (choice.Searchable == "Tümünü Temizle")
             {
-                if (AnsiConsole.Confirm("[bold red]Arama geçmişi silinsin mi?[/]"))
+                if (AnsiConsole.Confirm("[bold red]Tüm arama geçmişi silinsin mi?[/]"))
                 {
                     _historyService.ClearSearchHistory();
                     _lastSelectedSearchable = null;

@@ -30,18 +30,24 @@ public class FavoritesView : BaseView
         var viewRunning = true;
         while (viewRunning)
         {
-            AnsiConsole.Clear();
-            AnsiConsole.MarkupLine("[grey]~~[/] [pink1]Favoriler[/] [grey]~~[/]");
-            AnsiConsole.WriteLine();
-
             var favorites = _historyService.GetFavorites();
 
             if (favorites.Count == 0)
             {
-                AnsiConsole.MarkupLine("[grey]Henüz favori yok.[/]");
-                AnsiConsole.WriteLine();
-                AnsiConsole.MarkupLine("[grey]Geri dönmek için bir tuşa basın...[/]");
-                Console.ReadKey(true);
+                FuzzyPrompt.Show("Favoriler", [
+                    new FuzzyChoice
+                    {
+                        Display       = "[grey]Henüz favori eklenmedi.[/]",
+                        DisplayActive = "[grey]Henüz favori eklenmedi.[/]",
+                        Searchable    = "Henüz favori eklenmedi"
+                    },
+                    new FuzzyChoice
+                    {
+                        Display       = "[red]Geri[/]",
+                        DisplayActive = "[bold red]Geri[/]",
+                        Searchable    = "Geri"
+                    }
+                ]);
                 navigator.Pop();
                 return;
             }
@@ -79,7 +85,7 @@ public class FavoritesView : BaseView
                 Searchable    = "Geri"
             });
 
-            var choice = FuzzyPrompt.Show("Anime seçin:", choices, initialSelection: _lastSelectedSearchable);
+            var choice = FuzzyPrompt.Show("Favoriler", choices, initialSelection: _lastSelectedSearchable);
 
             if (choice == null || choice.Searchable == "Geri")
             {
@@ -91,7 +97,7 @@ public class FavoritesView : BaseView
 
             if (choice.Searchable == "Tümünü Temizle")
             {
-                if (AnsiConsole.Confirm("[bold red]Hepsi silinsin mi?[/]"))
+                if (AnsiConsole.Confirm("[bold red]Tüm favoriler silinsin mi?[/]"))
                 {
                     _historyService.ClearFavorites();
                     Toast.Show("[green]Temizlendi.[/]");
@@ -116,8 +122,8 @@ public class FavoritesView : BaseView
                     },
                     new()
                     {
-                        Display       = "[red]Kaldır[/]",
-                        DisplayActive = "[bold red]Kaldır[/]",
+                        Display       = "[red]Favorilerden Kaldır[/]",
+                        DisplayActive = "[bold red]Favorilerden Kaldır[/]",
                         Searchable    = "Sil"
                     },
                     new()
@@ -128,7 +134,9 @@ public class FavoritesView : BaseView
                     }
                 };
 
-                var actionChoice = FuzzyPrompt.Show($"İşlem Seç ({selectedFav.AnimeTitle}):", actionChoices);
+                var actionChoice = FuzzyPrompt.Show(selectedFav.AnimeTitle,
+                                                    actionChoices,
+                                                    headerLines: [$"[grey]Sağlayıcı:[/] [bold mediumpurple1]{Markup.Escape(selectedFav.ProviderName)}[/]"]);
 
                 if (actionChoice == null || actionChoice.Searchable == "Geri")
                 {

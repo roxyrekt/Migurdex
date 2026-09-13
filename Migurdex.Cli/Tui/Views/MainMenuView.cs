@@ -1,17 +1,15 @@
 using Migurdex.Cli.Services;
-using Spectre.Console;
 
 namespace Migurdex.Cli.Tui.Views;
 
 public class MainMenuView : BaseView
 {
-    private readonly IHistoryService  _historyService;
     private readonly IServiceProvider _serviceProvider;
+    private          string?          _lastSelectedSearchable;
 
-    public MainMenuView(IServiceProvider serviceProvider, IHistoryService historyService)
+    public MainMenuView(IServiceProvider serviceProvider)
     {
         _serviceProvider = serviceProvider;
-        _historyService  = historyService;
     }
 
     public override string GetRpcState()
@@ -21,27 +19,51 @@ public class MainMenuView : BaseView
 
     public override void Render(ITuiNavigator navigator)
     {
-        AnsiConsole.Clear();
-
-        AnsiConsole.MarkupLine("[grey]~~[/] [dim]Migurdex Terminal[/] [grey]~~[/]");
-        AnsiConsole.WriteLine();
-
-        var menuChoices = new List<string>
+        var menuChoices = new List<FuzzyChoice>
         {
-            "Arama",
-            "Favoriler",
-            "Geçmiş",
-            "Ayarlar",
-            "Çıkış"
+            new()
+            {
+                Display       = "[silver]Arama[/]",
+                DisplayActive = "[bold white]Arama[/]",
+                Searchable    = "Arama"
+            },
+            new()
+            {
+                Display       = "[silver]Favoriler[/]",
+                DisplayActive = "[bold white]Favoriler[/]",
+                Searchable    = "Favoriler"
+            },
+            new()
+            {
+                Display       = "[silver]Geçmiş[/]",
+                DisplayActive = "[bold white]Geçmiş[/]",
+                Searchable    = "Geçmiş"
+            },
+            new()
+            {
+                Display       = "[silver]Ayarlar[/]",
+                DisplayActive = "[bold white]Ayarlar[/]",
+                Searchable    = "Ayarlar"
+            },
+            new()
+            {
+                Display       = "[red]Çıkış[/]",
+                DisplayActive = "[bold red]Çıkış[/]",
+                Searchable    = "Çıkış"
+            }
         };
 
-        var choice = AnsiConsole.Prompt(
-            new SelectionPrompt<string>()
-                .Title("[bold grey]Menü:[/]")
-                .PageSize(10)
-                .AddChoices(menuChoices));
+        var choice = FuzzyPrompt.Show("Migurdex Terminal", menuChoices, initialSelection: _lastSelectedSearchable);
 
-        switch (choice)
+        if (choice == null || choice.Searchable == "Çıkış")
+        {
+            navigator.Exit();
+            return;
+        }
+
+        _lastSelectedSearchable = choice.Searchable;
+
+        switch (choice.Searchable)
         {
             case "Arama":
                 navigator.Push((BaseView) _serviceProvider.GetService(typeof(SearchView))!);
@@ -54,9 +76,6 @@ public class MainMenuView : BaseView
                 break;
             case "Ayarlar":
                 navigator.Push((BaseView) _serviceProvider.GetService(typeof(SettingsView))!);
-                break;
-            case "Çıkış":
-                navigator.Exit();
                 break;
         }
     }

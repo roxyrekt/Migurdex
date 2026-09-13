@@ -65,7 +65,8 @@ public class AnimeDetailsView : BaseView
         if (details == null)
         {
             AnsiConsole.Clear();
-            AnsiConsole.MarkupLine($"[grey]~~[/] [yellow]Detaylar ({Markup.Escape(_provider)})...[/] [grey]~~[/]");
+            AnsiConsole.MarkupLine($"[grey]~~[/] [bold cyan]{Markup.Escape(_animeTitle ?? "Detaylar")}[/] [grey]~~[/]");
+            AnsiConsole.MarkupLine($"[grey]Sağlayıcı:[/] [bold mediumpurple1]{Markup.Escape(_provider)}[/]");
             AnsiConsole.WriteLine();
 
             AnsiConsole.Status()
@@ -110,22 +111,28 @@ public class AnimeDetailsView : BaseView
             _cachedDetails = details;
         }
 
-        AnsiConsole.Clear();
-        AnsiConsole.MarkupLine($"[grey]~~[/] [bold cyan]{Markup.Escape(details.Title)}[/] [grey]~~[/]");
-        AnsiConsole.WriteLine();
-
         var isFav = _historyService.IsFavorite(_animeId, _provider);
 
-        var grid = new Grid();
-        grid.AddColumn(new GridColumn().Width(20));
-        grid.AddColumn(new GridColumn());
+        var metaParts = new List<string>
+        {
+            $"[grey]Sağlayıcı:[/] [bold mediumpurple1]{Markup.Escape(_provider)}[/]",
+            $"[grey]Format:[/] [bold green]{details.Format}[/]"
+        };
 
-        grid.AddRow("[bold grey]Sağlayıcı:[/]", $"[purple]{Markup.Escape(_provider)}[/]");
-        grid.AddRow("[bold grey]Format:[/]", $"[green]{details.Format}[/]");
-        grid.AddRow("[bold grey]Açıklama:[/]", $"[white]{Markup.Escape(details.Summary ?? "-")}[/]");
+        if (isFav)
+        {
+            metaParts.Add("[bold pink1]♥ Favorilerde[/]");
+        }
 
-        AnsiConsole.Write(grid);
-        AnsiConsole.WriteLine();
+        var headerLines = new List<string>
+        {
+            string.Join("  [grey]•[/]  ", metaParts)
+        };
+
+        if (!string.IsNullOrWhiteSpace(details.Summary) && details.Summary != "-")
+        {
+            headerLines.Add($"[grey]Açıklama:[/] [silver]{Markup.Escape(TruncateSummary(details.Summary, 120))}[/]");
+        }
 
         var groupedEpisodes = details.Episodes
                                      .GroupBy(e => e.Season ?? 1)
@@ -166,9 +173,10 @@ public class AnimeDetailsView : BaseView
                 Searchable    = "Geri"
             });
 
-            var seasonChoice = FuzzyPrompt.Show("Sezon Seçin:",
+            var seasonChoice = FuzzyPrompt.Show(details.Title,
                                                 seasonChoices,
-                                                initialSelection: _lastSelectedSeasonSearchable);
+                                                initialSelection: _lastSelectedSeasonSearchable,
+                                                headerLines: headerLines);
 
             if (seasonChoice == null || seasonChoice.Searchable == "Geri")
             {
@@ -202,6 +210,11 @@ public class AnimeDetailsView : BaseView
         var activeSeason = _selectedSeason ?? (groupedEpisodes.Count > 0 ? groupedEpisodes[0].Key : 1);
         var currentSeasonGroup = groupedEpisodes.FirstOrDefault(g => g.Key == activeSeason)
                                  ?? groupedEpisodes.FirstOrDefault();
+
+        if (isMultiSeason)
+        {
+            headerLines.Add($"[grey]Sezon:[/] [bold gold1]{activeSeason}. Sezon[/]");
+        }
 
         var choices = new List<FuzzyChoice>();
 
@@ -255,8 +268,10 @@ public class AnimeDetailsView : BaseView
             Searchable    = "Geri"
         });
 
-        var promptTitle = isMultiSeason ? $"{activeSeason}. Sezon Bölümleri:" : "Bölümler:";
-        var choice      = FuzzyPrompt.Show(promptTitle, choices, initialSelection: _lastSelectedSearchable);
+        var choice = FuzzyPrompt.Show(details.Title,
+                                      choices,
+                                      initialSelection: _lastSelectedSearchable,
+                                      headerLines: headerLines);
 
         if (choice == null || choice.Searchable == "Geri")
         {
@@ -290,5 +305,16 @@ public class AnimeDetailsView : BaseView
             sourcesView.SetTarget(_provider, _animeId, details.Title, selectedEp, details.Episodes, details.PosterUrl);
             navigator.Push(sourcesView);
         }
+    }
+
+    private static string TruncateSummary(string? summary, int maxLength = 100)
+    {
+        if (string.IsNullOrWhiteSpace(summary))
+        {
+            return "-";
+        }
+
+        var clean = summary.Replace("\r", "").Replace("\n", " ").Trim();
+        return clean.Length <= maxLength ? clean : clean[..(maxLength - 3)] + "...";
     }
 }

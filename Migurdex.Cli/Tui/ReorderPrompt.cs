@@ -29,7 +29,7 @@ public static class ReorderPrompt
             var grid = new Grid();
             grid.AddColumn();
 
-            grid.AddRow(new Markup($"[grey]~~[/] [bold yellow]{title}[/] [grey]~~[/]"));
+            grid.AddRow(new Markup($"[grey]~~[/] [bold cyan]{title}[/] [grey]~~[/]"));
             grid.AddRow(new Text(string.Empty));
 
             for (var i = 0; i < list.Count; i++)

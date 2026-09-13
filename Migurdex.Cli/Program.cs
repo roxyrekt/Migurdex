@@ -38,7 +38,7 @@ public static class Program
         var serviceProvider = services.BuildServiceProvider();
 
         AnsiConsole.Clear();
-        AnsiConsole.MarkupLine("[grey]~~[/] [dim]Migurdex başlatılıyor...[/] [grey]~~[/]");
+        AnsiConsole.MarkupLine("[grey]~~[/] [bold cyan]Migurdex başlatılıyor...[/] [grey]~~[/]");
         AnsiConsole.WriteLine();
 
         var apiService = serviceProvider.GetRequiredService<IApiClientService>();

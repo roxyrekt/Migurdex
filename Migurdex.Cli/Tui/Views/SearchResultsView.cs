@@ -92,20 +92,20 @@ public class SearchResultsView : BaseView
 
         var cancelChoice = new FuzzyChoice
         {
-            Display       = "[red]İptal[/]",
-            DisplayActive = "[bold red]İptal[/]",
-            Searchable    = "İptal"
+            Display       = "[red]Geri[/]",
+            DisplayActive = "[bold red]Geri[/]",
+            Searchable    = "Geri"
         };
 
         var promptResult =
-            FuzzyPrompt.ShowDynamic("Sonuçlar", mappedStream, FormatSearchResults, cancelChoice, stats: scanStats);
+            FuzzyPrompt.ShowDynamic($"Sonuçlar: {_query}", mappedStream, FormatSearchResults, cancelChoice, stats: scanStats);
         var selection = promptResult?.Selection;
 
         _scanned = true;
         _items   = promptResult?.AccumulatedItems ?? [];
 
         if (selection == null
-            || selection.Searchable == "İptal"
+            || selection.Searchable == "Geri"
             || selection.AssociatedValue is not SearchResult selectedAnime)
         {
             navigator.Pop();

@@ -254,7 +254,7 @@ public class EpisodeSourcesView : BaseView
         {
             AnsiConsole.Clear();
             AnsiConsole.MarkupLine(
-                $"[grey]~~[/] [yellow]Otomatik: {animeTitle} - Bölüm {episode.Number}[/] [grey]~~[/]");
+                $"[grey]~~[/] [bold cyan]Otomatik: {animeTitle} - Bölüm {episode.Number}[/] [grey]~~[/]");
             AnsiConsole.WriteLine();
             AnsiConsole.MarkupLine("[cyan]Kaynaklar taranıyor...[/]");
             AnsiConsole.MarkupLine("[grey]İptal için [bold red]Esc[/] tuşuna basın.[/]");
