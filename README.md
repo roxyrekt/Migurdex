@@ -109,7 +109,7 @@ Akış: `TUI → API → plugin (+ Rust HTTP) → kaynak listesi → MPV`. Nativ
 
 ## Yol Haritası
 
-- [ ] **MyAnimeList & AniList izleme durumu eşitleme**
+- [x] **MyAnimeList & AniList izleme durumu eşitleme**
 - [ ] **Otomatik yeni bölüm atlama**
 - [ ] **Intro skip** (aniskip benzeri)
 
