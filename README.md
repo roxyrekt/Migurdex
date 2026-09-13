@@ -27,11 +27,35 @@ Terminalden anime arayıp izlemeyi sağlayan modüler araç: klavye odaklı TUI 
 
 ## Hızlı Başlangıç
 
-Hazır sürümleri [Releases](https://github.com/roxyrekt/Migurdex/releases) sayfasından indirin.
+### Tek Satırda Kurulum
 
-**Arşiv (Linux / Windows):** `tar.gz` / `zip` dosyasını açın, içindeki `migurdex` (veya `migurdex.exe`) dosyasını çalıştırın — API arka planda otomatik başlar.
+**Linux:**
 
-**AppImage (Linux):**
+```bash
+curl -fsSL https://raw.githubusercontent.com/roxyrekt/Migurdex/main/install.sh | bash
+```
+
+**Windows (PowerShell):**
+
+```powershell
+irm https://raw.githubusercontent.com/roxyrekt/Migurdex/main/install.ps1 | iex
+```
+
+### Kaldırma (Uninstall / Purge)
+
+- **Linux:**
+  - Standart (ayarları korur): `curl -fsSL https://raw.githubusercontent.com/roxyrekt/Migurdex/main/install.sh | bash -s -- --uninstall`
+  - Tam temizlik (tüm verileri siler): `curl -fsSL https://raw.githubusercontent.com/roxyrekt/Migurdex/main/install.sh | bash -s -- --purge`
+- **Windows:**
+  - Standart (ayarları korur): `irm https://raw.githubusercontent.com/roxyrekt/Migurdex/main/install.ps1 | % { & ([scriptblock]::Create($_)) -Uninstall }`
+  - Tam temizlik (tüm verileri siler): `irm https://raw.githubusercontent.com/roxyrekt/Migurdex/main/install.ps1 | % { & ([scriptblock]::Create($_)) -Purge }`
+
+### Manuel Kurulum
+
+Hazır sürümleri [Releases](https://github.com/roxyrekt/Migurdex/releases) sayfasından da indirebilirsiniz:
+
+- **Arşiv (Linux / Windows):** `tar.gz` / `zip` dosyasını açın, içindeki `migurdex` (veya `migurdex.exe`) dosyasını çalıştırın — API arka planda otomatik başlar.
+- **AppImage (Linux):**
 
 ```bash
 chmod +x Migurdex-x86_64.AppImage
