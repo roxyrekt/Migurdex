@@ -19,7 +19,7 @@ LoggerBuilder.ConfigureLogging(builder.Services, builder.Configuration);
 builder.Services.AddOpenApi();
 
 var libName = OperatingSystem.IsWindows() ? "migurdex_native.dll" : "libmigurdex_native.so";
-var dllPath = Path.Combine(AppContext.BaseDirectory, libName);
+var dllPath = Path.Combine(GetExecutableDirectory(), libName);
 
 try
 {
@@ -44,7 +44,7 @@ builder.Services.AddSingleton<PluginLoader>(sp =>
     var bridge        = sp.GetRequiredService<ISharedBridge>();
     var loggerFactory = sp.GetRequiredService<ILoggerFactory>();
     var loader        = new PluginLoader(bridge, loggerFactory.CreateLogger<PluginLoader>(), loggerFactory);
-    var pluginsPath   = Path.Combine(AppContext.BaseDirectory, "Plugins");
+    var pluginsPath   = Path.Combine(GetExecutableDirectory(), "Plugins");
     loader.LoadPlugins(pluginsPath);
 
     return loader;
@@ -119,3 +119,18 @@ app.MapTrackerSeasonEndpoints();
 app.Run();
 
 return 0;
+
+static string GetExecutableDirectory()
+{
+    var exePath = Environment.ProcessPath;
+    if (!string.IsNullOrEmpty(exePath))
+    {
+        var dir = Path.GetDirectoryName(exePath);
+        if (!string.IsNullOrEmpty(dir) && Directory.Exists(dir))
+        {
+            return dir;
+        }
+    }
+
+    return AppContext.BaseDirectory;
+}

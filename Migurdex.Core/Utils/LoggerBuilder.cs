@@ -11,7 +11,9 @@ public static class LoggerBuilder
 {
     public static void ConfigureLogging(IServiceCollection services, IConfiguration configuration)
     {
-        var logsDir = Path.Combine(AppContext.BaseDirectory, "logs");
+        var exeDir  = Environment.ProcessPath is { Length: > 0 } p ? Path.GetDirectoryName(p) : null;
+        var baseDir = !string.IsNullOrEmpty(exeDir) && Directory.Exists(exeDir) ? exeDir! : AppContext.BaseDirectory;
+        var logsDir = Path.Combine(baseDir, "logs");
         if (!Directory.Exists(logsDir))
         {
             Directory.CreateDirectory(logsDir);
