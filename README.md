@@ -88,6 +88,21 @@ Akış basit: Arama -> Detay -> Kaynak -> Oynat.
 
 `Esc` bir önceki ekrana döner. Yön tuşları + `Enter` ile kullanılıyor.
 
+### Komut satırı modu (non-interactive)
+
+Menüye girmeden doğrudan arama/oynatma:
+
+```bash
+migurdex search "one piece"                  # sağlayıcı | başlık | id listeler
+migurdex search "naruto" -p TurkAnime --json # JSON çıktı
+migurdex play "one piece" -e 12              # 12. bölümü oynat
+migurdex play "naruto" -s 2 -p TurkAnime -g FansubAdı
+migurdex play "bleach" --debug               # mpv açmadan çözülen URL'yi yazdır
+migurdex continue                            # kaldığın yerden devam et
+```
+
+`-e` verilmezse kaldığın bölümden (yoksa 1. bölümden) başlar. Kaynak seçimi ayarlardaki otomatik seçim kurallarıyla aynıdır.
+
 ## Ayarlar
 
 Ayarlar menüsünden değiştirilebilenler: otomatik oynat, bekleme süresi, Discord RPC ve başlık modu, gizli mod, oynatıcı logları, API adresi (varsayılan `http://127.0.0.1:7045`), AniList / MAL bağlantısı, sağlayıcı açma-kapama, sıralama öncelikleri ve otomatik seçim kuralları (Otomatik / Asla / Sadece).

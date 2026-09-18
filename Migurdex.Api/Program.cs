@@ -122,6 +122,12 @@ return 0;
 
 static string GetExecutableDirectory()
 {
+    var baseDir = AppContext.BaseDirectory;
+    if (!string.IsNullOrEmpty(baseDir) && Directory.Exists(baseDir))
+    {
+        return baseDir;
+    }
+
     var exePath = Environment.ProcessPath;
     if (!string.IsNullOrEmpty(exePath))
     {

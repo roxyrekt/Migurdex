@@ -23,6 +23,14 @@ public static class Program
                                               authProvider.GetRequiredService<MalOAuthClient>());
         }
 
+        if (args.Length > 0 && NonInteractiveCommand.IsCommand(args[0]))
+        {
+            var nonInteractiveServices = new ServiceCollection();
+            ConfigureServices(nonInteractiveServices);
+            using var nonInteractiveProvider = nonInteractiveServices.BuildServiceProvider();
+            return await NonInteractiveCommand.RunAsync(args, nonInteractiveProvider);
+        }
+
         AppDomain.CurrentDomain.ProcessExit += (s, e) => RestoreCursor();
         Console.CancelKeyPress += (s, e) =>
         {
