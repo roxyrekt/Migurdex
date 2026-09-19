@@ -103,6 +103,7 @@ app.MapGet("/health",
            (PluginLoader loader, IExtractorManager extractorManager) => Results.Ok(new
            {
                status     = "OK",
+               version    = Migurdex.Shared.Update.AppInfo.GetVersion(),
                providers  = loader.Providers.Count,
                extractors = extractorManager.Extractors.Count,
                rust       = RustBridge.IsInitialized,

@@ -12,6 +12,24 @@ public static class Program
 {
     public static async Task<int> Main(string[] args)
     {
+        CleanStaleBackup();
+
+        if (args.Any(a => a.Equals("--version", StringComparison.OrdinalIgnoreCase)
+                          || a.Equals("-v", StringComparison.OrdinalIgnoreCase))
+            || (args.Length > 0 && args[0].Equals("version", StringComparison.OrdinalIgnoreCase)))
+        {
+            Console.WriteLine($"migurdex v{Migurdex.Shared.Update.AppInfo.GetVersion()}");
+            return 0;
+        }
+
+        if (args.Length > 0 && args[0].Equals("update", StringComparison.OrdinalIgnoreCase))
+        {
+            var updateServices = new ServiceCollection();
+            ConfigureServices(updateServices);
+            using var updateProvider = updateServices.BuildServiceProvider();
+            return await UpdateCommand.RunAsync(args[1..], updateProvider);
+        }
+
         if (args.Length > 0 && args[0].Equals("auth", StringComparison.OrdinalIgnoreCase))
         {
             var authServices = new ServiceCollection();
@@ -80,11 +98,93 @@ public static class Program
 
         _ = Task.Run(() => serviceProvider.GetRequiredService<WatchSyncService>().FlushQueueAsync());
 
+        var noUpdateCheck = args.Any(a => a.Equals("--no-update-check", StringComparison.OrdinalIgnoreCase));
+        await MaybePromptForUpdateAsync(serviceProvider, noUpdateCheck);
+
         navigator.Start(mainMenu);
 
         AnsiConsole.Clear();
         RestoreCursor();
         return 0;
+    }
+
+    private static async Task MaybePromptForUpdateAsync(IServiceProvider services, bool noUpdateCheck)
+    {
+        if (noUpdateCheck || Console.IsInputRedirected)
+        {
+            return;
+        }
+
+        try
+        {
+            var updateService = services.GetRequiredService<IUpdateService>();
+            var configService = services.GetRequiredService<IConfigurationService>();
+
+            var result = await updateService.CheckForUpdatesAsync();
+            if (result is null || !result.IsUpdateAvailable)
+            {
+                return;
+            }
+
+            if (result.LatestVersion.Equals(configService.Config.SkippedVersion,
+                                            StringComparison.OrdinalIgnoreCase))
+            {
+                return;
+            }
+
+            var choice = AnsiConsole.Prompt(
+                new SelectionPrompt<string>()
+                    .Title($"[yellow]Yeni sürüm mevcut:[/] v{result.CurrentVersion} → v{result.LatestVersion}"
+                           + (result.IsPrerelease ? " [grey](pre-release)[/]" : ""))
+                    .AddChoices("Evet, güncelle", "Hayır", "Bu sürümü atla"));
+
+            if (choice == "Evet, güncelle")
+            {
+                var code = await UpdateCommand.RunAsync(["--yes"], services);
+                if (code == 0)
+                {
+                    Environment.Exit(0);
+                }
+
+                AnsiConsole.MarkupLine("[grey]Mevcut sürümle devam etmek için bir tuşa basın...[/]");
+                Console.ReadKey(true);
+            }
+            else if (choice == "Bu sürümü atla")
+            {
+                configService.Config.SkippedVersion = result.LatestVersion;
+                try { configService.Save(); }
+                catch
+                {
+                    // ignored
+                }
+            }
+        }
+        catch
+        {
+            // ignored
+        }
+    }
+
+    private static void CleanStaleBackup()
+    {
+        try
+        {
+            var exe = Environment.ProcessPath;
+            if (string.IsNullOrWhiteSpace(exe))
+            {
+                return;
+            }
+
+            var backup = exe + ".old";
+            if (File.Exists(backup))
+            {
+                File.Delete(backup);
+            }
+        }
+        catch
+        {
+            // ignored
+        }
     }
 
     private static void RestoreCursor()
@@ -102,6 +202,7 @@ public static class Program
 
         services.AddSingleton<HttpClient>();
         services.AddSingleton<IApiClientService, ApiClientService>();
+        services.AddSingleton<IUpdateService, UpdateService>();
 
         services.AddSingleton<OAuthTokenStore>();
         services.AddSingleton<AniListOAuthClient>(_ => new AniListOAuthClient(new CliBridge(),

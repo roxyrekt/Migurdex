@@ -14,19 +14,22 @@ public class SettingsView : BaseView
     private readonly        IConfigurationService _configService;
     private readonly        MalOAuthClient        _malOAuth;
     private readonly        OAuthTokenStore       _tokenStore;
+    private readonly        IUpdateService        _updateService;
     private                 string?               _lastProviderName;
 
     public SettingsView(IConfigurationService configService,
         IApiClientService                     apiClient,
         OAuthTokenStore                       tokenStore,
         AniListOAuthClient                    aniListOAuth,
-        MalOAuthClient                        malOAuth)
+        MalOAuthClient                        malOAuth,
+        IUpdateService                        updateService)
     {
         _configService = configService;
         _apiClient     = apiClient;
         _tokenStore    = tokenStore;
         _aniListOAuth  = aniListOAuth;
         _malOAuth      = malOAuth;
+        _updateService = updateService;
     }
 
     public override string GetRpcState()
@@ -76,6 +79,24 @@ public class SettingsView : BaseView
                 Id          = "PlayerLogs",
                 Label       = "Oynatıcı Logları",
                 ValueGetter = c => c.ShowPlayerLogs ? "Açık" : "Kapalı"
+            },
+            new()
+            {
+                Id          = "UpdateCheck",
+                Label       = "Güncelleme Kontrolü",
+                ValueGetter = c => c.UpdateCheckEnabled ? "Açık" : "Kapalı"
+            },
+            new()
+            {
+                Id          = "UpdateChannel",
+                Label       = "Güncelleme Kanalı",
+                ValueGetter = c => UpdateService.IsPrereleaseChannel(c.UpdateChannel) ? "Pre-release" : "Stabil"
+            },
+            new()
+            {
+                Id       = "CheckUpdate",
+                Label    = "Şimdi Kontrol Et...",
+                IsAction = true
             },
             new()
             {
@@ -408,6 +429,34 @@ public class SettingsView : BaseView
         return _rpcTitleModes[(idx + 1) % _rpcTitleModes.Length];
     }
 
+    private void RunUpdateCheckNow()
+    {
+        UpdateCheckResult? result = null;
+        AnsiConsole.Status()
+                   .Spinner(Spinner.Known.Dots)
+                   .Start("Sürüm kontrol ediliyor...",
+                          _ =>
+                          {
+                              result = _updateService.CheckForUpdatesAsync(true).GetAwaiter().GetResult();
+                          });
+
+        if (result is null)
+        {
+            Toast.Show("[red]Sürüm kontrolü yapılamadı (çevrimdışı olabilir).[/]");
+            return;
+        }
+
+        if (!result.IsUpdateAvailable)
+        {
+            Toast.Show($"[green]Zaten güncelsin (v{Markup.Escape(result.CurrentVersion)}).[/]");
+            return;
+        }
+
+        Toast.Show($"[yellow]Yeni sürüm:[/] v{Markup.Escape(result.CurrentVersion)} → "
+                   + $"v{Markup.Escape(result.LatestVersion)}. "
+                   + "Çıkıp [cyan]migurdex update[/] ile kurun.");
+    }
+
     private bool HandleSelection(SettingItem item, CliConfig config, ITuiNavigator navigator, ref bool running)
     {
         switch (item.Id)
@@ -441,6 +490,17 @@ public class SettingsView : BaseView
                 break;
             case "PlayerLogs":
                 config.ShowPlayerLogs = !config.ShowPlayerLogs;
+                break;
+            case "UpdateCheck":
+                config.UpdateCheckEnabled = !config.UpdateCheckEnabled;
+                break;
+            case "UpdateChannel":
+                config.UpdateChannel =
+                    UpdateService.IsPrereleaseChannel(config.UpdateChannel) ? "stable" : "prerelease";
+                config.SkippedVersion = null;
+                break;
+            case "CheckUpdate":
+                RunUpdateCheckNow();
                 break;
             case "Api":
                 var apiUrl = (AnsiConsole.Ask("API adresi:", config.ApiBaseUrl ?? string.Empty) ?? string.Empty).Trim()

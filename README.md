@@ -103,6 +103,20 @@ migurdex continue                            # kaldığın yerden devam et
 
 `-e` verilmezse kaldığın bölümden (yoksa 1. bölümden) başlar. Kaynak seçimi ayarlardaki otomatik seçim kurallarıyla aynıdır.
 
+### Güncelleme
+
+Açılışta yeni sürüm varsa sorulur (`Evet / Hayır / Bu sürümü atla`). Elle kontrol ve kurulum:
+
+```bash
+migurdex update                                    # yeni sürüm varsa onaylı kurar ve otomatik yeniden başlatır
+migurdex update --no-restart                       # kurar ama yeniden başlatmaz
+migurdex update --check                            # sadece kontrol eder
+migurdex update --channel prerelease               # bu seferlik pre-release kanalından bakar
+migurdex --version                                 # kurulu sürüm
+```
+
+Kanal ve otomatik kontrol Ayarlar menüsünden değiştirilir (Güncelleme Kontrolü / Güncelleme Kanalı). Kontrolü bir seferlik atlamak için `migurdex --no-update-check` ile başlat. Güncelleme `~/.config/migurdex/` altındaki ayar ve geçmişe dokunmaz.
+
 ## Ayarlar
 
 Ayarlar menüsünden değiştirilebilenler: otomatik oynat, bekleme süresi, Discord RPC ve başlık modu, gizli mod, oynatıcı logları, API adresi (varsayılan `http://127.0.0.1:7045`), AniList / MAL bağlantısı, sağlayıcı açma-kapama, sıralama öncelikleri ve otomatik seçim kuralları (Otomatik / Asla / Sadece).

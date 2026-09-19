@@ -570,7 +570,9 @@ public static class NonInteractiveCommand
         Console.WriteLine(
             "  migurdex play <sorgu> [-e|--episode <n>] [-s|--season <n>] [-p|--provider <ad>] [-g|--group <ad>] [--debug]");
         Console.WriteLine("  migurdex continue [--debug]");
+        Console.WriteLine("  migurdex update [--check] [--channel stable|prerelease] [-y] [--no-restart]");
         Console.WriteLine("  migurdex auth <login|logout|status>");
+        Console.WriteLine("  migurdex --version");
         Console.WriteLine(
             "Bayraklar: -e bölüm (varsayılan: kaldığın yer ya da 1), -s sezon, -p sağlayıcı, -g fansub grubu, --debug mpv açmadan URL yazdırır.");
     }

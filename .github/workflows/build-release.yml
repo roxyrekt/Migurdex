@@ -48,6 +48,15 @@ jobs:
             -   name: Setup Rust
                 uses: dtolnay/rust-toolchain@stable
 
+            -   name: Determine version
+                shell: bash
+                run: |
+                    if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+                      echo "VERSION=${GITHUB_REF#refs/tags/v}" >> "$GITHUB_ENV"
+                    else
+                      echo "VERSION=0.0.0-dev" >> "$GITHUB_ENV"
+                    fi
+
             -   name: Build Rust Native
                 working-directory: ./Migurdex.Native
                 run: cargo build --release
@@ -61,6 +70,7 @@ jobs:
                       --self-contained true \
                       -p:PublishSingleFile=true \
                       -p:PublishTrimmed=false \
+                      -p:Version="$VERSION" \
                       -o dist/api
 
             -   name: Copy Native Library to API
@@ -77,6 +87,7 @@ jobs:
                       --self-contained true \
                       -p:PublishSingleFile=true \
                       -p:PublishTrimmed=true \
+                      -p:Version="$VERSION" \
                       -o dist/cli-temp
 
             -   name: Organize Dist
@@ -95,6 +106,7 @@ jobs:
                       echo "Publishing $plugin..."
                       dotnet publish "Plugins/$plugin/$plugin.csproj" \
                         -c Release \
+                        -p:Version="$VERSION" \
                         -o dist/api/Plugins \
                         --no-self-contained
                     done
@@ -127,6 +139,15 @@ jobs:
                     chmod +x Migurdex.AppDir/migurdex
                     ARCH=x86_64 ./appimagetool.AppImage --appimage-extract-and-run Migurdex.AppDir migurdex-x86_64.AppImage
 
+            -   name: Generate checksums
+                shell: bash
+                run: |
+                    if [ "${{ matrix.os }}" == "ubuntu-latest" ]; then
+                      (cd "$GITHUB_WORKSPACE" && sha256sum migurdex-${{ matrix.runtime }}.tar.gz > sha256sums-${{ matrix.runtime }}.txt)
+                    else
+                      (cd "$GITHUB_WORKSPACE" && sha256sum migurdex-${{ matrix.runtime }}.zip > sha256sums-${{ matrix.runtime }}.txt)
+                    fi
+
             -   name: Upload AppImage Artifact
                 if: matrix.os == 'ubuntu-latest'
                 uses: actions/upload-artifact@v7
@@ -141,6 +162,7 @@ jobs:
                     path: |
                         migurdex-${{ matrix.runtime }}.tar.gz
                         migurdex-${{ matrix.runtime }}.zip
+                        sha256sums-${{ matrix.runtime }}.txt
 
     release:
         name: Create Release
@@ -160,7 +182,7 @@ jobs:
             -   name: Flatten Artifacts
                 run: |
                     mkdir release-files
-                    find artifacts -type f \( -name "*.tar.gz" -o -name "*.zip" -o -name "*.AppImage" \) -exec cp {} release-files/ \;
+                    find artifacts -type f \( -name "*.tar.gz" -o -name "*.zip" -o -name "*.AppImage" -o -name "*.txt" \) -exec cp {} release-files/ \;
 
             -   name: Create GitHub Release
                 uses: softprops/action-gh-release@v3
