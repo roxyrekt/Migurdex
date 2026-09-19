@@ -7,6 +7,7 @@
 
     <Folder Name="/Plugins/">
         <Project Path="Plugins/Migurdex.Plugins.Acheriya/Migurdex.Plugins.Acheriya.csproj"/>
+        <Project Path="Plugins/Migurdex.Plugins.AniHub/Migurdex.Plugins.AniHub.csproj"/>
         <Project Path="Plugins/Migurdex.Plugins.Animecix/Migurdex.Plugins.Animecix.csproj"/>
         <Project Path="Plugins/Migurdex.Plugins.Animexe/Migurdex.Plugins.Animexe.csproj"/>
         <Project Path="Plugins/Migurdex.Plugins.Animpow/Migurdex.Plugins.Animpow.csproj"/>
