@@ -52,11 +52,14 @@ public class SearchResultsView : BaseView
         ShowStaticResults(navigator);
     }
 
-    private static List<FuzzyChoice> FormatSearchResults(List<SearchResult?> rawList)
+    private List<FuzzyChoice> FormatSearchResults(List<SearchResult?> rawList)
     {
+        var q = (_query ?? string.Empty).Trim();
+
         var sorted = rawList.Where(r => r != null)
                             .Select(r => r!)
-                            .OrderBy(r => r.ProviderName)
+                            .OrderBy(r => RankSearchMatch(r, q))
+                            .ThenBy(r => r.ProviderName)
                             .ThenByDescending(r => r.Year ?? "")
                             .ThenBy(r => r.Title)
                             .ToList();
@@ -86,6 +89,32 @@ public class SearchResultsView : BaseView
         }
 
         return selectList;
+    }
+
+    private static int RankSearchMatch(SearchResult r, string query)
+    {
+        if (string.IsNullOrWhiteSpace(query))
+        {
+            return 3;
+        }
+
+        var title = (r.Title ?? string.Empty).Trim();
+        if (title.Equals(query.Trim(), StringComparison.OrdinalIgnoreCase))
+        {
+            return 0;
+        }
+
+        if (title.StartsWith(query.Trim(), StringComparison.OrdinalIgnoreCase))
+        {
+            return 1;
+        }
+
+        if (title.Contains(query.Trim(), StringComparison.OrdinalIgnoreCase))
+        {
+            return 2;
+        }
+
+        return 3;
     }
 
     private bool ShowLiveResults(ITuiNavigator navigator)
