@@ -5,6 +5,7 @@ using Migurdex.Cli.Tui.Views;
 using Migurdex.Core.Database;
 using Migurdex.Core.Services;
 using Migurdex.Shared.Models;
+using Migurdex.Shared.Update;
 using Spectre.Console;
 
 namespace Migurdex.Cli;
@@ -19,7 +20,7 @@ public static class Program
                           || a.Equals("-v", StringComparison.OrdinalIgnoreCase))
             || (args.Length > 0 && args[0].Equals("version", StringComparison.OrdinalIgnoreCase)))
         {
-            Console.WriteLine($"migurdex v{Migurdex.Shared.Update.AppInfo.GetVersion()}");
+            Console.WriteLine($"migurdex v{AppInfo.GetVersion()}");
             return 0;
         }
 
@@ -198,10 +199,12 @@ public static class Program
     {
         services.AddSingleton<IConfigurationService, ConfigurationService>();
         services.AddSingleton<MigurdexDatabase>(sp =>
-            new MigurdexDatabase(sp.GetRequiredService<IConfigurationService>().ConfigDirectory));
+                                                    new MigurdexDatabase(
+                                                        sp.GetRequiredService<IConfigurationService>()
+                                                          .ConfigDirectory));
         services.AddSingleton<IHistoryService>(sp =>
-            new HistoryService(sp.GetRequiredService<IConfigurationService>(),
-                               sp.GetRequiredService<MigurdexDatabase>()));
+                                                   new HistoryService(sp.GetRequiredService<IConfigurationService>(),
+                                                                      sp.GetRequiredService<MigurdexDatabase>()));
         services.AddSingleton<IDiscordRpcService, DiscordRpcService>();
         services.AddSingleton<IMpvPlayerService, MpvPlayerService>();
 
@@ -210,7 +213,7 @@ public static class Program
         services.AddSingleton<IUpdateService, UpdateService>();
 
         services.AddSingleton<OAuthTokenStore>(sp =>
-            new OAuthTokenStore(sp.GetRequiredService<MigurdexDatabase>()));
+                                                   new OAuthTokenStore(sp.GetRequiredService<MigurdexDatabase>()));
         services.AddSingleton<AniListOAuthClient>(_ => new AniListOAuthClient(new CliBridge(),
                                                                               AniListAppCredentials.ClientId,
                                                                               AniListAppCredentials

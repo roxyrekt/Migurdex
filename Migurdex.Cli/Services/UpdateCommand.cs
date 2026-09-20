@@ -121,7 +121,7 @@ public static class UpdateCommand
         }
 
         if (!assumeYes
-            && !AnsiConsole.Confirm($"v{result.LatestVersion} kurulsun mu? (API kısa süreliğine durur)", true))
+            && !AnsiConsole.Confirm($"v{result.LatestVersion} kurulsun mu? (API kısa süreliğine durur)"))
         {
             return 0;
         }
@@ -373,7 +373,7 @@ public static class UpdateCommand
         }
 
         using var fs = File.OpenRead(archivePath);
-        using var gz = new System.IO.Compression.GZipStream(fs, System.IO.Compression.CompressionMode.Decompress);
+        using var gz = new GZipStream(fs, CompressionMode.Decompress);
         TarFile.ExtractToDirectory(gz, destDir, true);
     }
 

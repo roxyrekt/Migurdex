@@ -8,6 +8,7 @@ using Migurdex.Core.PluginSystem;
 using Migurdex.Core.Services;
 using Migurdex.Core.Utils;
 using Migurdex.Shared.Interfaces;
+using Migurdex.Shared.Update;
 using System.Diagnostics;
 using System.Text;
 
@@ -58,7 +59,8 @@ builder.Services.AddTransient<IMetadataProvider, JikanProvider>();
 
 builder.Services.AddSingleton<MigurdexDatabase>();
 builder.Services.AddSingleton<TrackerMappingStore>(sp =>
-    new TrackerMappingStore(sp.GetRequiredService<MigurdexDatabase>()));
+                                                       new TrackerMappingStore(
+                                                           sp.GetRequiredService<MigurdexDatabase>()));
 builder.Services.AddSingleton<ITrackerIdResolver, TrackerIdResolver>();
 builder.Services.AddMemoryCache();
 builder.Services.AddSingleton<ISeasonChainService, SeasonChainService>();
@@ -106,7 +108,7 @@ app.MapGet("/health",
            (PluginLoader loader, IExtractorManager extractorManager) => Results.Ok(new
            {
                status     = "OK",
-               version    = Migurdex.Shared.Update.AppInfo.GetVersion(),
+               version    = AppInfo.GetVersion(),
                providers  = loader.Providers.Count,
                extractors = extractorManager.Extractors.Count,
                rust       = RustBridge.IsInitialized,

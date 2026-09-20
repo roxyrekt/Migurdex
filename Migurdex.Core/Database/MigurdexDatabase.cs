@@ -12,8 +12,9 @@ public class MigurdexDatabase
         PropertyNameCaseInsensitive = true
     };
 
-    private readonly string _connectionString;
     private readonly string _configDirectory;
+
+    private readonly string _connectionString;
     private readonly Lock   _lock = new();
 
     public MigurdexDatabase(string? configDirectory = null)
@@ -60,77 +61,77 @@ public class MigurdexDatabase
             using var connection = CreateConnection();
             using var cmd        = connection.CreateCommand();
 
-            cmd.CommandText = $"""
-                                   CREATE TABLE IF NOT EXISTS watch_history (
-                                       provider_name           TEXT NOT NULL,
-                                       anime_id                TEXT NOT NULL,
-                                       episode_id              TEXT NOT NULL,
-                                       anime_title             TEXT NOT NULL,
-                                       episode_title           TEXT,
-                                       season                  INTEGER NOT NULL DEFAULT 1,
-                                       episode_number          REAL NOT NULL DEFAULT 1,
-                                       last_position_seconds   REAL NOT NULL DEFAULT 0,
-                                       total_duration_seconds  REAL NOT NULL DEFAULT 0,
-                                       is_completed            INTEGER NOT NULL DEFAULT 0,
-                                       poster_url              TEXT,
-                                       last_watched_at_utc     TEXT NOT NULL,
-                                       PRIMARY KEY (provider_name, anime_id, episode_id)
-                                   );
-                                   CREATE INDEX IF NOT EXISTS idx_watch_history_last_watched ON watch_history(last_watched_at_utc DESC);
-                                   CREATE INDEX IF NOT EXISTS idx_watch_history_anime ON watch_history(provider_name, anime_id);
+            cmd.CommandText = """
+                                  CREATE TABLE IF NOT EXISTS watch_history (
+                                      provider_name           TEXT NOT NULL,
+                                      anime_id                TEXT NOT NULL,
+                                      episode_id              TEXT NOT NULL,
+                                      anime_title             TEXT NOT NULL,
+                                      episode_title           TEXT,
+                                      season                  INTEGER NOT NULL DEFAULT 1,
+                                      episode_number          REAL NOT NULL DEFAULT 1,
+                                      last_position_seconds   REAL NOT NULL DEFAULT 0,
+                                      total_duration_seconds  REAL NOT NULL DEFAULT 0,
+                                      is_completed            INTEGER NOT NULL DEFAULT 0,
+                                      poster_url              TEXT,
+                                      last_watched_at_utc     TEXT NOT NULL,
+                                      PRIMARY KEY (provider_name, anime_id, episode_id)
+                                  );
+                                  CREATE INDEX IF NOT EXISTS idx_watch_history_last_watched ON watch_history(last_watched_at_utc DESC);
+                                  CREATE INDEX IF NOT EXISTS idx_watch_history_anime ON watch_history(provider_name, anime_id);
 
-                                   CREATE TABLE IF NOT EXISTS favorites (
-                                       provider_name           TEXT NOT NULL,
-                                       anime_id                TEXT NOT NULL,
-                                       anime_title             TEXT NOT NULL,
-                                       poster_url              TEXT,
-                                       added_at_utc            TEXT NOT NULL,
-                                       PRIMARY KEY (provider_name, anime_id)
-                                   );
-                                   CREATE INDEX IF NOT EXISTS idx_favorites_added_at ON favorites(added_at_utc DESC);
+                                  CREATE TABLE IF NOT EXISTS favorites (
+                                      provider_name           TEXT NOT NULL,
+                                      anime_id                TEXT NOT NULL,
+                                      anime_title             TEXT NOT NULL,
+                                      poster_url              TEXT,
+                                      added_at_utc            TEXT NOT NULL,
+                                      PRIMARY KEY (provider_name, anime_id)
+                                  );
+                                  CREATE INDEX IF NOT EXISTS idx_favorites_added_at ON favorites(added_at_utc DESC);
 
-                                   CREATE TABLE IF NOT EXISTS search_history (
-                                       query                   TEXT PRIMARY KEY,
-                                       searched_at_utc         TEXT NOT NULL
-                                   );
-                                   CREATE INDEX IF NOT EXISTS idx_search_history_date ON search_history(searched_at_utc DESC);
+                                  CREATE TABLE IF NOT EXISTS search_history (
+                                      query                   TEXT PRIMARY KEY,
+                                      searched_at_utc         TEXT NOT NULL
+                                  );
+                                  CREATE INDEX IF NOT EXISTS idx_search_history_date ON search_history(searched_at_utc DESC);
 
-                                   CREATE TABLE IF NOT EXISTS oauth_tokens (
-                                       provider                TEXT PRIMARY KEY,
-                                       access_token            TEXT NOT NULL,
-                                       refresh_token           TEXT NOT NULL,
-                                       expires_at_utc          TEXT NOT NULL,
-                                       token_type              TEXT,
-                                       scope                   TEXT,
-                                       created_at_utc          TEXT NOT NULL
-                                   );
+                                  CREATE TABLE IF NOT EXISTS oauth_tokens (
+                                      provider                TEXT PRIMARY KEY,
+                                      access_token            TEXT NOT NULL,
+                                      refresh_token           TEXT NOT NULL,
+                                      expires_at_utc          TEXT NOT NULL,
+                                      token_type              TEXT,
+                                      scope                   TEXT,
+                                      created_at_utc          TEXT NOT NULL
+                                  );
 
-                                   CREATE TABLE IF NOT EXISTS tracker_mappings (
-                                       provider_name           TEXT NOT NULL,
-                                       provider_id             TEXT NOT NULL,
-                                       anilist_id              TEXT,
-                                       mal_id                  TEXT,
-                                       matched_title           TEXT NOT NULL DEFAULT '',
-                                       score                   REAL NOT NULL DEFAULT 0,
-                                       updated_at_utc          TEXT NOT NULL,
-                                       PRIMARY KEY (provider_name, provider_id)
-                                   );
+                                  CREATE TABLE IF NOT EXISTS tracker_mappings (
+                                      provider_name           TEXT NOT NULL,
+                                      provider_id             TEXT NOT NULL,
+                                      anilist_id              TEXT,
+                                      mal_id                  TEXT,
+                                      matched_title           TEXT NOT NULL DEFAULT '',
+                                      score                   REAL NOT NULL DEFAULT 0,
+                                      updated_at_utc          TEXT NOT NULL,
+                                      PRIMARY KEY (provider_name, provider_id)
+                                  );
 
-                                   CREATE TABLE IF NOT EXISTS sync_queue (
-                                       id                      INTEGER PRIMARY KEY AUTOINCREMENT,
-                                       provider_name           TEXT NOT NULL,
-                                       anime_title             TEXT NOT NULL,
-                                       anime_id                TEXT NOT NULL,
-                                       season                  INTEGER NOT NULL DEFAULT 1,
-                                       episode                 REAL NOT NULL DEFAULT 1,
-                                       is_completed            INTEGER NOT NULL DEFAULT 0,
-                                       attempts                INTEGER NOT NULL DEFAULT 0,
-                                       next_attempt_at_utc     TEXT NOT NULL,
-                                       enqueued_at_utc         TEXT NOT NULL,
-                                       UNIQUE(provider_name, anime_id, season)
-                                   );
-                                   CREATE INDEX IF NOT EXISTS idx_sync_queue_key ON sync_queue(provider_name, anime_id, season);
-                               """;
+                                  CREATE TABLE IF NOT EXISTS sync_queue (
+                                      id                      INTEGER PRIMARY KEY AUTOINCREMENT,
+                                      provider_name           TEXT NOT NULL,
+                                      anime_title             TEXT NOT NULL,
+                                      anime_id                TEXT NOT NULL,
+                                      season                  INTEGER NOT NULL DEFAULT 1,
+                                      episode                 REAL NOT NULL DEFAULT 1,
+                                      is_completed            INTEGER NOT NULL DEFAULT 0,
+                                      attempts                INTEGER NOT NULL DEFAULT 0,
+                                      next_attempt_at_utc     TEXT NOT NULL,
+                                      enqueued_at_utc         TEXT NOT NULL,
+                                      UNIQUE(provider_name, anime_id, season)
+                                  );
+                                  CREATE INDEX IF NOT EXISTS idx_sync_queue_key ON sync_queue(provider_name, anime_id, season);
+                              """;
 
             cmd.ExecuteNonQuery();
             RestrictDbFilePermissions();

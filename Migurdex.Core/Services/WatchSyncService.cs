@@ -16,10 +16,11 @@ public sealed class WatchSyncService
 
     private readonly AniListListClient _aniListClient;
 
+    private readonly MigurdexDatabase _db;
+
     private readonly Func<string, string, int, double, string?, CancellationToken, Task<EpisodeMappingResult>>
         _episodeMapper;
 
-    private readonly MigurdexDatabase          _db;
     private readonly Lock                      _lock = new();
     private readonly ILogger<WatchSyncService> _logger;
     private readonly MalListClient?            _malClient;

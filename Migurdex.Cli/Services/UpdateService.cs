@@ -1,16 +1,17 @@
 using Migurdex.Shared.Update;
 using System.Diagnostics;
+using System.Net;
 using System.Text.Json;
 
 namespace Migurdex.Cli.Services;
 
 public class UpdateService : IUpdateService
 {
-    public const  string Repo                = "roxyrekt/Migurdex";
-    private const int    CheckTimeoutSeconds = 8;
-
-    private readonly HttpClient            _httpClient;
+    public const     string                Repo                = "roxyrekt/Migurdex";
+    private const    int                   CheckTimeoutSeconds = 8;
     private readonly IConfigurationService _configService;
+
+    private readonly HttpClient _httpClient;
 
     public UpdateService(HttpClient httpClient, IConfigurationService configService)
     {
@@ -19,13 +20,6 @@ public class UpdateService : IUpdateService
     }
 
     public string CurrentVersion => AppInfo.GetVersion();
-
-    public static bool IsPrereleaseChannel(string? channel)
-    {
-        return channel?.Trim().Equals("prerelease", StringComparison.OrdinalIgnoreCase) == true
-               || channel?.Trim().Equals("beta", StringComparison.OrdinalIgnoreCase) == true
-               || channel?.Trim().Equals("pre", StringComparison.OrdinalIgnoreCase) == true;
-    }
 
     public async Task<UpdateCheckResult?> CheckForUpdatesAsync(bool force             = false,
         string?                                                     channelOverride   = null,
@@ -134,6 +128,13 @@ public class UpdateService : IUpdateService
         }
     }
 
+    public static bool IsPrereleaseChannel(string? channel)
+    {
+        return channel?.Trim().Equals("prerelease", StringComparison.OrdinalIgnoreCase) == true
+               || channel?.Trim().Equals("beta", StringComparison.OrdinalIgnoreCase) == true
+               || channel?.Trim().Equals("pre", StringComparison.OrdinalIgnoreCase) == true;
+    }
+
     private async Task<GitHubRelease?> GetLatestStableAsync(CancellationToken cancellationToken)
     {
         using var request = new HttpRequestMessage(HttpMethod.Get,
@@ -141,7 +142,7 @@ public class UpdateService : IUpdateService
         AddGitHubHeaders(request);
 
         using var response = await _httpClient.SendAsync(request, cancellationToken);
-        if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
+        if (response.StatusCode == HttpStatusCode.NotFound)
         {
             return null;
         }

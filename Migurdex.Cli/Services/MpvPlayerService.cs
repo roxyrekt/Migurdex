@@ -1,4 +1,3 @@
-using Migurdex.Cli.Configuration;
 using Migurdex.Cli.Utils;
 using Migurdex.Core.Services;
 using Migurdex.Shared.Models;

@@ -1,5 +1,4 @@
 using Microsoft.Extensions.DependencyInjection;
-using Migurdex.Cli.Configuration;
 using Migurdex.Core.Database;
 using Migurdex.Shared.Models;
 
@@ -52,7 +51,7 @@ public class HistoryService : IHistoryService
 
     public IReadOnlyList<string> GetSearchHistory()
     {
-        return _db.GetSearchHistory(15);
+        return _db.GetSearchHistory();
     }
 
     public void AddSearchQuery(string query)

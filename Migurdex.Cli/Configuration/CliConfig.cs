@@ -12,9 +12,9 @@ public class CliConfig
     public double       AutoSelectTimeoutSeconds { get; set; } = 5;
     public List<string> DisabledProviders        { get; set; } = [];
 
-    public bool     UpdateCheckEnabled { get; set; } = true;
-    public string   UpdateChannel      { get; set; } = "stable";
-    public string?  SkippedVersion     { get; set; }
+    public bool    UpdateCheckEnabled { get; set; } = true;
+    public string  UpdateChannel      { get; set; } = "stable";
+    public string? SkippedVersion     { get; set; }
 
     public List<string> AutoNeverHosters   { get; set; } = [];
     public List<string> AutoOnlyHosters    { get; set; } = [];

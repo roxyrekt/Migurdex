@@ -44,7 +44,7 @@ public sealed class UpdateServiceTests
     [Fact]
     public void SelectRelease_StableSkipsPrerelease()
     {
-        var releases = new[] { Release("v2.0.0-beta", pre: true), Release("v1.9.0"), Release("v1.8.0") };
+        var releases = new[] { Release("v2.0.0-beta", true), Release("v1.9.0"), Release("v1.8.0") };
 
         var picked = ReleaseSelector.SelectRelease(releases, false);
 
@@ -55,7 +55,7 @@ public sealed class UpdateServiceTests
     [Fact]
     public void SelectRelease_PrereleaseChannelPicksNewest()
     {
-        var releases = new[] { Release("v2.0.0-beta", pre: true), Release("v1.9.0") };
+        var releases = new[] { Release("v2.0.0-beta", true), Release("v1.9.0") };
 
         var picked = ReleaseSelector.SelectRelease(releases, true);
 

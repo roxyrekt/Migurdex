@@ -1,5 +1,4 @@
 using Microsoft.Extensions.DependencyInjection;
-using Migurdex.Cli.Configuration;
 using Migurdex.Shared.Enums;
 using Migurdex.Shared.Models;
 using System.Globalization;
@@ -35,7 +34,7 @@ public static class NonInteractiveCommand
 
     private static async Task<int> SearchAsync(string[] args, IServiceProvider services)
     {
-        if (!TryParseCommon(args, out var opts, out var error, allowEpisode: false, allowJson: true))
+        if (!TryParseCommon(args, out var opts, out var error, false, true))
         {
             return UsageError(error!);
         }
@@ -87,7 +86,7 @@ public static class NonInteractiveCommand
 
     private static async Task<int> PlayAsync(string[] args, IServiceProvider services)
     {
-        if (!TryParseCommon(args, out var opts, out var error, allowEpisode: true, allowJson: false))
+        if (!TryParseCommon(args, out var opts, out var error, true, false))
         {
             return UsageError(error!);
         }
@@ -441,18 +440,6 @@ public static class NonInteractiveCommand
         return n % 1 == 0 ? ((int) n).ToString() : n.ToString("0.#", CultureInfo.InvariantCulture);
     }
 
-    private sealed class Options
-    {
-        public string? Query    { get; set; }
-        public string? Provider { get; set; }
-        public string? Group    { get; set; }
-        public double? Episode  { get; set; }
-        public int?    Season   { get; set; }
-        public bool    Debug    { get; set; }
-        public bool    Json     { get; set; }
-        public bool    ShowHelp { get; set; }
-    }
-
     private static bool TryParseCommon(string[] args,
         out Options                             opts,
         out string?                             error,
@@ -575,5 +562,17 @@ public static class NonInteractiveCommand
         Console.WriteLine("  migurdex --version");
         Console.WriteLine(
             "Bayraklar: -e bölüm (varsayılan: kaldığın yer ya da 1), -s sezon, -p sağlayıcı, -g fansub grubu, --debug mpv açmadan URL yazdırır.");
+    }
+
+    private sealed class Options
+    {
+        public string? Query    { get; set; }
+        public string? Provider { get; set; }
+        public string? Group    { get; set; }
+        public double? Episode  { get; set; }
+        public int?    Season   { get; set; }
+        public bool    Debug    { get; set; }
+        public bool    Json     { get; set; }
+        public bool    ShowHelp { get; set; }
     }
 }

@@ -1,5 +1,3 @@
-using Migurdex.Shared.Update;
-
 namespace Migurdex.Cli.Services;
 
 public enum InstallType

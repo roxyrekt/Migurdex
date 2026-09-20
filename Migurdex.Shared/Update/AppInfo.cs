@@ -4,6 +4,8 @@ namespace Migurdex.Shared.Update;
 
 public static class AppInfo
 {
+    public static bool IsDevBuild => GetVersion().StartsWith("0.0.0", StringComparison.Ordinal);
+
     public static string GetVersion()
     {
         var asm  = Assembly.GetEntryAssembly() ?? Assembly.GetExecutingAssembly();
@@ -16,8 +18,6 @@ public static class AppInfo
         var v = asm.GetName().Version?.ToString();
         return string.IsNullOrWhiteSpace(v) ? "0.0.0-dev" : NormalizeTag(v);
     }
-
-    public static bool IsDevBuild => GetVersion().StartsWith("0.0.0", StringComparison.Ordinal);
 
     public static string NormalizeTag(string? tag)
     {
