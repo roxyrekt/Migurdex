@@ -45,13 +45,14 @@ public sealed class AniListListClientTests
     [Fact]
     public async Task UpdateProgress_Sends_Bearer_And_Mutation()
     {
+        var ct      = TestContext.Current.CancellationToken;
         var handler = new ScriptedCapturingHandler([JsonOk(SaveEntryJson)]);
         var store   = new OAuthTokenStore(NewTempDir());
         store.Set(FreshToken());
         var flow   = new FakeFlow();
         var client = new AniListListClient(new StubBridge(new HttpClient(handler)), flow, store);
 
-        Assert.True(await client.UpdateProgressAsync(113415, 5, AniListListStatus.Current));
+        Assert.True(await client.UpdateProgressAsync(113415, 5, AniListListStatus.Current, ct));
 
         Assert.Equal(0, flow.RefreshCalls);
         var (auth, body) = Assert.Single(handler.Requests);
@@ -65,6 +66,7 @@ public sealed class AniListListClientTests
     [Fact]
     public async Task UpdateProgress_ExpiredToken_Refreshes_Proactively()
     {
+        var ct      = TestContext.Current.CancellationToken;
         var handler = new ScriptedCapturingHandler([JsonOk(SaveEntryJson)]);
         var store   = new OAuthTokenStore(NewTempDir());
         var expired = FreshToken();
@@ -79,7 +81,7 @@ public sealed class AniListListClientTests
         };
         var client = new AniListListClient(new StubBridge(new HttpClient(handler)), flow, store);
 
-        Assert.True(await client.UpdateProgressAsync(113415, 5, AniListListStatus.Completed));
+        Assert.True(await client.UpdateProgressAsync(113415, 5, AniListListStatus.Completed, ct));
 
         Assert.Equal(1, flow.RefreshCalls);
         var (auth, body) = Assert.Single(handler.Requests);
@@ -92,6 +94,7 @@ public sealed class AniListListClientTests
     [Fact]
     public async Task UpdateProgress_401_Refreshes_And_Retries_Once()
     {
+        var ct = TestContext.Current.CancellationToken;
         var handler = new ScriptedCapturingHandler(
         [
             new HttpResponseMessage(HttpStatusCode.Unauthorized),
@@ -108,7 +111,7 @@ public sealed class AniListListClientTests
         };
         var client = new AniListListClient(new StubBridge(new HttpClient(handler)), flow, store);
 
-        Assert.True(await client.UpdateProgressAsync(113415, 5, AniListListStatus.Current));
+        Assert.True(await client.UpdateProgressAsync(113415, 5, AniListListStatus.Current, ct));
 
         Assert.Equal(1, flow.RefreshCalls);
         Assert.Equal(2, handler.Requests.Count);
@@ -119,13 +122,14 @@ public sealed class AniListListClientTests
     [Fact]
     public async Task UpdateProgress_401_RefreshFails_Returns_False()
     {
+        var ct      = TestContext.Current.CancellationToken;
         var handler = new ScriptedCapturingHandler([new HttpResponseMessage(HttpStatusCode.Unauthorized)]);
         var store   = new OAuthTokenStore(NewTempDir());
         store.Set(FreshToken());
         var flow   = new FakeFlow();
         var client = new AniListListClient(new StubBridge(new HttpClient(handler)), flow, store);
 
-        Assert.False(await client.UpdateProgressAsync(113415, 5, AniListListStatus.Current));
+        Assert.False(await client.UpdateProgressAsync(113415, 5, AniListListStatus.Current, ct));
 
         Assert.Equal(1, flow.RefreshCalls);
         Assert.Single(handler.Requests);
@@ -134,13 +138,14 @@ public sealed class AniListListClientTests
     [Fact]
     public async Task UpdateProgress_NoToken_Returns_False_Without_Http()
     {
+        var ct      = TestContext.Current.CancellationToken;
         var handler = new ScriptedCapturingHandler([JsonOk(SaveEntryJson)]);
         var flow    = new FakeFlow();
         var client = new AniListListClient(new StubBridge(new HttpClient(handler)),
                                            flow,
                                            new OAuthTokenStore(NewTempDir()));
 
-        Assert.False(await client.UpdateProgressAsync(113415, 5, AniListListStatus.Current));
+        Assert.False(await client.UpdateProgressAsync(113415, 5, AniListListStatus.Current, ct));
 
         Assert.Empty(handler.Requests);
         Assert.Equal(0, flow.RefreshCalls);
@@ -149,6 +154,7 @@ public sealed class AniListListClientTests
     [Fact]
     public async Task UpdateProgress_RateLimited_Returns_False_Without_Refresh()
     {
+        var ct      = TestContext.Current.CancellationToken;
         var handler = new ScriptedCapturingHandler([new HttpResponseMessage(HttpStatusCode.TooManyRequests)]);
         var store   = new OAuthTokenStore(NewTempDir());
         store.Set(FreshToken());
@@ -158,7 +164,7 @@ public sealed class AniListListClientTests
         };
         var client = new AniListListClient(new StubBridge(new HttpClient(handler)), flow, store);
 
-        Assert.False(await client.UpdateProgressAsync(113415, 5, AniListListStatus.Current));
+        Assert.False(await client.UpdateProgressAsync(113415, 5, AniListListStatus.Current, ct));
 
         Assert.Single(handler.Requests);
         Assert.Equal(0, flow.RefreshCalls);

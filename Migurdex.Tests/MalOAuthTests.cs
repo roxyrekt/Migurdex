@@ -44,6 +44,7 @@ public sealed class MalOAuthTests
     [Fact]
     public async Task ExchangeCode_Sends_CodeVerifier_And_Parses_Token()
     {
+        var ct = TestContext.Current.CancellationToken;
         var capturing = new CapturingHandler(new HttpResponseMessage(HttpStatusCode.OK)
         {
             Content = new StringContent(TokenJson, Encoding.UTF8, "application/json")
@@ -54,7 +55,7 @@ public sealed class MalOAuthTests
         var expectedVerifier = client.CodeVerifier;
 
         var before = DateTime.UtcNow;
-        var token  = await client.ExchangeCodeAsync("mal-auth-code", RedirectUri);
+        var token  = await client.ExchangeCodeAsync("mal-auth-code", RedirectUri, ct);
 
         Assert.NotNull(token);
         Assert.Equal("mal", token!.Provider);
@@ -72,13 +73,14 @@ public sealed class MalOAuthTests
     [Fact]
     public async Task Refresh_Sends_Refresh_Grant()
     {
+        var ct = TestContext.Current.CancellationToken;
         var capturing = new CapturingHandler(new HttpResponseMessage(HttpStatusCode.OK)
         {
             Content = new StringContent(TokenJson, Encoding.UTF8, "application/json")
         });
         var client = new MalOAuthClient(new StubBridge(new HttpClient(capturing)), ClientId);
 
-        var token = await client.RefreshAsync("old-mal-refresh");
+        var token = await client.RefreshAsync("old-mal-refresh", ct);
 
         Assert.NotNull(token);
         var body = capturing.LastBody;
@@ -90,28 +92,31 @@ public sealed class MalOAuthTests
     [Fact]
     public async Task ExchangeCode_Error_Response_Returns_Null()
     {
+        var ct     = TestContext.Current.CancellationToken;
         var client = ClientWith(new HttpResponseMessage(HttpStatusCode.BadRequest));
 
-        Assert.Null(await client.ExchangeCodeAsync("bad-code", RedirectUri));
+        Assert.Null(await client.ExchangeCodeAsync("bad-code", RedirectUri, ct));
     }
 
     [Fact]
     public async Task ExchangeCode_RateLimited_Returns_Null()
     {
+        var ct     = TestContext.Current.CancellationToken;
         var client = ClientWith(new HttpResponseMessage(HttpStatusCode.TooManyRequests));
 
-        Assert.Null(await client.RefreshAsync("whatever"));
+        Assert.Null(await client.RefreshAsync("whatever", ct));
     }
 
     [Fact]
     public async Task ExchangeCode_Missing_AccessToken_Returns_Null()
     {
+        var ct = TestContext.Current.CancellationToken;
         var client = ClientWith(new HttpResponseMessage(HttpStatusCode.OK)
         {
             Content = new StringContent("{\"expires_in\":100}", Encoding.UTF8, "application/json")
         });
 
-        Assert.Null(await client.ExchangeCodeAsync("code", RedirectUri));
+        Assert.Null(await client.ExchangeCodeAsync("code", RedirectUri, ct));
     }
 
     private sealed class CapturingHandler : HttpMessageHandler

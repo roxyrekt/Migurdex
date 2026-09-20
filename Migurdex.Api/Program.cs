@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Diagnostics;
 using Migurdex.Api.Endpoints;
 using Migurdex.Api.Services;
+using Migurdex.Core.Database;
 using Migurdex.Core.Extensions;
 using Migurdex.Core.Interop;
 using Migurdex.Core.PluginSystem;
@@ -55,6 +56,7 @@ builder.Services.AddCoreExtractors();
 builder.Services.AddTransient<IMetadataProvider, AniListProvider>();
 builder.Services.AddTransient<IMetadataProvider, JikanProvider>();
 
+builder.Services.AddSingleton<MigurdexDatabase>();
 builder.Services.AddSingleton<TrackerMappingStore>();
 builder.Services.AddSingleton<ITrackerIdResolver, TrackerIdResolver>();
 builder.Services.AddMemoryCache();

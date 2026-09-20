@@ -1,4 +1,5 @@
 using Migurdex.Cli.Configuration;
+using Migurdex.Shared.Models;
 
 namespace Migurdex.Cli.Services;
 

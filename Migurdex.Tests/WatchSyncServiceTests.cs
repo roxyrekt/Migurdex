@@ -85,6 +85,7 @@ public sealed class WatchSyncServiceTests
     [Fact]
     public async Task Sync_Pushes_Immediately_When_Logged_In()
     {
+        var ct = TestContext.Current.CancellationToken;
         var script = new Script
         {
             OnMap = (_, _, _, _, _) => new EpisodeMappingResult
@@ -95,7 +96,7 @@ public sealed class WatchSyncServiceTests
         script.PushResponses.Enqueue(JsonOk());
         var (sync, _, _) = Build(NewTempDir("migurdex-synctest-"), script);
 
-        await sync.SyncAsync(Entry());
+        await sync.SyncAsync(Entry(), ct);
 
         Assert.Equal(1, script.MapCalls);
         Assert.Single(script.PushBodies);
@@ -108,6 +109,7 @@ public sealed class WatchSyncServiceTests
     [Fact]
     public async Task Sync_Finale_Completed_Maps_To_Completed_Status()
     {
+        var ct = TestContext.Current.CancellationToken;
         var script = new Script
         {
             OnMap = (_, _, _, _, _) => new EpisodeMappingResult
@@ -118,7 +120,7 @@ public sealed class WatchSyncServiceTests
         script.PushResponses.Enqueue(JsonOk());
         var (sync, _, _) = Build(NewTempDir("migurdex-synctest-"), script);
 
-        await sync.SyncAsync(Entry(12, true));
+        await sync.SyncAsync(Entry(12, true), ct);
 
         var body = Assert.Single(script.PushBodies);
         Assert.Contains("\"progress\":12", body);
@@ -128,6 +130,7 @@ public sealed class WatchSyncServiceTests
     [Fact]
     public async Task Sync_MidSeason_Completed_Maps_To_Current_Status()
     {
+        var ct = TestContext.Current.CancellationToken;
         var script = new Script
         {
             OnMap = (_, _, _, _, _) => new EpisodeMappingResult
@@ -138,7 +141,7 @@ public sealed class WatchSyncServiceTests
         script.PushResponses.Enqueue(JsonOk());
         var (sync, _, _) = Build(NewTempDir("migurdex-synctest-"), script);
 
-        await sync.SyncAsync(Entry(5, true));
+        await sync.SyncAsync(Entry(5, true), ct);
 
         Assert.Contains("\"status\":\"CURRENT\"", Assert.Single(script.PushBodies));
     }
@@ -146,6 +149,7 @@ public sealed class WatchSyncServiceTests
     [Fact]
     public async Task Sync_Unknown_Total_Completed_Maps_To_Current_Status()
     {
+        var ct = TestContext.Current.CancellationToken;
         var script = new Script
         {
             OnMap = (_, _, _, _, _) => new EpisodeMappingResult
@@ -156,7 +160,7 @@ public sealed class WatchSyncServiceTests
         script.PushResponses.Enqueue(JsonOk());
         var (sync, _, _) = Build(NewTempDir("migurdex-synctest-"), script);
 
-        await sync.SyncAsync(Entry(5, true));
+        await sync.SyncAsync(Entry(5, true), ct);
 
         Assert.Contains("\"status\":\"CURRENT\"", Assert.Single(script.PushBodies));
     }
@@ -164,6 +168,7 @@ public sealed class WatchSyncServiceTests
     [Fact]
     public async Task Sync_Overflow_Completed_Maps_To_Current_Status()
     {
+        var ct = TestContext.Current.CancellationToken;
         var script = new Script
         {
             OnMap = (_, _, _, _, _) => new EpisodeMappingResult
@@ -174,7 +179,7 @@ public sealed class WatchSyncServiceTests
         script.PushResponses.Enqueue(JsonOk());
         var (sync, _, _) = Build(NewTempDir("migurdex-synctest-"), script);
 
-        await sync.SyncAsync(Entry(15, true));
+        await sync.SyncAsync(Entry(15, true), ct);
 
         Assert.Contains("\"status\":\"CURRENT\"", Assert.Single(script.PushBodies));
     }
@@ -202,9 +207,10 @@ public sealed class WatchSyncServiceTests
                 Candidates = candidates
             }
         };
+        var ct = TestContext.Current.CancellationToken;
         var (sync, _, _) = Build(NewTempDir("migurdex-synctest-"), script);
 
-        var outcome = await sync.SyncAsync(Entry());
+        var outcome = await sync.SyncAsync(Entry(), ct);
 
         Assert.Equal(SyncOutcomeKind.Ambiguous, outcome.Kind);
         Assert.NotNull(outcome.Entry);
@@ -217,13 +223,14 @@ public sealed class WatchSyncServiceTests
     [Fact]
     public async Task Sync_Plain_Failure_Returns_Queued_Without_Candidates()
     {
+        var ct = TestContext.Current.CancellationToken;
         var script = new Script
         {
             OnMap = (_, _, _, _, _) => new EpisodeMappingResult()
         };
         var (sync, _, _) = Build(NewTempDir("migurdex-synctest-"), script);
 
-        var outcome = await sync.SyncAsync(Entry());
+        var outcome = await sync.SyncAsync(Entry(), ct);
 
         Assert.Equal(SyncOutcomeKind.Queued, outcome.Kind);
         Assert.Empty(outcome.Candidates);
@@ -233,6 +240,7 @@ public sealed class WatchSyncServiceTests
     [Fact]
     public async Task Sync_Push_Returns_Pushed_Outcome()
     {
+        var ct = TestContext.Current.CancellationToken;
         var script = new Script
         {
             OnMap = (_, _, _, _, _) => new EpisodeMappingResult
@@ -243,7 +251,7 @@ public sealed class WatchSyncServiceTests
         script.PushResponses.Enqueue(JsonOk());
         var (sync, _, _) = Build(NewTempDir("migurdex-synctest-"), script);
 
-        var outcome = await sync.SyncAsync(Entry());
+        var outcome = await sync.SyncAsync(Entry(), ct);
 
         Assert.Equal(SyncOutcomeKind.Pushed, outcome.Kind);
     }
@@ -251,6 +259,7 @@ public sealed class WatchSyncServiceTests
     [Fact]
     public async Task Sync_Without_Login_Enqueues_And_Flush_Pushes_After_Login()
     {
+        var ct  = TestContext.Current.CancellationToken;
         var dir = NewTempDir("migurdex-synctest-");
         var script = new Script
         {
@@ -261,7 +270,7 @@ public sealed class WatchSyncServiceTests
         };
         var (sync, _, store) = Build(dir, script, false);
 
-        await sync.SyncAsync(Entry());
+        await sync.SyncAsync(Entry(), ct);
 
         Assert.Equal(0, script.MapCalls);
         Assert.Equal(1, sync.QueuedCount);
@@ -275,13 +284,14 @@ public sealed class WatchSyncServiceTests
         });
         script.PushResponses.Enqueue(JsonOk());
 
-        Assert.Equal(1, await sync.FlushQueueAsync());
+        Assert.Equal(1, await sync.FlushQueueAsync(ct));
         Assert.Equal(0, sync.QueuedCount);
     }
 
     [Fact]
     public async Task Sync_Push_Failure_Enqueues_With_Backoff()
     {
+        var ct = TestContext.Current.CancellationToken;
         var script = new Script
         {
             OnMap = (_, _, _, _, _) => new EpisodeMappingResult
@@ -292,22 +302,23 @@ public sealed class WatchSyncServiceTests
         script.PushResponses.Enqueue(new HttpResponseMessage(HttpStatusCode.ServiceUnavailable));
         var (sync, _, _) = Build(NewTempDir("migurdex-synctest-"), script);
 
-        await sync.SyncAsync(Entry());
+        await sync.SyncAsync(Entry(), ct);
         Assert.Equal(1, sync.QueuedCount);
 
-        Assert.Equal(0, await sync.FlushQueueAsync());
+        Assert.Equal(0, await sync.FlushQueueAsync(ct));
         Assert.Equal(1, sync.QueuedCount);
     }
 
     [Fact]
     public async Task Sync_Dedupes_Same_Key_Keeping_Highest_Episode()
     {
+        var ct     = TestContext.Current.CancellationToken;
         var dir    = NewTempDir("migurdex-synctest-");
         var script = new Script();
         var (sync, _, store) = Build(dir, script, false);
 
-        await sync.SyncAsync(Entry(3));
-        await sync.SyncAsync(Entry(7, true));
+        await sync.SyncAsync(Entry(3), ct);
+        await sync.SyncAsync(Entry(7, true), ct);
 
         Assert.Equal(1, sync.QueuedCount);
 
@@ -324,7 +335,7 @@ public sealed class WatchSyncServiceTests
         };
         script.PushResponses.Enqueue(JsonOk());
 
-        Assert.Equal(1, await sync.FlushQueueAsync());
+        Assert.Equal(1, await sync.FlushQueueAsync(ct));
         Assert.Equal(0, sync.QueuedCount);
 
         var body = Assert.Single(script.PushBodies);
@@ -335,13 +346,14 @@ public sealed class WatchSyncServiceTests
     [Fact]
     public async Task Sync_Unmappable_Enqueues_Without_Push()
     {
+        var ct = TestContext.Current.CancellationToken;
         var script = new Script
         {
             OnMap = (_, _, _, _, _) => new EpisodeMappingResult()
         };
         var (sync, _, _) = Build(NewTempDir("migurdex-synctest-"), script);
 
-        await sync.SyncAsync(Entry());
+        await sync.SyncAsync(Entry(), ct);
 
         Assert.Empty(script.PushBodies);
         Assert.Equal(1, sync.QueuedCount);
@@ -350,11 +362,12 @@ public sealed class WatchSyncServiceTests
     [Fact]
     public async Task Queue_Persists_Across_Instances()
     {
+        var ct     = TestContext.Current.CancellationToken;
         var dir    = NewTempDir("migurdex-synctest-");
         var script = new Script();
         var (sync, _, _) = Build(dir, script, false);
 
-        await sync.SyncAsync(Entry());
+        await sync.SyncAsync(Entry(), ct);
 
         var (reopened, _, _) = Build(dir, new Script(), false);
         Assert.Equal(1, reopened.QueuedCount);
@@ -363,6 +376,7 @@ public sealed class WatchSyncServiceTests
     [Fact]
     public async Task Flush_Drops_After_Max_Attempts()
     {
+        var ct        = TestContext.Current.CancellationToken;
         var dir       = NewTempDir("migurdex-synctest-");
         var queueFile = Path.Combine(dir, "sync_queue.json");
         var items = new List<SyncQueueItem>
@@ -376,7 +390,7 @@ public sealed class WatchSyncServiceTests
                 Attempts = WatchSyncService.MaxAttempts - 1
             }
         };
-        await File.WriteAllTextAsync(queueFile, JsonSerializer.Serialize(items));
+        await File.WriteAllTextAsync(queueFile, JsonSerializer.Serialize(items), ct);
 
         var script = new Script
         {
@@ -387,7 +401,7 @@ public sealed class WatchSyncServiceTests
         };
         var (sync, _, _) = Build(dir, script);
 
-        Assert.Equal(0, await sync.FlushQueueAsync());
+        Assert.Equal(0, await sync.FlushQueueAsync(ct));
         Assert.Equal(0, sync.QueuedCount);
     }
 
@@ -434,6 +448,7 @@ public sealed class WatchSyncServiceTests
     [Fact]
     public async Task Sync_Pushes_To_Mal_When_Logged_In_To_Mal_Only()
     {
+        var ct  = TestContext.Current.CancellationToken;
         var dir = NewTempDir("migurdex-synctest-");
         var aniListScript = new Script
         {
@@ -447,7 +462,7 @@ public sealed class WatchSyncServiceTests
 
         var (sync, _, _, _) = BuildWithMal(dir, aniListScript, malScript, false);
 
-        var outcome = await sync.SyncAsync(Entry());
+        var outcome = await sync.SyncAsync(Entry(), ct);
 
         Assert.Equal(SyncOutcomeKind.Pushed, outcome.Kind);
         Assert.Empty(aniListScript.PushBodies);
@@ -460,6 +475,7 @@ public sealed class WatchSyncServiceTests
     [Fact]
     public async Task Sync_Pushes_To_Both_When_Logged_In_To_Both()
     {
+        var ct  = TestContext.Current.CancellationToken;
         var dir = NewTempDir("migurdex-synctest-");
         var aniListScript = new Script
         {
@@ -475,7 +491,7 @@ public sealed class WatchSyncServiceTests
 
         var (sync, _, _, _) = BuildWithMal(dir, aniListScript, malScript);
 
-        var outcome = await sync.SyncAsync(Entry(12, true));
+        var outcome = await sync.SyncAsync(Entry(12, true), ct);
 
         Assert.Equal(SyncOutcomeKind.Pushed, outcome.Kind);
 
@@ -491,6 +507,7 @@ public sealed class WatchSyncServiceTests
     [Fact]
     public async Task Sync_Pushes_To_AniList_When_Logged_In_To_Both_And_MalId_Missing()
     {
+        var ct  = TestContext.Current.CancellationToken;
         var dir = NewTempDir("migurdex-synctest-");
         var aniListScript = new Script
         {
@@ -505,7 +522,7 @@ public sealed class WatchSyncServiceTests
 
         var (sync, _, _, _) = BuildWithMal(dir, aniListScript, malScript);
 
-        var outcome = await sync.SyncAsync(Entry());
+        var outcome = await sync.SyncAsync(Entry(), ct);
 
         Assert.Equal(SyncOutcomeKind.Pushed, outcome.Kind);
         var aniBody = Assert.Single(aniListScript.PushBodies);

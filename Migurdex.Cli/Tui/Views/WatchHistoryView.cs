@@ -54,7 +54,7 @@ public class WatchHistoryView : BaseView
 
         var seasonText = h.Season > 0 ? $"S{h.Season}" : "S1";
         var epNum      = h.EpisodeNumber;
-        if (epNum == 0)
+        if (epNum == 0 && !string.IsNullOrWhiteSpace(h.EpisodeTitle))
         {
             var match = Regex.Match(h.EpisodeTitle, @"\d+");
             if (match.Success && double.TryParse(match.Value, out var parsed))
@@ -65,8 +65,8 @@ public class WatchHistoryView : BaseView
 
         var epText = epNum > 0 ? $"B{epNum:0.#}" : "B1";
 
-        var epTitle    = h.EpisodeTitle.Trim();
-        var animeTitle = h.AnimeTitle.Trim();
+        var epTitle    = (h.EpisodeTitle ?? string.Empty).Trim();
+        var animeTitle = (h.AnimeTitle ?? string.Empty).Trim();
 
         var isDuplicate = string.Equals(epTitle, animeTitle, StringComparison.OrdinalIgnoreCase)
                           || epTitle.ToLowerInvariant().Contains($"bölüm {epNum}")

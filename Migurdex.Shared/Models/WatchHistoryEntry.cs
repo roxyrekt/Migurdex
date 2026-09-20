@@ -1,4 +1,4 @@
-namespace Migurdex.Cli.Configuration;
+namespace Migurdex.Shared.Models;
 
 public class WatchHistoryEntry
 {

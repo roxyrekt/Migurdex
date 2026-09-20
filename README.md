@@ -21,7 +21,8 @@ Terminalden Türkçe anime aramak ve izlemek için araç. TUI + yerel HTTP API +
 ## Özellikler
 
 - Fuzzy arama (`opc` -> One Piece gibi)
-- 13 Türkçe sağlayıcı: Acheriya, AniHub, AnimeciX, Animexe, AnimPow, Anizium, Anizm, AsyaAnimeleri, OpenAnime, SonAnime, TrAnimeIzle, TRAnimeci, 🪦　TurkAnime (R.I.P)
+- 13 Türkçe sağlayıcı: Acheriya, AniHub, AnimeciX, Animexe, AnimPow, Anizium, Anizm, AsyaAnimeleri, OpenAnime, SonAnime,
+  TrAnimeIzle, TRAnimeci, 🪦 TurkAnime (R.I.P)
 - AniList ve MAL ile bilgi/poster çekme ve izleme durumu eşitleme
 - MPV ile kaldığın yerden devam etme
 - Geçmiş, favoriler, arama geçmişi
@@ -64,7 +65,8 @@ irm https://raw.githubusercontent.com/roxyrekt/Migurdex/main/install.ps1 | % { &
 irm https://raw.githubusercontent.com/roxyrekt/Migurdex/main/install.ps1 | % { & ([scriptblock]::Create($_)) -Purge }
 ```
 
-Manuel kurmak istersen [Releases](https://github.com/roxyrekt/Migurdex/releases) sayfasından `tar.gz` / `zip` / `AppImage` indirip çalıştırman yeterli.
+Manuel kurmak istersen [Releases](https://github.com/roxyrekt/Migurdex/releases) sayfasından `tar.gz` / `zip` /
+`AppImage` indirip çalıştırman yeterli.
 
 ```bash
 chmod +x Migurdex-x86_64.AppImage
@@ -101,7 +103,8 @@ migurdex play "bleach" --debug               # mpv açmadan çözülen URL'yi ya
 migurdex continue                            # kaldığın yerden devam et
 ```
 
-`-e` verilmezse kaldığın bölümden (yoksa 1. bölümden) başlar. Kaynak seçimi ayarlardaki otomatik seçim kurallarıyla aynıdır.
+`-e` verilmezse kaldığın bölümden (yoksa 1. bölümden) başlar. Kaynak seçimi ayarlardaki otomatik seçim kurallarıyla
+aynıdır.
 
 ### Güncelleme
 
@@ -115,11 +118,15 @@ migurdex update --channel prerelease               # bu seferlik pre-release kan
 migurdex --version                                 # kurulu sürüm
 ```
 
-Kanal ve otomatik kontrol Ayarlar menüsünden değiştirilir (Güncelleme Kontrolü / Güncelleme Kanalı). Kontrolü bir seferlik atlamak için `migurdex --no-update-check` ile başlat. Güncelleme `~/.config/migurdex/` altındaki ayar ve geçmişe dokunmaz.
+Kanal ve otomatik kontrol Ayarlar menüsünden değiştirilir (Güncelleme Kontrolü / Güncelleme Kanalı). Kontrolü bir
+seferlik atlamak için `migurdex --no-update-check` ile başlat. Güncelleme `~/.config/migurdex/` altındaki ayar ve
+geçmişe dokunmaz.
 
 ## Ayarlar
 
-Ayarlar menüsünden değiştirilebilenler: otomatik oynat, bekleme süresi, Discord RPC ve başlık modu, gizli mod, oynatıcı logları, API adresi (varsayılan `http://127.0.0.1:7045`), AniList / MAL bağlantısı, sağlayıcı açma-kapama, sıralama öncelikleri ve otomatik seçim kuralları (Otomatik / Asla / Sadece).
+Ayarlar menüsünden değiştirilebilenler: otomatik oynat, bekleme süresi, Discord RPC ve başlık modu, gizli mod, oynatıcı
+logları, API adresi (varsayılan `http://127.0.0.1:7045`), AniList / MAL bağlantısı, sağlayıcı açma-kapama, sıralama
+öncelikleri ve otomatik seçim kuralları (Otomatik / Asla / Sadece).
 
 Kaydetmeden çıkarsan (`Esc` / İptal) değişiklikler uygulanmaz.
 
@@ -127,24 +134,27 @@ Kaydetmeden çıkarsan (`Esc` / İptal) değişiklikler uygulanmaz.
 
 Linux'ta `~/.config/migurdex/` altında tutulur:
 
-`config.json`, `history.json`, `search_history.json`, `favorites.json`, loglar `logs/api.log` içinde.
+`migurdex.db` (SQLite veritabanı: geçmiş, favoriler, arama, tokenlar, eşleştirmeler), `config.json`, loglar
+`logs/api.log` içinde.
 
 Windows'ta `%APPDATA%\migurdex\` altında aynı yapı var.
 
 ## Mimari
 
-| Proje | Ne yapar |
-|---|---|
-| `Migurdex.Api` | Arama, detay, kaynak çözümleme |
-| `Migurdex.Cli` | Terminal arayüzü |
-| `Migurdex.Core` | Plugin yükleyici, Rust köprüsü, extractor'lar |
+| Proje             | Ne yapar                                               |
+|-------------------|--------------------------------------------------------|
+| `Migurdex.Api`    | Arama, detay, kaynak çözümleme                         |
+| `Migurdex.Cli`    | Terminal arayüzü                                       |
+| `Migurdex.Core`   | Plugin yükleyici, Rust köprüsü, extractor'lar          |
 | `Migurdex.Shared` | Modeller ve arayüzler (`IAnimeProvider`, `IExtractor`) |
-| `Migurdex.Native` | Rust tarafı HTTP istemcisi |
-| `Plugins/` | Sağlayıcılar (`Migurdex.Plugins.*`) |
+| `Migurdex.Native` | Rust tarafı HTTP istemcisi                             |
+| `Plugins/`        | Sağlayıcılar (`Migurdex.Plugins.*`)                    |
 
-Akış: `TUI -> API -> plugin (+ Rust HTTP) -> kaynak listesi -> MPV`. Native kütüphane (`libmigurdex_native.so` / `migurdex_native.dll`) API ile birlikte gelir, eksikse API başlamaz.
+Akış: `TUI -> API -> plugin (+ Rust HTTP) -> kaynak listesi -> MPV`. Native kütüphane (`libmigurdex_native.so` /
+`migurdex_native.dll`) API ile birlikte gelir, eksikse API başlamaz.
 
-Bulit-in extractor'lar `Migurdex.Core/Extractors` altında. API tarafında `GET /api/v1/extractors` ve `POST /api/v1/extractors/resolve` ile de çağrılabiliyor.
+Bulit-in extractor'lar `Migurdex.Core/Extractors` altında. API tarafında `GET /api/v1/extractors` ve
+`POST /api/v1/extractors/resolve` ile de çağrılabiliyor.
 
 ## Derleme
 

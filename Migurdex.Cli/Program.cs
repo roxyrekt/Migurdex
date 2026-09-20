@@ -2,6 +2,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Migurdex.Cli.Services;
 using Migurdex.Cli.Tui;
 using Migurdex.Cli.Tui.Views;
+using Migurdex.Core.Database;
 using Migurdex.Core.Services;
 using Migurdex.Shared.Models;
 using Spectre.Console;
@@ -196,6 +197,10 @@ public static class Program
     private static void ConfigureServices(IServiceCollection services)
     {
         services.AddSingleton<IConfigurationService, ConfigurationService>();
+        services.AddSingleton<MigurdexDatabase>(sp =>
+                                                    new MigurdexDatabase(
+                                                        sp.GetRequiredService<IConfigurationService>()
+                                                          .ConfigDirectory));
         services.AddSingleton<IHistoryService, HistoryService>();
         services.AddSingleton<IDiscordRpcService, DiscordRpcService>();
         services.AddSingleton<IMpvPlayerService, MpvPlayerService>();
@@ -215,6 +220,7 @@ public static class Program
         {
             var api      = sp.GetRequiredService<IApiClientService>();
             var store    = sp.GetRequiredService<OAuthTokenStore>();
+            var db       = sp.GetRequiredService<MigurdexDatabase>();
             var aniOauth = sp.GetRequiredService<AniListOAuthClient>();
             var malOauth = sp.GetRequiredService<MalOAuthClient>();
             var aniList  = new AniListListClient(new CliBridge(), aniOauth, store);
@@ -223,6 +229,7 @@ public static class Program
                                         store,
                                         (provider, animeId, season, episode, title, ct) =>
                                             MapEpisodeAsync(api, provider, animeId, season, episode, title, ct),
+                                        db,
                                         malClient: mal);
         });
 

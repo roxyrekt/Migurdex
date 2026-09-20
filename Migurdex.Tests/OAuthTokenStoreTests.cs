@@ -71,7 +71,7 @@ public sealed class OAuthTokenStoreTests
     }
 
     [Fact]
-    public void Corrupt_File_Resets_And_Keeps_Backup()
+    public void Corrupt_Json_File_Does_Not_Crash_And_Keeps_Empty_State()
     {
         var dir = NewTempDir();
         File.WriteAllText(Path.Combine(dir, "tokens.json"), "{not-json");
@@ -80,7 +80,7 @@ public sealed class OAuthTokenStoreTests
 
         Assert.Empty(store.Providers);
         Assert.False(store.TryGet("anilist", out _));
-        Assert.Single(Directory.GetFiles(dir, "tokens.json.corrupt-*.bak"));
+        Assert.True(File.Exists(Path.Combine(dir, "tokens.json")));
     }
 
     [Fact]
@@ -113,7 +113,8 @@ public sealed class OAuthTokenStoreTests
         var dir = NewTempDir();
         new OAuthTokenStore(dir).Set(Token());
 
-        var mode = File.GetUnixFileMode(Path.Combine(dir, "tokens.json"));
+        var dbPath = Path.Combine(dir, "migurdex.db");
+        var mode   = File.GetUnixFileMode(dbPath);
         Assert.Equal(UnixFileMode.UserRead | UnixFileMode.UserWrite, mode);
     }
 }

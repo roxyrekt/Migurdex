@@ -42,6 +42,7 @@ public sealed class AniListOAuthTests
     [Fact]
     public async Task ExchangeCode_Parses_Token_And_Expiry()
     {
+        var ct = TestContext.Current.CancellationToken;
         var capturing = new CapturingHandler(new HttpResponseMessage(HttpStatusCode.OK)
         {
             Content = new StringContent(TokenJson, Encoding.UTF8, "application/json")
@@ -49,7 +50,7 @@ public sealed class AniListOAuthTests
         var client = new AniListOAuthClient(new StubBridge(new HttpClient(capturing)), ClientId, ClientSecret);
 
         var before = DateTime.UtcNow;
-        var token  = await client.ExchangeCodeAsync("auth-code-xyz", RedirectUri);
+        var token  = await client.ExchangeCodeAsync("auth-code-xyz", RedirectUri, ct);
 
         Assert.NotNull(token);
         Assert.Equal("anilist", token!.Provider);
@@ -67,13 +68,14 @@ public sealed class AniListOAuthTests
     [Fact]
     public async Task Refresh_Sends_Refresh_Grant()
     {
+        var ct = TestContext.Current.CancellationToken;
         var capturing = new CapturingHandler(new HttpResponseMessage(HttpStatusCode.OK)
         {
             Content = new StringContent(TokenJson, Encoding.UTF8, "application/json")
         });
         var client = new AniListOAuthClient(new StubBridge(new HttpClient(capturing)), ClientId, ClientSecret);
 
-        var token = await client.RefreshAsync("old-refresh");
+        var token = await client.RefreshAsync("old-refresh", ct);
 
         Assert.NotNull(token);
         var body = capturing.LastBody;
@@ -84,28 +86,31 @@ public sealed class AniListOAuthTests
     [Fact]
     public async Task ExchangeCode_Error_Response_Returns_Null()
     {
+        var ct     = TestContext.Current.CancellationToken;
         var client = ClientWith(new HttpResponseMessage(HttpStatusCode.BadRequest));
 
-        Assert.Null(await client.ExchangeCodeAsync("bad-code", RedirectUri));
+        Assert.Null(await client.ExchangeCodeAsync("bad-code", RedirectUri, ct));
     }
 
     [Fact]
     public async Task ExchangeCode_RateLimited_Returns_Null()
     {
+        var ct     = TestContext.Current.CancellationToken;
         var client = ClientWith(new HttpResponseMessage(HttpStatusCode.TooManyRequests));
 
-        Assert.Null(await client.RefreshAsync("whatever"));
+        Assert.Null(await client.RefreshAsync("whatever", ct));
     }
 
     [Fact]
     public async Task ExchangeCode_Missing_AccessToken_Returns_Null()
     {
+        var ct = TestContext.Current.CancellationToken;
         var client = ClientWith(new HttpResponseMessage(HttpStatusCode.OK)
         {
             Content = new StringContent("{\"expires_in\":100}", Encoding.UTF8, "application/json")
         });
 
-        Assert.Null(await client.ExchangeCodeAsync("code", RedirectUri));
+        Assert.Null(await client.ExchangeCodeAsync("code", RedirectUri, ct));
     }
 
     [Fact]
@@ -129,15 +134,17 @@ public sealed class AniListOAuthTests
     [Fact]
     public async Task Loopback_Receives_Code_From_Callback()
     {
+        var       ct   = TestContext.Current.CancellationToken;
         const int port = 46499;
 
-        var waitTask = LoopbackCodeReceiver.WaitForCodeAsync(port, "/callback", TimeSpan.FromSeconds(10));
+        var waitTask =
+            LoopbackCodeReceiver.WaitForCodeAsync(port, "/callback", TimeSpan.FromSeconds(10), cancellationToken: ct);
 
         using var http     = new HttpClient();
-        var       response = await http.GetAsync($"http://127.0.0.1:{port}/callback?code=loop-code-1");
+        var       response = await http.GetAsync($"http://127.0.0.1:{port}/callback?code=loop-code-1", ct);
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
 
-        var body = await response.Content.ReadAsStringAsync();
+        var body = await response.Content.ReadAsStringAsync(ct);
         Assert.Contains("window.close", body);
         Assert.Contains("Migurdex bağlandı", body);
 
@@ -148,12 +155,14 @@ public sealed class AniListOAuthTests
     [Fact]
     public async Task Loopback_Error_Param_Returns_Null()
     {
+        var       ct   = TestContext.Current.CancellationToken;
         const int port = 46498;
 
-        var waitTask = LoopbackCodeReceiver.WaitForCodeAsync(port, "/callback", TimeSpan.FromSeconds(10));
+        var waitTask =
+            LoopbackCodeReceiver.WaitForCodeAsync(port, "/callback", TimeSpan.FromSeconds(10), cancellationToken: ct);
 
         using var http = new HttpClient();
-        await http.GetAsync($"http://127.0.0.1:{port}/callback?error=access_denied");
+        await http.GetAsync($"http://127.0.0.1:{port}/callback?error=access_denied", ct);
 
         Assert.Null(await waitTask);
     }
@@ -161,7 +170,11 @@ public sealed class AniListOAuthTests
     [Fact]
     public async Task Loopback_Timeout_Returns_Null()
     {
-        var code = await LoopbackCodeReceiver.WaitForCodeAsync(46497, "/callback", TimeSpan.FromMilliseconds(200));
+        var ct = TestContext.Current.CancellationToken;
+        var code = await LoopbackCodeReceiver.WaitForCodeAsync(46497,
+                                                               "/callback",
+                                                               TimeSpan.FromMilliseconds(200),
+                                                               cancellationToken: ct);
 
         Assert.Null(code);
     }
