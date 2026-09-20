@@ -57,7 +57,8 @@ builder.Services.AddTransient<IMetadataProvider, AniListProvider>();
 builder.Services.AddTransient<IMetadataProvider, JikanProvider>();
 
 builder.Services.AddSingleton<MigurdexDatabase>();
-builder.Services.AddSingleton<TrackerMappingStore>();
+builder.Services.AddSingleton<TrackerMappingStore>(sp =>
+    new TrackerMappingStore(sp.GetRequiredService<MigurdexDatabase>()));
 builder.Services.AddSingleton<ITrackerIdResolver, TrackerIdResolver>();
 builder.Services.AddMemoryCache();
 builder.Services.AddSingleton<ISeasonChainService, SeasonChainService>();

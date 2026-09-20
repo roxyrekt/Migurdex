@@ -1,3 +1,4 @@
+using Microsoft.Extensions.DependencyInjection;
 using Migurdex.Cli.Configuration;
 using Migurdex.Core.Database;
 using Migurdex.Shared.Models;
@@ -9,6 +10,7 @@ public class HistoryService : IHistoryService
     private readonly IConfigurationService _configService;
     private readonly MigurdexDatabase      _db;
 
+    [ActivatorUtilitiesConstructor]
     public HistoryService(IConfigurationService configService, MigurdexDatabase db)
     {
         _configService = configService;

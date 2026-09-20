@@ -1,3 +1,4 @@
+using Microsoft.Extensions.DependencyInjection;
 using Migurdex.Core.Database;
 using Migurdex.Shared.Models;
 
@@ -7,6 +8,7 @@ public sealed class OAuthTokenStore
 {
     private readonly MigurdexDatabase _db;
 
+    [ActivatorUtilitiesConstructor]
     public OAuthTokenStore(MigurdexDatabase db)
     {
         _db = db;

@@ -198,10 +198,10 @@ public static class Program
     {
         services.AddSingleton<IConfigurationService, ConfigurationService>();
         services.AddSingleton<MigurdexDatabase>(sp =>
-                                                    new MigurdexDatabase(
-                                                        sp.GetRequiredService<IConfigurationService>()
-                                                          .ConfigDirectory));
-        services.AddSingleton<IHistoryService, HistoryService>();
+            new MigurdexDatabase(sp.GetRequiredService<IConfigurationService>().ConfigDirectory));
+        services.AddSingleton<IHistoryService>(sp =>
+            new HistoryService(sp.GetRequiredService<IConfigurationService>(),
+                               sp.GetRequiredService<MigurdexDatabase>()));
         services.AddSingleton<IDiscordRpcService, DiscordRpcService>();
         services.AddSingleton<IMpvPlayerService, MpvPlayerService>();
 
@@ -209,7 +209,8 @@ public static class Program
         services.AddSingleton<IApiClientService, ApiClientService>();
         services.AddSingleton<IUpdateService, UpdateService>();
 
-        services.AddSingleton<OAuthTokenStore>();
+        services.AddSingleton<OAuthTokenStore>(sp =>
+            new OAuthTokenStore(sp.GetRequiredService<MigurdexDatabase>()));
         services.AddSingleton<AniListOAuthClient>(_ => new AniListOAuthClient(new CliBridge(),
                                                                               AniListAppCredentials.ClientId,
                                                                               AniListAppCredentials
