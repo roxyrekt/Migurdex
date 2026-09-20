@@ -32,10 +32,17 @@ jobs:
                         runtime: linux-x64
                         native_lib: libmigurdex_native.so
                         cli_exe: migurdex
+                        arch: x86_64
+                    -   os: ubuntu-24.04-arm
+                        runtime: linux-arm64
+                        native_lib: libmigurdex_native.so
+                        cli_exe: migurdex
+                        arch: aarch64
                     -   os: windows-latest
                         runtime: win-x64
                         native_lib: migurdex_native.dll
                         cli_exe: migurdex.exe
+                        arch: x64
 
         steps:
             -   uses: actions/checkout@v7
@@ -115,20 +122,20 @@ jobs:
                 shell: bash
                 run: |
                     cd dist
-                    if [ "${{ matrix.os }}" == "ubuntu-latest" ]; then
+                    if [ "${{ matrix.os }}" != "windows-latest" ]; then
                       tar -czf ../migurdex-${{ matrix.runtime }}.tar.gz migurdex api
                     else
                       7z a -tzip ../migurdex-${{ matrix.runtime }}.zip migurdex.exe api
                     fi
 
             -   name: Download appimagetool
-                if: matrix.os == 'ubuntu-latest'
+                if: matrix.os != 'windows-latest'
                 run: |
-                    curl -sL -o appimagetool.AppImage https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage
+                    curl -sL -o appimagetool.AppImage https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-${{ matrix.arch }}.AppImage
                     chmod +x appimagetool.AppImage
 
             -   name: Build AppImage
-                if: matrix.os == 'ubuntu-latest'
+                if: matrix.os != 'windows-latest'
                 run: |
                     mkdir -p Migurdex.AppDir
                     cp dist/migurdex Migurdex.AppDir/
@@ -137,23 +144,23 @@ jobs:
                     cp assets/packaging/migurdex.png Migurdex.AppDir/.DirIcon
                     ln -s migurdex Migurdex.AppDir/AppRun
                     chmod +x Migurdex.AppDir/migurdex
-                    ARCH=x86_64 ./appimagetool.AppImage --appimage-extract-and-run Migurdex.AppDir migurdex-x86_64.AppImage
+                    ARCH=${{ matrix.arch }} ./appimagetool.AppImage --appimage-extract-and-run Migurdex.AppDir migurdex-${{ matrix.arch }}.AppImage
 
             -   name: Generate checksums
                 shell: bash
                 run: |
-                    if [ "${{ matrix.os }}" == "ubuntu-latest" ]; then
+                    if [ "${{ matrix.os }}" != "windows-latest" ]; then
                       (cd "$GITHUB_WORKSPACE" && sha256sum migurdex-${{ matrix.runtime }}.tar.gz > sha256sums-${{ matrix.runtime }}.txt)
                     else
                       (cd "$GITHUB_WORKSPACE" && sha256sum migurdex-${{ matrix.runtime }}.zip > sha256sums-${{ matrix.runtime }}.txt)
                     fi
 
             -   name: Upload AppImage Artifact
-                if: matrix.os == 'ubuntu-latest'
+                if: matrix.os != 'windows-latest'
                 uses: actions/upload-artifact@v7
                 with:
-                    name: migurdex-appimage
-                    path: migurdex-x86_64.AppImage
+                    name: migurdex-appimage-${{ matrix.arch }}
+                    path: migurdex-${{ matrix.arch }}.AppImage
 
             -   name: Upload Artifact
                 uses: actions/upload-artifact@v7

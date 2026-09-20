@@ -73,7 +73,10 @@ test_dotnet_restore_needed() {
 }
 
 if [ "$DO_PUBLISH" = true ]; then
-    RUNTIME="linux-x64"
+    case "$(uname -m)" in
+        aarch64|arm64) RUNTIME="linux-arm64" ;;
+        *) RUNTIME="linux-x64" ;;
+    esac
     DIST_DIR="$ROOT/dist"
     API_DIST_DIR="$DIST_DIR/api"
 

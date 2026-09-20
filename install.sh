@@ -99,9 +99,14 @@ if [ "$OS" != "Linux" ]; then
     exit 1
 fi
 
-if [ "$ARCH" != "x86_64" ] && [ "$ARCH" != "amd64" ]; then
-    echo -e "${RED}Hata: Şu anda yalnızca x86_64 mimarisi desteklenmektedir ($ARCH algılandı).${NC}"
+if [ "$ARCH" != "x86_64" ] && [ "$ARCH" != "amd64" ] && [ "$ARCH" != "aarch64" ] && [ "$ARCH" != "arm64" ]; then
+    echo -e "${RED}Hata: Desteklenmeyen mimari ($ARCH algılandı). Desteklenenler: x86_64, aarch64.${NC}"
     exit 1
+fi
+
+ASSET_RUNTIME="linux-x64"
+if [ "$ARCH" = "aarch64" ] || [ "$ARCH" = "arm64" ]; then
+    ASSET_RUNTIME="linux-arm64"
 fi
 
 for cmd in curl tar; do
@@ -118,11 +123,11 @@ if API_RESP=$(curl -fsSL -H "Accept: application/vnd.github.v3+json" "https://ap
 fi
 
 if [ -n "$LATEST_TAG" ]; then
-    DOWNLOAD_URL="https://github.com/$REPO/releases/download/$LATEST_TAG/migurdex-linux-x64.tar.gz"
-    echo -e "${GREEN}Bulunan son sürüm: ${BOLD}$LATEST_TAG${NC}"
+    DOWNLOAD_URL="https://github.com/$REPO/releases/download/$LATEST_TAG/migurdex-$ASSET_RUNTIME.tar.gz"
+    echo -e "${GREEN}Bulunan son sürüm: ${BOLD}$LATEST_TAG${NC} (${ASSET_RUNTIME})"
 else
-    DOWNLOAD_URL="https://github.com/$REPO/releases/latest/download/migurdex-linux-x64.tar.gz"
-    echo -e "${YELLOW}Son sürüm doğrudan 'latest' kanalından indirilecek.${NC}"
+    DOWNLOAD_URL="https://github.com/$REPO/releases/latest/download/migurdex-$ASSET_RUNTIME.tar.gz"
+    echo -e "${YELLOW}Son sürüm doğrudan 'latest' kanalından indirilecek (${ASSET_RUNTIME}).${NC}"
 fi
 
 TMP_DIR=$(mktemp -d)

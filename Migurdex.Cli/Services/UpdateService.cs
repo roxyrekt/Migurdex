@@ -1,6 +1,7 @@
 using Migurdex.Shared.Update;
 using System.Diagnostics;
 using System.Net;
+using System.Runtime.InteropServices;
 using System.Text.Json;
 
 namespace Migurdex.Cli.Services;
@@ -230,10 +231,23 @@ public class UpdateService : IUpdateService
             assets);
     }
 
+    private static string GetArchLabel()
+    {
+        return RuntimeInformation.OSArchitecture == Architecture.Arm64 ? "arm64" : "x64";
+    }
+
     private static string? ResolveAsset(GitHubRelease release, out string? url, out long? size)
     {
-        var expected = OperatingSystem.IsWindows() ? "migurdex-win-x64.zip" : "migurdex-linux-x64.tar.gz";
+        var arch     = GetArchLabel();
+        var expected = OperatingSystem.IsWindows() ? $"migurdex-win-{arch}.zip" : $"migurdex-linux-{arch}.tar.gz";
         var asset    = release.Assets.FirstOrDefault(a => a.Name.Equals(expected, StringComparison.OrdinalIgnoreCase));
+
+        if (asset is null && arch != "x64")
+        {
+            var fallback = OperatingSystem.IsWindows() ? "migurdex-win-x64.zip" : "migurdex-linux-x64.tar.gz";
+            asset = release.Assets.FirstOrDefault(a => a.Name.Equals(fallback, StringComparison.OrdinalIgnoreCase));
+        }
+
         url  = asset?.BrowserDownloadUrl;
         size = asset is null || asset.Size <= 0 ? null : asset.Size;
 
@@ -250,9 +264,13 @@ public class UpdateService : IUpdateService
             return null;
         }
 
+        var arch    = GetArchLabel();
         var runtime = OperatingSystem.IsWindows() ? "win" : "linux";
-        return cands.FirstOrDefault(a => a.Name.Contains(runtime, StringComparison.OrdinalIgnoreCase))
+        return cands.FirstOrDefault(a => a.Name.Contains(runtime, StringComparison.OrdinalIgnoreCase)
+                                         && a.Name.Contains(arch, StringComparison.OrdinalIgnoreCase))
                     ?.BrowserDownloadUrl
+               ?? cands.FirstOrDefault(a => a.Name.Contains(runtime, StringComparison.OrdinalIgnoreCase))
+                       ?.BrowserDownloadUrl
                ?? cands[0].BrowserDownloadUrl;
     }
 }
