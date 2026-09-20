@@ -7,6 +7,11 @@ namespace Migurdex.Core.Database;
 
 public class MigurdexDatabase
 {
+    static MigurdexDatabase()
+    {
+        SQLitePCL.Batteries_V2.Init();
+    }
+
     private static readonly JsonSerializerOptions JsonOpts = new()
     {
         PropertyNameCaseInsensitive = true
