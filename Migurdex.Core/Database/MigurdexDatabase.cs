@@ -9,10 +9,63 @@ public class MigurdexDatabase
 {
     static MigurdexDatabase()
     {
+        try
+        {
+            System.Runtime.Loader.AssemblyLoadContext.Default.ResolvingUnmanagedDll += (assembly, libraryName) =>
+            {
+                if (!libraryName.Equals("e_sqlite3", StringComparison.OrdinalIgnoreCase)
+                    && !libraryName.Equals("libe_sqlite3", StringComparison.OrdinalIgnoreCase)
+                    && !libraryName.Equals("e_sqlite3.so", StringComparison.OrdinalIgnoreCase)
+                    && libraryName.IndexOf("e_sqlite3", StringComparison.OrdinalIgnoreCase) < 0)
+                {
+                    return IntPtr.Zero;
+                }
+
+                var baseDir = AppContext.BaseDirectory ?? string.Empty;
+                var exeDir  = string.Empty;
+                try { exeDir = Path.GetDirectoryName(Environment.ProcessPath ?? string.Empty) ?? string.Empty; }
+                catch { }
+
+                var candidates = new[]
+                {
+                    Path.Combine(baseDir, "api", "libe_sqlite3.so"),
+                    Path.Combine(baseDir, "api", "e_sqlite3.so"),
+                    Path.Combine(baseDir, "libe_sqlite3.so"),
+                    Path.Combine(baseDir, "e_sqlite3.so"),
+                    Path.Combine(exeDir, "api", "libe_sqlite3.so"),
+                    Path.Combine(exeDir, "libe_sqlite3.so"),
+                    Path.Combine(baseDir, "api", "e_sqlite3.dll"),
+                    Path.Combine(baseDir, "e_sqlite3.dll"),
+                    Path.Combine(baseDir, "api", "libe_sqlite3.dylib"),
+                    Path.Combine(baseDir, "libe_sqlite3.dylib"),
+                };
+
+                foreach (var candidate in candidates)
+                {
+                    if (string.IsNullOrWhiteSpace(candidate))
+                    {
+                        continue;
+                    }
+
+                    if (File.Exists(candidate)
+                        && System.Runtime.InteropServices.NativeLibrary.TryLoad(candidate, out var handle))
+                    {
+                        return handle;
+                    }
+                }
+
+                return IntPtr.Zero;
+            };
+        }
+        catch
+        {
+            // ignored
+        }
+
         SQLitePCL.Batteries_V2.Init();
     }
 
-    private static readonly JsonSerializerOptions JsonOpts = new()
+    private static readonly JsonSerializerOptions _jsonOpts = new()
     {
         PropertyNameCaseInsensitive = true
     };
@@ -175,7 +228,7 @@ public class MigurdexDatabase
                     try
                     {
                         var json    = File.ReadAllText(historyPath);
-                        var entries = JsonSerializer.Deserialize<List<WatchHistoryEntry>>(json, JsonOpts);
+                        var entries = JsonSerializer.Deserialize<List<WatchHistoryEntry>>(json, _jsonOpts);
                         if (entries is { Count: > 0 })
                         {
                             foreach (var entry in entries)
@@ -199,7 +252,7 @@ public class MigurdexDatabase
                     try
                     {
                         var json = File.ReadAllText(favPath);
-                        var favs = JsonSerializer.Deserialize<List<FavoriteEntry>>(json, JsonOpts);
+                        var favs = JsonSerializer.Deserialize<List<FavoriteEntry>>(json, _jsonOpts);
                         if (favs is { Count: > 0 })
                         {
                             foreach (var fav in favs)
@@ -223,7 +276,7 @@ public class MigurdexDatabase
                     try
                     {
                         var json    = File.ReadAllText(searchPath);
-                        var queries = JsonSerializer.Deserialize<List<string>>(json, JsonOpts);
+                        var queries = JsonSerializer.Deserialize<List<string>>(json, _jsonOpts);
                         if (queries is { Count: > 0 })
                         {
                             for (var i = queries.Count - 1; i >= 0; i--)
@@ -247,7 +300,7 @@ public class MigurdexDatabase
                     try
                     {
                         var json   = File.ReadAllText(tokensPath);
-                        var tokens = JsonSerializer.Deserialize<Dictionary<string, OAuthToken>>(json, JsonOpts);
+                        var tokens = JsonSerializer.Deserialize<Dictionary<string, OAuthToken>>(json, _jsonOpts);
                         if (tokens is { Count: > 0 })
                         {
                             foreach (var kvp in tokens)
@@ -272,7 +325,7 @@ public class MigurdexDatabase
                     {
                         var json = File.ReadAllText(mappingsPath);
                         var mappings =
-                            JsonSerializer.Deserialize<Dictionary<string, TrackerMappingEntry>>(json, JsonOpts);
+                            JsonSerializer.Deserialize<Dictionary<string, TrackerMappingEntry>>(json, _jsonOpts);
                         if (mappings is { Count: > 0 })
                         {
                             foreach (var kvp in mappings)
@@ -296,7 +349,7 @@ public class MigurdexDatabase
                     try
                     {
                         var json  = File.ReadAllText(queuePath);
-                        var queue = JsonSerializer.Deserialize<List<SyncQueueItem>>(json, JsonOpts);
+                        var queue = JsonSerializer.Deserialize<List<SyncQueueItem>>(json, _jsonOpts);
                         if (queue is { Count: > 0 })
                         {
                             foreach (var item in queue)

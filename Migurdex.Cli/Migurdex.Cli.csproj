@@ -10,6 +10,15 @@
         <JsonSerializerIsReflectionEnabledByDefault>true</JsonSerializerIsReflectionEnabledByDefault>
     </PropertyGroup>
 
+    <Target Name="CopySqliteNativeToApi" AfterTargets="Publish">
+        <ItemGroup>
+            <SqliteNative Include="$(PublishDir)libe_sqlite3.so" Condition="Exists('$(PublishDir)libe_sqlite3.so')" />
+            <SqliteNative Include="$(PublishDir)e_sqlite3.dll" Condition="Exists('$(PublishDir)e_sqlite3.dll')" />
+            <SqliteNative Include="$(PublishDir)libe_sqlite3.dylib" Condition="Exists('$(PublishDir)libe_sqlite3.dylib')" />
+        </ItemGroup>
+        <Copy SourceFiles="@(SqliteNative)" DestinationFolder="$(PublishDir)../api" Condition="'@(SqliteNative)' != ''" SkipUnchangedFiles="true" />
+    </Target>
+
     <ItemGroup>
         <TrimmerRootAssembly Include="migurdex"/>
         <TrimmerRootAssembly Include="Migurdex.Core"/>
