@@ -16,6 +16,10 @@ public class SonAnimeProvider : IAnimeProvider
     {
         _httpClient = bridge.CreateHttpClient();
         _logger     = logger;
+
+        _httpClient.DefaultRequestHeaders.Add("Referer", "https://sonanime.com/");
+        _httpClient.DefaultRequestHeaders.Add("Origin", "https://sonanime.com");
+        _httpClient.DefaultRequestHeaders.Add("Accept", "application/json");
     }
 
     public string       Name    => "SonAnime";
@@ -93,20 +97,34 @@ public class SonAnimeProvider : IAnimeProvider
             using var doc  = JsonDocument.Parse(json);
             var       root = doc.RootElement;
 
-            var title          = GetStringProperty(root, "anime_name", animeId);
-            var englishTitle   = GetStringProperty(root, "anime_name_en", null);
-            var animeType      = GetStringProperty(root, "anime_type", "anime");
-            var slug           = GetStringProperty(root, "anime_link", animeId);
-            var animeNumericId = GetIntProperty(root, "anime_id", 0);
+            var title        = GetStringProperty(root, "anime_name", animeId);
+            var englishTitle = GetStringProperty(root, "anime_name_en", null);
+            var animeType    = GetStringProperty(root, "anime_type", "anime");
+            var slug         = GetStringProperty(root, "anime_link", animeId);
+            var posterUrl    = NormalizePhotoUrl(GetStringProperty(root, "anime_photo", null));
+            var summary      = GetStringProperty(root, "anime_description", "");
+            var tmdbId       = GetIdStringProperty(root, "tmdb_id");
+            var malId        = GetIdStringProperty(root, "mal_id");
 
-            var isMovie = "movie".Equals(animeType, StringComparison.OrdinalIgnoreCase);
+            var isMovie = "movie".Equals(animeType, StringComparison.OrdinalIgnoreCase)
+                          || AnimeDetails.IsMovieTitle(title)
+                          || AnimeDetails.IsMovieTitle(englishTitle);
+
+            var altTitles = new List<string>();
+            if (!string.IsNullOrWhiteSpace(englishTitle)
+                && !englishTitle.Equals(title, StringComparison.OrdinalIgnoreCase))
+            {
+                altTitles.Add(englishTitle);
+            }
 
             var details = new AnimeDetails
             {
-                Title        = title,
-                EnglishTitle = englishTitle,
-                Summary      = GetStringProperty(root, "anime_description", ""),
-                Format       = isMovie ? ContentFormat.Movie : ContentFormat.Tv
+                Title             = title,
+                EnglishTitle      = englishTitle,
+                PosterUrl         = posterUrl,
+                Summary           = summary,
+                AlternativeTitles = altTitles,
+                Format            = isMovie ? ContentFormat.Movie : ContentFormat.Tv
             };
 
             var parsedSeasons = new HashSet<int>();
@@ -134,19 +152,18 @@ public class SonAnimeProvider : IAnimeProvider
                 }
             }
 
+            if (!parsedSeasons.Any())
+            {
+                parsedSeasons.Add(1);
+            }
+
             foreach (var s in parsedSeasons.OrderBy(s => s))
             {
                 details.SeasonMappings.Add(new SeasonMapping
                 {
-                    SeasonNumber = s
-                });
-            }
-
-            if (!details.SeasonMappings.Any())
-            {
-                details.SeasonMappings.Add(new SeasonMapping
-                {
-                    SeasonNumber = 1
+                    SeasonNumber  = s,
+                    TmdbId        = s == 1 ? tmdbId : null,
+                    MyAnimeListId = s == 1 ? malId : null
                 });
             }
 
@@ -155,6 +172,7 @@ public class SonAnimeProvider : IAnimeProvider
                                       .ThenBy(e => e.Number)
                                       .ToList();
 
+            details.Normalize();
             return details;
         }
         catch (Exception ex)
@@ -186,6 +204,12 @@ public class SonAnimeProvider : IAnimeProvider
 
             var endpoint = $"{ApiBaseUrl}/anime/link/{slug}";
             var response = await _httpClient.GetAsync(endpoint, cancellationToken);
+            if (!response.IsSuccessStatusCode)
+            {
+                endpoint = $"{ApiBaseUrl}/anime/id/{slug}";
+                response = await _httpClient.GetAsync(endpoint, cancellationToken);
+            }
+
             if (!response.IsSuccessStatusCode)
             {
                 return [];
@@ -253,7 +277,11 @@ public class SonAnimeProvider : IAnimeProvider
                     Quality = quality,
                     Hoster  = "SonAnime",
                     Type    = VideoType.Mp4,
-                    Group   = "SonAnime"
+                    Group   = "SonAnime",
+                    Headers = new Dictionary<string, string>
+                    {
+                        ["Referer"] = "https://sonanime.com/"
+                    }
                 });
             }
         }
@@ -273,8 +301,9 @@ public class SonAnimeProvider : IAnimeProvider
             }
 
             var englishTitle = GetStringProperty(item, "anime_name_en", null);
-            var posterUrl    = GetStringProperty(item, "anime_photo", null);
+            var posterUrl    = NormalizePhotoUrl(GetStringProperty(item, "anime_photo", null));
             var year         = GetStringProperty(item, "anime_year", null);
+            var categories   = ParseGenres(item, "anime_genres");
 
             double? score = null;
             if (item.TryGetProperty("anime_malScore", out var sc) && sc.ValueKind == JsonValueKind.Number)
@@ -282,17 +311,32 @@ public class SonAnimeProvider : IAnimeProvider
                 score = sc.GetDouble();
             }
 
+            var animeType = GetStringProperty(item, "anime_type", "anime");
+            var isMovie = "movie".Equals(animeType, StringComparison.OrdinalIgnoreCase)
+                          || AnimeDetails.IsMovieTitle(title)
+                          || AnimeDetails.IsMovieTitle(englishTitle);
+
+            var altTitles = new List<string>();
+            if (!string.IsNullOrWhiteSpace(englishTitle)
+                && !englishTitle.Equals(title, StringComparison.OrdinalIgnoreCase))
+            {
+                altTitles.Add(englishTitle);
+            }
+
             var result = new SearchResult
             {
-                Id           = slug,
-                Title        = title,
-                EnglishTitle = englishTitle,
-                PosterUrl    = posterUrl,
-                Url          = $"{BaseUrl}/anime/{slug}",
-                ProviderName = Name,
-                Type         = ProviderType.Anime,
-                Year         = year,
-                Score        = score
+                Id                = slug,
+                Title             = title,
+                EnglishTitle      = englishTitle,
+                AlternativeTitles = altTitles,
+                PosterUrl         = posterUrl,
+                Url               = $"{BaseUrl}/anime/{slug}",
+                ProviderName      = Name,
+                Type              = ProviderType.Anime,
+                Format            = isMovie ? ContentFormat.Movie : ContentFormat.Tv,
+                Year              = year,
+                Score             = score,
+                Categories        = categories
             };
 
             return result;
@@ -304,14 +348,137 @@ public class SonAnimeProvider : IAnimeProvider
         }
     }
 
+    private string? NormalizePhotoUrl(string? photo)
+    {
+        if (string.IsNullOrWhiteSpace(photo))
+        {
+            return null;
+        }
+
+        photo = photo.Trim();
+        if (photo.StartsWith("//"))
+        {
+            return "https:" + photo;
+        }
+
+        if (photo.StartsWith("/"))
+        {
+            return BaseUrl + photo;
+        }
+
+        if (!photo.StartsWith("http://", StringComparison.OrdinalIgnoreCase)
+            && !photo.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+        {
+            return $"{BaseUrl}/{photo}";
+        }
+
+        return photo;
+    }
+
+    private static List<string>? ParseGenres(JsonElement element, string propName)
+    {
+        if (!element.TryGetProperty(propName, out var prop))
+        {
+            return null;
+        }
+
+        if (prop.ValueKind == JsonValueKind.Array)
+        {
+            var list = new List<string>();
+            foreach (var item in prop.EnumerateArray())
+            {
+                var str = item.GetString()?.Trim();
+                if (!string.IsNullOrEmpty(str))
+                {
+                    list.Add(str);
+                }
+            }
+
+            return list.Count > 0 ? list : null;
+        }
+
+        if (prop.ValueKind == JsonValueKind.String)
+        {
+            var raw = prop.GetString()?.Trim();
+            if (string.IsNullOrEmpty(raw))
+            {
+                return null;
+            }
+
+            if (raw.StartsWith('[') && raw.EndsWith(']'))
+            {
+                try
+                {
+                    using var parsed = JsonDocument.Parse(raw);
+                    if (parsed.RootElement.ValueKind == JsonValueKind.Array)
+                    {
+                        var list = new List<string>();
+                        foreach (var item in parsed.RootElement.EnumerateArray())
+                        {
+                            var str = item.GetString()?.Trim();
+                            if (!string.IsNullOrEmpty(str))
+                            {
+                                list.Add(str);
+                            }
+                        }
+
+                        return list.Count > 0 ? list : null;
+                    }
+                }
+                catch
+                {
+                    // ignored
+                }
+            }
+
+            var split = raw.Split([',', ';'], StringSplitOptions.RemoveEmptyEntries)
+                           .Select(x => x.Trim().Trim('"', '\''))
+                           .Where(x => !string.IsNullOrEmpty(x))
+                           .ToList();
+            return split.Count > 0 ? split : null;
+        }
+
+        return null;
+    }
+
     private static string GetStringProperty(JsonElement element, string propName, string? defaultValue)
     {
-        if (element.TryGetProperty(propName, out var prop) && prop.ValueKind == JsonValueKind.String)
+        if (element.TryGetProperty(propName, out var prop))
         {
-            return prop.GetString() ?? defaultValue ?? "";
+            if (prop.ValueKind == JsonValueKind.String)
+            {
+                return prop.GetString() ?? defaultValue ?? "";
+            }
+
+            if (prop.ValueKind == JsonValueKind.Number)
+            {
+                return prop.ToString();
+            }
         }
 
         return defaultValue ?? "";
+    }
+
+    private static string? GetIdStringProperty(JsonElement element, string propName)
+    {
+        if (element.TryGetProperty(propName, out var prop))
+        {
+            if (prop.ValueKind == JsonValueKind.Number && prop.TryGetInt32(out var num) && num > 0)
+            {
+                return num.ToString();
+            }
+
+            if (prop.ValueKind == JsonValueKind.String)
+            {
+                var val = prop.GetString()?.Trim();
+                if (!string.IsNullOrEmpty(val) && val != "0" && val != "null")
+                {
+                    return val;
+                }
+            }
+        }
+
+        return null;
     }
 
     private static int GetIntProperty(JsonElement element, string propName, int defaultValue)

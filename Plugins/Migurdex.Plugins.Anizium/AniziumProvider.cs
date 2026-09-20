@@ -60,6 +60,10 @@ public class AniziumProvider : IAnimeProvider
                                     ? jp.GetString()
                                     : null;
 
+                            var typeStr = item.TryGetProperty("type", out var tProp) ? tProp.GetString() : "";
+                            var isMovie = "movie".Equals(typeStr, StringComparison.OrdinalIgnoreCase)
+                                          || AnimeDetails.IsMovieTitle(title);
+
                             results.Add(new SearchResult
                             {
                                 Id            = item.GetProperty("ID").GetString() ?? "",
@@ -71,6 +75,7 @@ public class AniziumProvider : IAnimeProvider
                                 Url          = $"{BaseUrl}/anime/{item.GetProperty("ID").GetString()}",
                                 ProviderName = Name,
                                 Type         = ProviderType.Anime,
+                                Format       = isMovie ? ContentFormat.Movie : ContentFormat.Tv,
                                 Year =
                                     item.TryGetProperty("release_year", out var yr) ? yr.GetInt32().ToString() : null,
                                 Score = item.TryGetProperty("imdb_point", out var sc) ? sc.GetDouble() : null
@@ -159,7 +164,7 @@ public class AniziumProvider : IAnimeProvider
 
             animeDetails.Episodes.Add(new Episode
             {
-                Id     = $"{animeId}|movie|movie",
+                Id     = $"{animeId}|1|1",
                 Title  = "Film",
                 Number = 1,
                 Season = 1
@@ -195,6 +200,7 @@ public class AniziumProvider : IAnimeProvider
             }
         }
 
+        animeDetails.Normalize();
         return animeDetails;
     }
 
@@ -204,16 +210,16 @@ public class AniziumProvider : IAnimeProvider
     {
         try
         {
-            var parts = episodeId.Split('|');
+            var parts = episodeId.Split(['|', '/', ':'], StringSplitOptions.RemoveEmptyEntries);
 
-            if (parts.Length != 3)
+            if (parts.Length == 0)
             {
                 return [];
             }
 
             var id      = parts[0];
-            var season  = parts[1];
-            var episode = parts[2];
+            var season  = parts.Length > 1 ? parts[1] : "1";
+            var episode = parts.Length > 2 ? parts[2] : "1";
 
             var servers = new[] { 1, 2 };
 

@@ -82,6 +82,10 @@ public partial class AcheriyaProvider : IAnimeProvider
                     }
                 }
 
+                var isMovie = AnimeDetails.IsMovieTitle(title)
+                              || AnimeDetails.IsMovieTitle(englishTitle)
+                              || AnimeDetails.IsMovieTitle(romajiTitle);
+
                 list.Add(new SearchResult
                 {
                     Id           = slug,
@@ -93,7 +97,8 @@ public partial class AcheriyaProvider : IAnimeProvider
                     Categories   = categories,
                     Url          = $"{BaseUrl}/izle/{slug}",
                     ProviderName = Name,
-                    Type         = ProviderType.Anime
+                    Type         = ProviderType.Anime,
+                    Format       = isMovie ? ContentFormat.Movie : ContentFormat.Tv
                 });
             }
 
@@ -144,6 +149,16 @@ public partial class AcheriyaProvider : IAnimeProvider
 
             var seasonNum = AnimeDetails.ParseSeasonNumber(title);
 
+            var typeStr = (animeProp.TryGetProperty("type", out var tProp) ? tProp.GetString() : null)
+                          ?? (animeProp.TryGetProperty("format", out var fProp) ? fProp.GetString() : null);
+
+            var isMovie = string.Equals(typeStr, "movie", StringComparison.OrdinalIgnoreCase)
+                          || string.Equals(typeStr, "film", StringComparison.OrdinalIgnoreCase)
+                          || AnimeDetails.IsMovieTitle(title)
+                          || AnimeDetails.IsMovieTitle(englishTitle)
+                          || AnimeDetails.IsMovieTitle(romajiTitle)
+                          || AnimeDetails.IsMovieSummary(summary);
+
             var details = new AnimeDetails
             {
                 Title         = title,
@@ -151,7 +166,7 @@ public partial class AcheriyaProvider : IAnimeProvider
                 RomajiTitle   = romajiTitle,
                 JapaneseTitle = japaneseTitle,
                 Summary       = summary,
-                Format        = ContentFormat.Tv
+                Format        = isMovie ? ContentFormat.Movie : ContentFormat.Tv
             };
 
             if (animeProp.TryGetProperty("myAnimeListId", out var malProp) && malProp.ValueKind == JsonValueKind.Number)

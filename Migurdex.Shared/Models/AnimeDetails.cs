@@ -69,6 +69,81 @@ public partial class AnimeDetails
     [GeneratedRegex(@"\b(I|II|III|IV|V|VI|VII|VIII|IX|X)\b$", RegexOptions.IgnoreCase)]
     private static partial Regex RomanNumeralRegex();
 
+    [GeneratedRegex(@"\b(?:Movie|Film|Gekijouban)\b", RegexOptions.IgnoreCase)]
+    private static partial Regex MovieTitleRegex();
+
+    [GeneratedRegex(@"\b(?:film|filmi|filmidir|filmlerinden|filmleri|movie|movies)\b", RegexOptions.IgnoreCase)]
+    private static partial Regex MovieSummaryRegex();
+
+    public static bool IsMovieTitle(string? title)
+    {
+        return !string.IsNullOrWhiteSpace(title) && MovieTitleRegex().IsMatch(title);
+    }
+
+    public static bool IsMovieSummary(string? summary)
+    {
+        return !string.IsNullOrWhiteSpace(summary) && MovieSummaryRegex().IsMatch(summary);
+    }
+
+    public void Normalize()
+    {
+        if (Format is ContentFormat.Tv or ContentFormat.Unknown)
+        {
+            if (IsMovieTitle(Title)
+                || IsMovieTitle(EnglishTitle)
+                || IsMovieTitle(RomajiTitle)
+                || IsMovieTitle(JapaneseTitle))
+            {
+                Format = ContentFormat.Movie;
+            }
+            else if (Episodes.Count == 1 && IsMovieSummary(Summary))
+            {
+                Format = ContentFormat.Movie;
+            }
+        }
+
+        if (Format == ContentFormat.Movie)
+        {
+            if (Episodes.Count == 1)
+            {
+                var ep = Episodes[0];
+                ep.Number = 1;
+                ep.Season = 1;
+                if (string.IsNullOrWhiteSpace(ep.Title)
+                    || ep.Title.Trim().Equals("1. Bölüm", StringComparison.OrdinalIgnoreCase)
+                    || ep.Title.Trim().Equals("Bölüm 1", StringComparison.OrdinalIgnoreCase)
+                    || ep.Title.Trim().Equals("1", StringComparison.OrdinalIgnoreCase)
+                    || ep.Title.Trim().Equals("Movie", StringComparison.OrdinalIgnoreCase)
+                    || ep.Title.Trim().Equals("Film", StringComparison.OrdinalIgnoreCase)
+                    || ep.Title.Trim().Equals("Special", StringComparison.OrdinalIgnoreCase))
+                {
+                    ep.Title = "Film";
+                }
+            }
+            else if (Episodes.Count == 0)
+            {
+                Episodes.Add(new Episode
+                {
+                    Id     = "1",
+                    Title  = "Film",
+                    Number = 1,
+                    Season = 1
+                });
+            }
+
+            if (SeasonMappings.Count == 0 || SeasonMappings.All(s => s.SeasonNumber != 1))
+            {
+                SeasonMappings =
+                [
+                    new SeasonMapping
+                    {
+                        SeasonNumber = 1
+                    }
+                ];
+            }
+        }
+    }
+
     public static int ParseSeasonNumber(string title)
     {
         if (string.IsNullOrEmpty(title))

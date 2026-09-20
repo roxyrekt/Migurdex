@@ -1,5 +1,6 @@
 using Migurdex.Cli.Configuration;
 using Migurdex.Cli.Services;
+using Migurdex.Shared.Enums;
 using Migurdex.Shared.Models;
 using Spectre.Console;
 
@@ -107,6 +108,8 @@ public class AnimeDetailsView : BaseView
             {
                 details.PosterUrl = _initialPosterUrl;
             }
+
+            details.Normalize();
 
             _cachedDetails = details;
         }
@@ -218,8 +221,32 @@ public class AnimeDetailsView : BaseView
 
         var choices = new List<FuzzyChoice>();
 
-        if (!isMultiSeason)
+        var isSingleContent = details.Episodes.Count == 1;
+        var episodeMap      = new Dictionary<string, Episode>();
+
+        if (isSingleContent)
         {
+            var singleEp = details.Episodes[0];
+            var isMovie = details.Format == ContentFormat.Movie
+                          || AnimeDetails.IsMovieTitle(details.Title)
+                          || AnimeDetails.IsMovieSummary(details.Summary);
+
+            var playSearchable = isMovie ? "Filmi Oynat" : "Bölümü Oynat";
+            var playDisplay    = isMovie ? "[bold chartreuse2]▶ Filmi Oynat[/]" : "[bold chartreuse2]▶ Bölümü Oynat[/]";
+            var playActiveDisplay =
+                isMovie
+                    ? "[bold white on darkgreen] ▶ Filmi Oynat [/]"
+                    : "[bold white on darkgreen] ▶ Bölümü Oynat [/]";
+
+            choices.Add(new FuzzyChoice
+            {
+                Display       = playDisplay,
+                DisplayActive = playActiveDisplay,
+                Searchable    = playSearchable
+            });
+
+            episodeMap[playSearchable] = singleEp;
+
             choices.Add(new FuzzyChoice
             {
                 Display       = isFav ? "[pink1]Favorilerden Çıkar[/]" : "[pink1]Favorilere Ekle[/]",
@@ -227,37 +254,65 @@ public class AnimeDetailsView : BaseView
                 Searchable    = isFav ? "Favorilerden Çıkar" : "Favorilere Ekle"
             });
         }
-
-        var episodeMap = new Dictionary<string, Episode>();
-        if (currentSeasonGroup != null)
+        else
         {
-            foreach (var ep in currentSeasonGroup.OrderBy(e => e.Number))
+            if (!isMultiSeason)
             {
-                var hasCustomTitle = !string.IsNullOrWhiteSpace(ep.Title)
-                                     && !ep.Title.Trim()
-                                           .Equals($"Bölüm {ep.Number}", StringComparison.OrdinalIgnoreCase)
-                                     && !ep.Title.Trim().Equals($"{ep.Number}", StringComparison.OrdinalIgnoreCase);
-
-                var display = hasCustomTitle
-                                  ? $"[silver]{ep.Number}. Bölüm[/] [grey]│[/] [grey]{Markup.Escape(ep.Title!)}[/]"
-                                  : $"[silver]{ep.Number}. Bölüm[/]";
-
-                var displayActive = hasCustomTitle
-                                        ? $"[bold gold1]{ep.Number}. Bölüm[/] [grey]│[/] [bold white]{Markup.Escape(ep.Title!)}[/]"
-                                        : $"[bold gold1]{ep.Number}. Bölüm[/]";
-
-                var searchable = hasCustomTitle
-                                     ? $"{ep.Number}. Bölüm {ep.Title}"
-                                     : $"{ep.Number}. Bölüm";
-
                 choices.Add(new FuzzyChoice
                 {
-                    Display       = display,
-                    DisplayActive = displayActive,
-                    Searchable    = searchable
+                    Display       = isFav ? "[pink1]Favorilerden Çıkar[/]" : "[pink1]Favorilere Ekle[/]",
+                    DisplayActive = isFav ? "[bold pink1]Favorilerden Çıkar[/]" : "[bold pink1]Favorilere Ekle[/]",
+                    Searchable    = isFav ? "Favorilerden Çıkar" : "Favorilere Ekle"
                 });
+            }
 
-                episodeMap[searchable] = ep;
+            if (currentSeasonGroup != null)
+            {
+                var isMovie    = details.Format == ContentFormat.Movie;
+                var unitPrefix = isMovie ? "Film" : "Bölüm";
+
+                foreach (var ep in currentSeasonGroup.OrderBy(e => e.Number))
+                {
+                    var titleTrimmed = ep.Title?.Trim() ?? "";
+                    var isGenericTitle = string.IsNullOrWhiteSpace(titleTrimmed)
+                                         || titleTrimmed.Equals($"{ep.Number}", StringComparison.OrdinalIgnoreCase)
+                                         || titleTrimmed.Equals($"{ep.Number}.", StringComparison.OrdinalIgnoreCase)
+                                         || titleTrimmed.Equals($"Bölüm {ep.Number}",
+                                                                StringComparison.OrdinalIgnoreCase)
+                                         || titleTrimmed.Equals($"{ep.Number}. Bölüm",
+                                                                StringComparison.OrdinalIgnoreCase)
+                                         || titleTrimmed.Equals($"{ep.Number}.Bölüm",
+                                                                StringComparison.OrdinalIgnoreCase)
+                                         || titleTrimmed.Equals($"Film {ep.Number}", StringComparison.OrdinalIgnoreCase)
+                                         || titleTrimmed.Equals($"{ep.Number}. Film",
+                                                                StringComparison.OrdinalIgnoreCase)
+                                         || titleTrimmed.Equals($"{ep.Number}.Film", StringComparison.OrdinalIgnoreCase)
+                                         || titleTrimmed.Equals("Film", StringComparison.OrdinalIgnoreCase)
+                                         || titleTrimmed.Equals("Bölüm", StringComparison.OrdinalIgnoreCase);
+
+                    var hasCustomTitle = !isGenericTitle;
+
+                    var display = hasCustomTitle
+                                      ? $"[silver]{ep.Number}. {unitPrefix}[/] [grey]│[/] [grey]{Markup.Escape(ep.Title!)}[/]"
+                                      : $"[silver]{ep.Number}. {unitPrefix}[/]";
+
+                    var displayActive = hasCustomTitle
+                                            ? $"[bold gold1]{ep.Number}. {unitPrefix}[/] [grey]│[/] [bold white]{Markup.Escape(ep.Title!)}[/]"
+                                            : $"[bold gold1]{ep.Number}. {unitPrefix}[/]";
+
+                    var searchable = hasCustomTitle
+                                         ? $"{ep.Number}. {unitPrefix} {ep.Title}"
+                                         : $"{ep.Number}. {unitPrefix}";
+
+                    choices.Add(new FuzzyChoice
+                    {
+                        Display       = display,
+                        DisplayActive = displayActive,
+                        Searchable    = searchable
+                    });
+
+                    episodeMap[searchable] = ep;
+                }
             }
         }
 

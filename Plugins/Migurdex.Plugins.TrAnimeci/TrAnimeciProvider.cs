@@ -73,7 +73,7 @@ public partial class TRAnimeciProvider : IAnimeProvider
                 return new AnimeDetails();
             }
 
-            var unescapedContent = content.Replace("\\\"", "\"");
+            var unescapedContent = UnescapeRscJson(content);
             var match            = AnimeJsonRegex().Match(unescapedContent);
 
             if (!match.Success)
@@ -95,19 +95,43 @@ public partial class TRAnimeciProvider : IAnimeProvider
             var japaneseTitle = !string.IsNullOrWhiteSpace(anime.JapaneseTitle) ? anime.JapaneseTitle : null;
             var seasonNumber  = AnimeDetails.ParseSeasonNumber(title);
             var summary       = ResolveDescription(anime.Description, content);
+            var posterUrl     = NormalizeImageUrl(anime.Poster ?? anime.Backdrop);
+
+            var isMovie = "movie".Equals(anime.Type, StringComparison.OrdinalIgnoreCase)
+                          || anime.Genres?.Any(g => g.Equals("Film", StringComparison.OrdinalIgnoreCase)
+                                                    || g.Equals("Movie", StringComparison.OrdinalIgnoreCase))
+                          == true
+                          || AnimeDetails.IsMovieTitle(title)
+                          || AnimeDetails.IsMovieTitle(englishTitle)
+                          || (anime.TotalEpisodes == 1 && anime.Episodes?.Count == 1);
+
+            var altTitles = new List<string>();
+            if (!string.IsNullOrWhiteSpace(englishTitle)
+                && !englishTitle.Equals(title, StringComparison.OrdinalIgnoreCase))
+            {
+                altTitles.Add(englishTitle);
+            }
+
+            if (!string.IsNullOrWhiteSpace(japaneseTitle)
+                && !japaneseTitle.Equals(title, StringComparison.OrdinalIgnoreCase))
+            {
+                altTitles.Add(japaneseTitle);
+            }
 
             var details = new AnimeDetails
             {
-                Title         = title,
-                EnglishTitle  = englishTitle,
-                JapaneseTitle = japaneseTitle,
-                Summary       = summary,
-                Format        = ContentFormat.Tv,
+                Title             = title,
+                EnglishTitle      = englishTitle,
+                JapaneseTitle     = japaneseTitle,
+                AlternativeTitles = altTitles,
+                PosterUrl         = posterUrl,
+                Summary           = summary,
+                Format            = isMovie ? ContentFormat.Movie : ContentFormat.Tv,
                 SeasonMappings =
                 [
                     new SeasonMapping
                     {
-                        SeasonNumber = seasonNumber
+                        SeasonNumber = isMovie ? 1 : seasonNumber
                     }
                 ]
             };
@@ -117,22 +141,27 @@ public partial class TRAnimeciProvider : IAnimeProvider
                 foreach (var ep in anime.Episodes)
                 {
                     var epNum = ep.Number ?? 1;
-                    var epSlug = !string.IsNullOrEmpty(anime.Slug)
-                                     ? $"{anime.Slug}-{epNum}-bolum"
-                                     : $"{cleanSlug}-{epNum}-bolum";
+                    var epSlug = !string.IsNullOrWhiteSpace(ep.Href)
+                                     ? ep.Href.TrimStart('/').Replace("video/", "")
+                                     : !string.IsNullOrEmpty(anime.Slug)
+                                         ? $"{anime.Slug}-{epNum}-bolum"
+                                         : $"{cleanSlug}-{epNum}-bolum";
 
                     details.Episodes.Add(new Episode
                     {
                         Id     = epSlug,
-                        Number = epNum,
-                        Title = string.IsNullOrWhiteSpace(ep.Title) || ep.Title == epNum.ToString()
-                                    ? $"Bölüm {epNum}"
-                                    : ep.Title,
-                        Season = seasonNumber
+                        Number = isMovie ? 1 : epNum,
+                        Title = isMovie
+                                    ? "Film"
+                                    : string.IsNullOrWhiteSpace(ep.Title) || ep.Title == epNum.ToString()
+                                        ? $"Bölüm {epNum}"
+                                        : ep.Title,
+                        Season = isMovie ? 1 : seasonNumber
                     });
                 }
             }
 
+            details.Normalize();
             return details;
         }
         catch (Exception ex)
@@ -162,7 +191,7 @@ public partial class TRAnimeciProvider : IAnimeProvider
                 return [];
             }
 
-            var unescapedContent = content.Replace("\\\"", "\"");
+            var unescapedContent = UnescapeRscJson(content);
             var match            = ActiveEpisodeJsonRegex().Match(unescapedContent);
 
             ActiveEpisodeDto? activeEpisode = null;
@@ -235,7 +264,12 @@ public partial class TRAnimeciProvider : IAnimeProvider
                             Format   = InferSubtitleFormat(subUrl),
                             Headers = new Dictionary<string, string>
                             {
-                                { "Referer", BaseUrl }
+                                { "Referer", $"{BaseUrl}/" },
+                                { "Origin", BaseUrl },
+                                {
+                                    "User-Agent",
+                                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
+                                }
                             }
                         });
                     }
@@ -273,7 +307,12 @@ public partial class TRAnimeciProvider : IAnimeProvider
                         Subtitles = subtitles,
                         Headers = new Dictionary<string, string>
                         {
-                            { "Referer", BaseUrl }
+                            { "Referer", $"{BaseUrl}/" },
+                            { "Origin", BaseUrl },
+                            {
+                                "User-Agent",
+                                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
+                            }
                         }
                     });
                 }
@@ -513,6 +552,39 @@ public partial class TRAnimeciProvider : IAnimeProvider
         return Convert.ToHexString(decrypted).ToLowerInvariant();
     }
 
+    private string? NormalizeImageUrl(string? url)
+    {
+        if (string.IsNullOrWhiteSpace(url))
+        {
+            return null;
+        }
+
+        url = url.Trim();
+        if (url.StartsWith("//"))
+        {
+            return "https:" + url;
+        }
+
+        if (url.StartsWith("/"))
+        {
+            return BaseUrl + url;
+        }
+
+        if (!url.StartsWith("http://", StringComparison.OrdinalIgnoreCase)
+            && !url.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+        {
+            return $"{BaseUrl}/{url}";
+        }
+
+        return url;
+    }
+
+    private static string UnescapeRscJson(string content)
+    {
+        return content.Replace(@"\\\""", @"\u0022")
+                      .Replace(@"\""", @"""");
+    }
+
     private List<SearchResult> MapToSearchResults(List<AnimeDto>? items)
     {
         if (items is null || items.Count == 0)
@@ -520,19 +592,27 @@ public partial class TRAnimeciProvider : IAnimeProvider
             return [];
         }
 
-        return items.Select(item => new SearchResult
+        return items.Select(item =>
                     {
-                        Id    = item.Id ?? "",
-                        Title = item.Title ?? "",
-                        PosterUrl = !string.IsNullOrEmpty(item.Image) && item.Image.StartsWith('/')
-                                        ? BaseUrl + item.Image
-                                        : item.Image ?? "",
-                        Url          = $"{BaseUrl}/anime/{item.Id}",
-                        ProviderName = Name,
-                        Type         = ProviderType.Anime,
-                        Year         = item.Year?.ToString(),
-                        Score        = item.Rating,
-                        Categories   = item.Genres ?? []
+                        var isMovie = "movie".Equals(item.Type, StringComparison.OrdinalIgnoreCase)
+                                      || item.Genres?.Any(g => g.Equals("Film", StringComparison.OrdinalIgnoreCase)
+                                                               || g.Equals("Movie", StringComparison.OrdinalIgnoreCase))
+                                      == true
+                                      || AnimeDetails.IsMovieTitle(item.Title);
+
+                        return new SearchResult
+                        {
+                            Id           = item.Id ?? "",
+                            Title        = item.Title ?? "",
+                            PosterUrl    = NormalizeImageUrl(item.Image),
+                            Url          = $"{BaseUrl}/anime/{item.Id}",
+                            ProviderName = Name,
+                            Type         = ProviderType.Anime,
+                            Format       = isMovie ? ContentFormat.Movie : ContentFormat.Tv,
+                            Year         = item.Year?.ToString(),
+                            Score        = item.Rating,
+                            Categories   = item.Genres ?? []
+                        };
                     })
                     .ToList();
     }
@@ -583,6 +663,9 @@ public partial class TRAnimeciProvider : IAnimeProvider
         string?       Image,
         int?          Year,
         double?       Rating,
+        string?       Type,
+        string?       Episode,
+        string?       Status,
         List<string>? Genres);
 
     private sealed record AnimeDetailDto(
@@ -593,6 +676,8 @@ public partial class TRAnimeciProvider : IAnimeProvider
         string?                JapaneseTitle,
         string?                Description,
         string?                Poster,
+        string?                Backdrop,
+        string?                Type,
         double?                Rating,
         int?                   Year,
         string?                Status,
@@ -605,6 +690,7 @@ public partial class TRAnimeciProvider : IAnimeProvider
         string? Id,
         int?    Number,
         string? Title,
+        string? Href,
         string? Duration,
         string? Thumbnail
     );

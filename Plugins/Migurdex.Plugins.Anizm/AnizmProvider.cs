@@ -83,9 +83,39 @@ public partial class AnizmProvider : IAnimeProvider
                                                      .Select(x => x.Trim()));
                     }
 
+                    var slug = item.GetProperty("info_slug").GetString() ?? "";
+
+                    var hasMovieEpisode = false;
+                    if (item.TryGetProperty("lastEpisode", out var lastEpProp)
+                        && lastEpProp.ValueKind == JsonValueKind.Array)
+                    {
+                        foreach (var ep in lastEpProp.EnumerateArray())
+                        {
+                            var epTitle = ep.TryGetProperty("episode_title", out var et) ? et.GetString() ?? "" : "";
+                            var epSlug  = ep.TryGetProperty("episode_slug", out var es) ? es.GetString() ?? "" : "";
+
+                            if (epTitle.Equals("Movie", StringComparison.OrdinalIgnoreCase)
+                                || epTitle.Equals("Film", StringComparison.OrdinalIgnoreCase)
+                                || epSlug.EndsWith("-movie", StringComparison.OrdinalIgnoreCase)
+                                || epSlug.EndsWith("-film", StringComparison.OrdinalIgnoreCase))
+                            {
+                                hasMovieEpisode = true;
+                                break;
+                            }
+                        }
+                    }
+
+                    var isMovie = hasMovieEpisode
+                                  || slug.Contains("-movie", StringComparison.OrdinalIgnoreCase)
+                                  || slug.Contains("-film", StringComparison.OrdinalIgnoreCase)
+                                  || AnimeDetails.IsMovieTitle(title)
+                                  || AnimeDetails.IsMovieTitle(englishTitle)
+                                  || AnimeDetails.IsMovieTitle(originalTitle)
+                                  || AnimeDetails.IsMovieTitle(romajiTitle);
+
                     var result = new SearchResult
                     {
-                        Id            = item.GetProperty("info_slug").GetString() ?? "",
+                        Id            = slug,
                         Title         = title,
                         EnglishTitle  = englishTitle,
                         RomajiTitle   = romajiTitle,
@@ -106,9 +136,10 @@ public partial class AnizmProvider : IAnimeProvider
                                                      .Distinct()
                                                      .ToList(),
                         PosterUrl    = $"{BaseUrl}/storage/pcovers/{item.GetProperty("info_poster").GetString()}",
-                        Url          = $"{BaseUrl}/{item.GetProperty("info_slug").GetString()}",
+                        Url          = $"{BaseUrl}/{slug}",
                         ProviderName = Name,
                         Type         = ProviderType.Anime,
+                        Format       = isMovie ? ContentFormat.Movie : ContentFormat.Tv,
                         Year         = item.TryGetProperty("info_year", out var yr) ? yr.GetString() : null,
                         Score = item.TryGetProperty("info_malpoint", out var sc) && sc.ValueKind == JsonValueKind.Number
                                     ? sc.GetDouble()
@@ -174,11 +205,29 @@ public partial class AnizmProvider : IAnimeProvider
             }
         }
 
+        var poster = document.QuerySelector("meta[property='og:image']")?.GetAttribute("content")
+                     ?? document.QuerySelector(
+                                    ".infoPoster img, .posterImg img, .anizm_boxPoster img, img[src*='pcovers']")
+                                ?.GetAttribute("src");
+
+        if (!string.IsNullOrWhiteSpace(poster))
+        {
+            if (poster.StartsWith("//"))
+            {
+                poster = "https:" + poster;
+            }
+            else if (poster.StartsWith("/"))
+            {
+                poster = BaseUrl + poster;
+            }
+        }
+
         var details = new AnimeDetails
         {
             Title         = title,
             EnglishTitle  = englishTitle,
             JapaneseTitle = japaneseTitle,
+            PosterUrl     = poster,
             AlternativeTitles = altTitles.Where(t => !t.Equals(title, StringComparison.OrdinalIgnoreCase)
                                                      && (englishTitle == null
                                                          || !t.Equals(englishTitle, StringComparison.OrdinalIgnoreCase))
@@ -193,7 +242,11 @@ public partial class AnizmProvider : IAnimeProvider
         };
 
         var isMovie = details.Title.Contains("Movie", StringComparison.OrdinalIgnoreCase)
-                      || animeId.Contains("movie", StringComparison.OrdinalIgnoreCase);
+                      || animeId.Contains("movie", StringComparison.OrdinalIgnoreCase)
+                      || animeId.Contains("film", StringComparison.OrdinalIgnoreCase)
+                      || AnimeDetails.IsMovieTitle(details.Title)
+                      || AnimeDetails.IsMovieTitle(details.EnglishTitle)
+                      || AnimeDetails.IsMovieTitle(details.JapaneseTitle);
         var isOva     = details.Title.Contains("OVA", StringComparison.OrdinalIgnoreCase);
         var isSpecial = details.Title.Contains("Special", StringComparison.OrdinalIgnoreCase);
 
@@ -260,6 +313,22 @@ public partial class AnizmProvider : IAnimeProvider
             }
         }
 
+        if (!isMovie && details.Episodes.Count == 1)
+        {
+            var singleEp = details.Episodes[0];
+            if (singleEp.Id.EndsWith("-movie", StringComparison.OrdinalIgnoreCase)
+                || singleEp.Id.EndsWith("-film", StringComparison.OrdinalIgnoreCase)
+                || singleEp.Title.Equals("Movie", StringComparison.OrdinalIgnoreCase)
+                || singleEp.Title.Equals("Film", StringComparison.OrdinalIgnoreCase)
+                || AnimeDetails.IsMovieSummary(details.Summary))
+            {
+                isMovie         = true;
+                singleEp.Title  = "Film";
+                singleEp.Number = 1;
+                singleEp.Season = 1;
+            }
+        }
+
         details.Format = isMovie
                              ? ContentFormat.Movie
                              : isOva
@@ -268,6 +337,7 @@ public partial class AnizmProvider : IAnimeProvider
                                      ? ContentFormat.Special
                                      : ContentFormat.Tv;
         details.Episodes = details.Episodes.OrderBy(e => e.Number).ToList();
+        details.Normalize();
 
         return details;
     }

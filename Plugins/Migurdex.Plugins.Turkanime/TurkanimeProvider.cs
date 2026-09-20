@@ -117,7 +117,8 @@ public partial class TurkanimeProvider : IAnimeProvider
                                   : href,
                     PosterUrl    = img.Replace("/seriler/", "/serilerb/"),
                     ProviderName = Name,
-                    Type         = ProviderType.Anime
+                    Type         = ProviderType.Anime,
+                    Format       = AnimeDetails.IsMovieTitle(title) ? ContentFormat.Movie : ContentFormat.Tv
                 });
             }
 
@@ -172,7 +173,8 @@ public partial class TurkanimeProvider : IAnimeProvider
                             Url          = $"{BaseUrl}/anime/{slug}",
                             PosterUrl    = posterUrl,
                             ProviderName = Name,
-                            Type         = ProviderType.Anime
+                            Type         = ProviderType.Anime,
+                            Format       = AnimeDetails.IsMovieTitle(title) ? ContentFormat.Movie : ContentFormat.Tv
                         });
                     }
                 }

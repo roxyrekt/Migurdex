@@ -77,6 +77,8 @@ public static class TrackerSeasonEndpoints
                 return ApiErrors.NotFound("Detay bulunamadı.");
             }
 
+            details.Normalize();
+
             var mappings = details.SeasonMappings ?? [];
             var (anilistId, fuzzy) = await ResolveAniListIdAsync(resolver,
                                                                  animeProvider.Name,
@@ -210,6 +212,8 @@ public static class TrackerSeasonEndpoints
             {
                 return ApiErrors.NotFound("Detay bulunamadı.");
             }
+
+            details.Normalize();
 
             var (anilistId, _) = await ResolveAniListIdAsync(resolver,
                                                              animeProvider.Name,

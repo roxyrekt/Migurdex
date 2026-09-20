@@ -336,8 +336,12 @@ public class EpisodeSourcesView : BaseView
             manualStats = scanStats;
         }
 
+        var isMovie = string.Equals(episode.Title?.Trim(), "Film", StringComparison.OrdinalIgnoreCase)
+                      || _allEpisodes.Count == 1;
+        var epLabel = isMovie ? "Film" : $"Bölüm {episode.Number}";
+
         var promptResult = FuzzyPrompt.ShowDynamic(
-            $"Kaynaklar: {animeTitle} - Bölüm {episode.Number}",
+            $"Kaynaklar: {animeTitle} - {epLabel}",
             manualStream,
             sources =>
             {

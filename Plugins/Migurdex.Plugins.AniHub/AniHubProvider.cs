@@ -54,15 +54,25 @@ public partial class AniHubProvider : IAnimeProvider
 
             return items
                    .Where(x => !string.IsNullOrWhiteSpace(x.Slug))
-                   .Select(x => new SearchResult
+                   .Select(x =>
                    {
-                       Id           = x.Slug!,
-                       Title        = x.Title ?? x.Slug!,
-                       Url          = $"{BaseUrl}/anime/{x.Slug}",
-                       PosterUrl    = BuildMediaUrl(x.PosterKey),
-                       ProviderName = Name,
-                       Type         = ProviderType.Anime,
-                       Year         = x.Year?.ToString()
+                       var fmt = ParseFormat(x.ContentType, x.Type, x.Format);
+                       if (fmt is ContentFormat.Tv or ContentFormat.Unknown && AnimeDetails.IsMovieTitle(x.Title))
+                       {
+                           fmt = ContentFormat.Movie;
+                       }
+
+                       return new SearchResult
+                       {
+                           Id           = x.Slug!,
+                           Title        = x.Title ?? x.Slug!,
+                           Url          = $"{BaseUrl}/anime/{x.Slug}",
+                           PosterUrl    = BuildMediaUrl(x.PosterKey),
+                           ProviderName = Name,
+                           Type         = ProviderType.Anime,
+                           Format       = fmt,
+                           Year         = x.Year?.ToString()
+                       };
                    })
                    .ToList();
         }
@@ -95,7 +105,7 @@ public partial class AniHubProvider : IAnimeProvider
                 Title     = anime.Title ?? slug,
                 Summary   = anime.Description ?? "",
                 PosterUrl = BuildMediaUrl(anime.PosterKey),
-                Format    = ParseFormat(anime.ContentType)
+                Format    = ParseFormat(anime.ContentType, anime.Type, anime.Format)
             };
 
             var seasonNumber = ResolveSeasonNumber(slug, data.Series);
@@ -233,7 +243,7 @@ public partial class AniHubProvider : IAnimeProvider
                 return "Auto";
             }
 
-            var content = await response.Content.ReadAsStringAsync(cancellationToken);
+            var content   = await response.Content.ReadAsStringAsync(cancellationToken);
             var maxHeight = 0;
             foreach (Match match in ResolutionRegex().Matches(content))
             {
@@ -325,14 +335,15 @@ public partial class AniHubProvider : IAnimeProvider
         return AnimeDetails.ParseSeasonNumber(slug.Replace("-", " "));
     }
 
-    private static ContentFormat ParseFormat(string? contentType)
+    private static ContentFormat ParseFormat(string? contentType, string? type = null, string? format = null)
     {
-        return contentType?.ToLowerInvariant() switch
+        var val = (contentType ?? type ?? format ?? "").Trim().ToLowerInvariant();
+        return val switch
         {
-            "movie"   => ContentFormat.Movie,
-            "ova"     => ContentFormat.Ova,
-            "special" => ContentFormat.Special,
-            _         => ContentFormat.Tv
+            "movie" or "film" => ContentFormat.Movie,
+            "ova"             => ContentFormat.Ova,
+            "special"         => ContentFormat.Special,
+            _                 => ContentFormat.Tv
         };
     }
 
@@ -391,6 +402,12 @@ public partial class AniHubProvider : IAnimeProvider
 
         [JsonPropertyName("contentType")]
         public string? ContentType { get; set; }
+
+        [JsonPropertyName("type")]
+        public string? Type { get; set; }
+
+        [JsonPropertyName("format")]
+        public string? Format { get; set; }
     }
 
     private sealed class AniHubEpisodeItem

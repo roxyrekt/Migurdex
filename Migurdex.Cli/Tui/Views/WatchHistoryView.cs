@@ -47,6 +47,11 @@ public class WatchHistoryView : BaseView
 
     private static string GetFormattedEpisodeText(WatchHistoryEntry h)
     {
+        if (string.Equals(h.EpisodeTitle?.Trim(), "Film", StringComparison.OrdinalIgnoreCase))
+        {
+            return "Film";
+        }
+
         var seasonText = h.Season > 0 ? $"S{h.Season}" : "S1";
         var epNum      = h.EpisodeNumber;
         if (epNum == 0)

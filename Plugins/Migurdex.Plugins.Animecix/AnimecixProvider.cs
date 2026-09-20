@@ -4,6 +4,8 @@ using Migurdex.Shared.Interfaces;
 using Migurdex.Shared.Models;
 using System.Collections.Concurrent;
 using System.Globalization;
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 
 namespace Migurdex.Plugins.Animecix;
@@ -13,6 +15,8 @@ public class AnimecixProvider : IAnimeProvider
     private static readonly ConcurrentDictionary<int, string> _translatorsCache = new();
     private static readonly Lock                              _translatorsLock  = new();
     private static          bool                              _translatorsLoaded;
+
+    private static readonly byte[] _xehKey = "i4C7R2fXGocdYgFLzCbDlsJjukf8G58b"u8.ToArray();
 
     private readonly HttpClient                _httpClient;
     private readonly ILogger<AnimecixProvider> _logger;
@@ -24,7 +28,6 @@ public class AnimecixProvider : IAnimeProvider
 
         _httpClient.DefaultRequestHeaders.Add("Referer", BaseUrl);
         _httpClient.DefaultRequestHeaders.Add("Accept", "application/json");
-        _httpClient.DefaultRequestHeaders.Add("X-E-H", "=.animecix");
     }
 
     public string       Name    => "AnimeciX";
@@ -36,7 +39,7 @@ public class AnimecixProvider : IAnimeProvider
         try
         {
             var url = $"{BaseUrl}/secure/search/{Uri.EscapeDataString(query)}?limit=24&type=undefined&provider=null";
-            var response = await _httpClient.GetAsync(url, cancellationToken);
+            var response = await GetWithAuthAsync(url, cancellationToken);
             if (!response.IsSuccessStatusCode)
             {
                 return [];
@@ -118,6 +121,14 @@ public class AnimecixProvider : IAnimeProvider
                         }
                     }
 
+                    var isSeries = !item.TryGetProperty("is_series", out var isSeriesProp)
+                                   || isSeriesProp.ValueKind != JsonValueKind.False;
+                    var itemTypeStr = item.TryGetProperty("type", out var itemTypeEl) ? itemTypeEl.GetString() : "";
+                    var isMovie = string.Equals(itemTypeStr, "movie", StringComparison.OrdinalIgnoreCase)
+                                  || !isSeries
+                                  || AnimeDetails.IsMovieTitle(title)
+                                  || AnimeDetails.IsMovieTitle(englishTitle);
+
                     var searchResult = new SearchResult
                     {
                         Id            = idStr,
@@ -146,6 +157,7 @@ public class AnimecixProvider : IAnimeProvider
                         Url          = $"{BaseUrl}/titles/{idStr}",
                         ProviderName = Name,
                         Type         = ProviderType.Anime,
+                        Format       = isMovie ? ContentFormat.Movie : ContentFormat.Tv,
                         Year         = yearStr,
                         Score        = null
                     };
@@ -178,7 +190,7 @@ public class AnimecixProvider : IAnimeProvider
         try
         {
             var detailsUrl = $"{BaseUrl}/secure/titles/{animeId}?seasonNumber=1&page=1&perPage=200";
-            var response   = await _httpClient.GetAsync(detailsUrl, cancellationToken);
+            var response   = await GetWithAuthAsync(detailsUrl, cancellationToken);
             if (!response.IsSuccessStatusCode)
             {
                 return new AnimeDetails();
@@ -237,6 +249,7 @@ public class AnimecixProvider : IAnimeProvider
                 EnglishTitle  = englishTitle,
                 RomajiTitle   = romajiTitle,
                 JapaneseTitle = japaneseTitle,
+                PosterUrl     = titleEl.TryGetProperty("poster", out var pst) ? pst.GetString() : null,
                 AlternativeTitles =
                 [
                     .. altTitles.Where(t => !t.Equals(title, StringComparison.OrdinalIgnoreCase)
@@ -331,10 +344,15 @@ public class AnimecixProvider : IAnimeProvider
                 });
             }
 
+            var isSeries = !titleEl.TryGetProperty("is_series", out var isSeriesProp)
+                           || isSeriesProp.ValueKind != JsonValueKind.False;
             var typeStr = titleEl.TryGetProperty("type", out var typeProp) ? typeProp.GetString() : "";
-            details.Format = string.Equals(typeStr, "movie", StringComparison.OrdinalIgnoreCase)
-                                 ? ContentFormat.Movie
-                                 : ContentFormat.Tv;
+            var isMovie = string.Equals(typeStr, "movie", StringComparison.OrdinalIgnoreCase)
+                          || !isSeries
+                          || AnimeDetails.IsMovieTitle(title)
+                          || AnimeDetails.IsMovieTitle(englishTitle);
+
+            details.Format = isMovie ? ContentFormat.Movie : ContentFormat.Tv;
 
             var seasonsList = details.SeasonMappings.Select(m => m.SeasonNumber).Distinct().ToList();
             if (seasonsList.Count == 0)
@@ -349,7 +367,7 @@ public class AnimecixProvider : IAnimeProvider
                 try
                 {
                     var firstPageUrl = $"{BaseUrl}/secure/titles/{animeId}?seasonNumber={seasonNum}&page=1&perPage=200";
-                    var firstResponse = await _httpClient.GetAsync(firstPageUrl, cancellationToken);
+                    var firstResponse = await GetWithAuthAsync(firstPageUrl, cancellationToken);
                     if (!firstResponse.IsSuccessStatusCode)
                     {
                         return;
@@ -407,7 +425,7 @@ public class AnimecixProvider : IAnimeProvider
                                                           var pageUrl =
                                                               $"{BaseUrl}/secure/titles/{animeId}?seasonNumber={seasonNum}&page={currentPage}&perPage=200";
 
-                                                          var pageResponse = await _httpClient.GetAsync(
+                                                          var pageResponse = await GetWithAuthAsync(
                                                                                  pageUrl,
                                                                                  cancellationToken);
                                                           if (!pageResponse.IsSuccessStatusCode)
@@ -489,7 +507,7 @@ public class AnimecixProvider : IAnimeProvider
             {
                 details.Episodes.Add(new Episode
                 {
-                    Id     = $"{animeId}/movie/movie",
+                    Id     = $"{animeId}/1/1",
                     Title  = "Film",
                     Number = 1,
                     Season = 1
@@ -517,64 +535,80 @@ public class AnimecixProvider : IAnimeProvider
     {
         try
         {
-            var parts = episodeId.Split('/');
-            if (parts.Length < 3)
+            var parts = episodeId.Split('/', ':', '|');
+            if (parts.Length == 0)
             {
                 return [];
             }
 
             var titleId = parts[0];
-            var season  = parts[1];
-            var episode = parts[2];
+            var season  = parts.Length > 1 ? parts[1] : "1";
+            var episode = parts.Length > 2 ? parts[2] : "1";
 
-            var url = $"{BaseUrl}/secure/episode-videos-points?titleId={titleId}&episode={episode}&season={season}";
-            var response = await _httpClient.GetAsync(url, cancellationToken);
-            if (!response.IsSuccessStatusCode)
-            {
-                return [];
-            }
-
-            var json = await response.Content.ReadAsStringAsync(cancellationToken);
-            if (string.IsNullOrEmpty(json))
-            {
-                return [];
-            }
-
-            using var doc    = JsonDocument.Parse(json);
-            var       groups = new List<string>();
+            var isMovie = season.Equals("movie", StringComparison.OrdinalIgnoreCase)
+                          || episode.Equals("movie", StringComparison.OrdinalIgnoreCase);
 
             await EnsureTranslatorsLoadedAsync(cancellationToken);
+            var groups = new List<string>();
 
-            if (doc.RootElement.TryGetProperty("videos", out var videosArray)
-                && videosArray.ValueKind == JsonValueKind.Array)
+            if (isMovie)
             {
-                foreach (var video in videosArray.EnumerateArray())
+                var detailsUrl = $"{BaseUrl}/secure/titles/{titleId}";
+                var response   = await GetWithAuthAsync(detailsUrl, cancellationToken);
+                if (response.IsSuccessStatusCode)
                 {
-                    var extra = video.TryGetProperty("extra", out var extraProp) ? extraProp.GetString() ?? "" : "";
-                    var name  = video.TryGetProperty("name", out var nameProp) ? nameProp.GetString() ?? "" : "";
-
-                    var groupLabel = "";
-                    if (video.TryGetProperty("translator", out var transProp)
-                        && transProp.ValueKind == JsonValueKind.Number)
+                    var json = await response.Content.ReadAsStringAsync(cancellationToken);
+                    if (!string.IsNullOrEmpty(json))
                     {
-                        var transId = transProp.GetInt32();
-                        _translatorsCache.TryGetValue(transId, out groupLabel);
+                        using var doc = JsonDocument.Parse(json);
+                        if (doc.RootElement.TryGetProperty("title", out var titleEl)
+                            && titleEl.TryGetProperty("videos", out var movieVideos)
+                            && movieVideos.ValueKind == JsonValueKind.Array)
+                        {
+                            ExtractGroupsFromVideos(movieVideos, groups);
+                        }
                     }
-                    else if (video.TryGetProperty("template", out var tempProp)
-                             && tempProp.ValueKind == JsonValueKind.Number)
-                    {
-                        var tempId = tempProp.GetInt32();
-                        _translatorsCache.TryGetValue(tempId, out groupLabel);
-                    }
+                }
 
-                    if (string.IsNullOrEmpty(groupLabel))
-                    {
-                        groupLabel = name;
-                    }
+                if (groups.Count > 0)
+                {
+                    return groups;
+                }
+            }
 
-                    if (!string.IsNullOrEmpty(groupLabel) && !groups.Contains(groupLabel))
+            var url = $"{BaseUrl}/secure/episode-videos-points?titleId={titleId}&episode={episode}&season={season}";
+            var epResponse = await GetWithAuthAsync(url, cancellationToken);
+            if (epResponse.IsSuccessStatusCode)
+            {
+                var epJson = await epResponse.Content.ReadAsStringAsync(cancellationToken);
+                if (!string.IsNullOrEmpty(epJson))
+                {
+                    using var epDoc = JsonDocument.Parse(epJson);
+                    if (epDoc.RootElement.TryGetProperty("videos", out var videosArray)
+                        && videosArray.ValueKind == JsonValueKind.Array)
                     {
-                        groups.Add(groupLabel);
+                        ExtractGroupsFromVideos(videosArray, groups);
+                    }
+                }
+            }
+
+            // Fallback for movies if season 1 episode 1 query returned 0 videos
+            if (groups.Count == 0 && !isMovie && (season == "1" || season == "0") && (episode == "1" || episode == "0"))
+            {
+                var detailsUrl = $"{BaseUrl}/secure/titles/{titleId}";
+                var response   = await GetWithAuthAsync(detailsUrl, cancellationToken);
+                if (response.IsSuccessStatusCode)
+                {
+                    var json = await response.Content.ReadAsStringAsync(cancellationToken);
+                    if (!string.IsNullOrEmpty(json))
+                    {
+                        using var doc = JsonDocument.Parse(json);
+                        if (doc.RootElement.TryGetProperty("title", out var titleEl)
+                            && titleEl.TryGetProperty("videos", out var movieVideos)
+                            && movieVideos.ValueKind == JsonValueKind.Array)
+                        {
+                            ExtractGroupsFromVideos(movieVideos, groups);
+                        }
                     }
                 }
             }
@@ -595,15 +629,15 @@ public class AnimecixProvider : IAnimeProvider
     {
         try
         {
-            var parts = episodeId.Split('/');
-            if (parts.Length < 3)
+            var parts = episodeId.Split('/', ':', '|');
+            if (parts.Length == 0)
             {
                 return [];
             }
 
             var titleId = parts[0];
-            var season  = parts[1];
-            var episode = parts[2];
+            var season  = parts.Length > 1 ? parts[1] : "1";
+            var episode = parts.Length > 2 ? parts[2] : "1";
 
             var isMovie = season.Equals("movie", StringComparison.OrdinalIgnoreCase)
                           || episode.Equals("movie", StringComparison.OrdinalIgnoreCase);
@@ -616,51 +650,70 @@ public class AnimecixProvider : IAnimeProvider
                 _logger.LogInformation("loading movie sources directly from title details for: {TitleId}",
                                        titleId);
 
-                var detailsUrl = $"{BaseUrl}/secure/titles/{titleId}?seasonNumber=1";
-                var response   = await _httpClient.GetAsync(detailsUrl, cancellationToken);
-                if (!response.IsSuccessStatusCode)
+                var detailsUrl = $"{BaseUrl}/secure/titles/{titleId}";
+                var response   = await GetWithAuthAsync(detailsUrl, cancellationToken);
+                if (response.IsSuccessStatusCode)
                 {
-                    return [];
+                    var json = await response.Content.ReadAsStringAsync(cancellationToken);
+                    if (!string.IsNullOrEmpty(json))
+                    {
+                        using var doc = JsonDocument.Parse(json);
+
+                        if (doc.RootElement.TryGetProperty("title", out var titleElement)
+                            && titleElement.TryGetProperty("videos", out var movieVideos)
+                            && movieVideos.ValueKind == JsonValueKind.Array)
+                        {
+                            ParseVideosJson(movieVideos, sources, group);
+                        }
+                    }
                 }
 
-                var json = await response.Content.ReadAsStringAsync(cancellationToken);
-                if (string.IsNullOrEmpty(json))
+                if (sources.Count > 0)
                 {
-                    return [];
+                    return sources;
                 }
-
-                using var doc = JsonDocument.Parse(json);
-
-                if (doc.RootElement.TryGetProperty("title", out var titleElement)
-                    && titleElement.TryGetProperty("videos", out var movieVideos)
-                    && movieVideos.ValueKind == JsonValueKind.Array)
-                {
-                    ParseVideosJson(movieVideos, sources, group);
-                }
-
-                return sources;
             }
 
             var tvUrl = $"{BaseUrl}/secure/episode-videos-points?titleId={titleId}&episode={episode}&season={season}";
-            var tvResponse = await _httpClient.GetAsync(tvUrl, cancellationToken);
+            var tvResponse = await GetWithAuthAsync(tvUrl, cancellationToken);
 
-            if (!tvResponse.IsSuccessStatusCode)
+            if (tvResponse.IsSuccessStatusCode)
             {
-                return [];
+                var tvJson = await tvResponse.Content.ReadAsStringAsync(cancellationToken);
+                if (!string.IsNullOrEmpty(tvJson))
+                {
+                    using var tvDoc = JsonDocument.Parse(tvJson);
+                    if (tvDoc.RootElement.TryGetProperty("videos", out var tvVideos)
+                        && tvVideos.ValueKind == JsonValueKind.Array)
+                    {
+                        ParseVideosJson(tvVideos, sources, group);
+                    }
+                }
             }
 
-            var tvJson = await tvResponse.Content.ReadAsStringAsync(cancellationToken);
-
-            if (string.IsNullOrEmpty(tvJson))
+            // Fallback for movies if season 1 episode 1 query returned 0 videos
+            if (sources.Count == 0
+                && !isMovie
+                && (season == "1" || season == "0")
+                && (episode == "1" || episode == "0"))
             {
-                return [];
-            }
+                var detailsUrl = $"{BaseUrl}/secure/titles/{titleId}";
+                var response   = await GetWithAuthAsync(detailsUrl, cancellationToken);
+                if (response.IsSuccessStatusCode)
+                {
+                    var json = await response.Content.ReadAsStringAsync(cancellationToken);
+                    if (!string.IsNullOrEmpty(json))
+                    {
+                        using var doc = JsonDocument.Parse(json);
 
-            using var tvDoc = JsonDocument.Parse(tvJson);
-            if (tvDoc.RootElement.TryGetProperty("videos", out var tvVideos)
-                && tvVideos.ValueKind == JsonValueKind.Array)
-            {
-                ParseVideosJson(tvVideos, sources, group);
+                        if (doc.RootElement.TryGetProperty("title", out var titleElement)
+                            && titleElement.TryGetProperty("videos", out var movieVideos)
+                            && movieVideos.ValueKind == JsonValueKind.Array)
+                        {
+                            ParseVideosJson(movieVideos, sources, group);
+                        }
+                    }
+                }
             }
 
             return sources;
@@ -673,17 +726,99 @@ public class AnimecixProvider : IAnimeProvider
         }
     }
 
+    private static string GenerateXehHeader(string? url = null)
+    {
+        var query = "";
+        if (!string.IsNullOrEmpty(url))
+        {
+            var qIdx = url.IndexOf('?');
+            if (qIdx >= 0 && qIdx < url.Length - 1)
+            {
+                query = url[(qIdx + 1)..];
+            }
+        }
+
+        var        plaintext = Encoding.UTF8.GetBytes("{version}" + query);
+        Span<byte> iv        = stackalloc byte[12];
+        RandomNumberGenerator.Fill(iv);
+
+        Span<byte> ciphertext = stackalloc byte[plaintext.Length];
+        Span<byte> tag        = stackalloc byte[16];
+
+        using var aes = new AesGcm(_xehKey, 16);
+        aes.Encrypt(iv, plaintext, ciphertext, tag);
+
+        var combined = new byte[ciphertext.Length + tag.Length];
+        ciphertext.CopyTo(combined);
+        tag.CopyTo(combined.AsSpan(ciphertext.Length));
+
+        return $"{Convert.ToBase64String(combined)}.{Convert.ToBase64String(iv)}";
+    }
+
+    private Task<HttpResponseMessage> GetWithAuthAsync(string url, CancellationToken cancellationToken = default)
+    {
+        var request = new HttpRequestMessage(HttpMethod.Get, url);
+        request.Headers.TryAddWithoutValidation("X-E-H", GenerateXehHeader(url));
+        return _httpClient.SendAsync(request, cancellationToken);
+    }
+
+    private void ExtractGroupsFromVideos(JsonElement videosArray, List<string> groups)
+    {
+        foreach (var video in videosArray.EnumerateArray())
+        {
+            if (video.TryGetProperty("category", out var catProp)
+                && string.Equals(catProp.GetString(), "trailer", StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            var name       = video.TryGetProperty("name", out var nameProp) ? nameProp.GetString() ?? "" : "";
+            var groupLabel = "";
+
+            if (video.TryGetProperty("translator", out var transProp) && transProp.ValueKind == JsonValueKind.Number)
+            {
+                var transId = transProp.GetInt32();
+                _translatorsCache.TryGetValue(transId, out groupLabel);
+            }
+            else if (video.TryGetProperty("template", out var tempProp) && tempProp.ValueKind == JsonValueKind.Number)
+            {
+                var tempId = tempProp.GetInt32();
+                _translatorsCache.TryGetValue(tempId, out groupLabel);
+            }
+
+            if (string.IsNullOrEmpty(groupLabel) && video.TryGetProperty("extra", out var extraProp))
+            {
+                var extra = extraProp.GetString();
+                if (!string.IsNullOrWhiteSpace(extra))
+                {
+                    groupLabel = extra;
+                }
+            }
+
+            if (string.IsNullOrEmpty(groupLabel))
+            {
+                groupLabel = name;
+            }
+
+            if (!string.IsNullOrEmpty(groupLabel) && !groups.Contains(groupLabel))
+            {
+                groups.Add(groupLabel);
+            }
+        }
+    }
+
     private void ParseVideosJson(JsonElement videosArray, List<VideoSource> sources, string? group)
     {
         foreach (var video in videosArray.EnumerateArray())
         {
+            if (video.TryGetProperty("category", out var catProp)
+                && string.Equals(catProp.GetString(), "trailer", StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
             var name     = video.TryGetProperty("name", out var nameProp) ? nameProp.GetString() ?? "" : "";
             var embedUrl = video.TryGetProperty("url", out var urlProp) ? urlProp.GetString() ?? "" : "";
-            var videoId = video.TryGetProperty("id", out var idProp)
-                              ? idProp.ValueKind == JsonValueKind.Number
-                                    ? idProp.GetInt32().ToString()
-                                    : idProp.GetString() ?? ""
-                              : "";
 
             var groupLabel = "";
             if (video.TryGetProperty("translator", out var transProp) && transProp.ValueKind == JsonValueKind.Number)
@@ -695,6 +830,15 @@ public class AnimecixProvider : IAnimeProvider
             {
                 var tempId = tempProp.GetInt32();
                 _translatorsCache.TryGetValue(tempId, out groupLabel);
+            }
+
+            if (string.IsNullOrEmpty(groupLabel) && video.TryGetProperty("extra", out var extraProp))
+            {
+                var extra = extraProp.GetString();
+                if (!string.IsNullOrWhiteSpace(extra))
+                {
+                    groupLabel = extra;
+                }
             }
 
             if (string.IsNullOrEmpty(groupLabel))
@@ -740,7 +884,7 @@ public class AnimecixProvider : IAnimeProvider
         try
         {
             var url      = $"{BaseUrl}/secure/translators";
-            var response = await _httpClient.GetAsync(url, cancellationToken);
+            var response = await GetWithAuthAsync(url, cancellationToken);
             if (response.IsSuccessStatusCode)
             {
                 var json = await response.Content.ReadAsStringAsync(cancellationToken);

@@ -88,6 +88,8 @@ public partial class TrAnimeIzleProvider : IAnimeProvider
                     year = yearMatch.Value;
                 }
 
+                var isMovie = AnimeDetails.IsMovieTitle(title);
+
                 results.Add(new SearchResult
                 {
                     Id           = slug,
@@ -96,6 +98,7 @@ public partial class TrAnimeIzleProvider : IAnimeProvider
                     Url          = href,
                     ProviderName = Name,
                     Type         = ProviderType.Anime,
+                    Format       = isMovie ? ContentFormat.Movie : ContentFormat.Tv,
                     Year         = year,
                     Score        = null
                 });
@@ -162,6 +165,7 @@ public partial class TrAnimeIzleProvider : IAnimeProvider
             }
 
             details.Format = string.Equals(typeStr, "Film", StringComparison.OrdinalIgnoreCase)
+                             || AnimeDetails.IsMovieTitle(details.Title)
                                  ? ContentFormat.Movie
                                  : ContentFormat.Tv;
 

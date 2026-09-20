@@ -3,6 +3,7 @@ using Migurdex.Shared.Enums;
 using Migurdex.Shared.Interfaces;
 using Migurdex.Shared.Models;
 using System.Globalization;
+using System.Net;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -107,12 +108,20 @@ public partial class AnimpowProvider : IAnimeProvider
                 animeRoot.TryGetProperty("name_romaji", out var romName)
                 && !string.IsNullOrWhiteSpace(romName.GetString())
                     ? romName.GetString()
-                    : null;
+                    : animeRoot.TryGetProperty("name_romanji", out var rom2)
+                      && !string.IsNullOrWhiteSpace(rom2.GetString())
+                        ? rom2.GetString()
+                        : null;
             var japaneseTitle =
                 animeRoot.TryGetProperty("name_japanese", out var japName)
                 && !string.IsNullOrWhiteSpace(japName.GetString())
                     ? japName.GetString()
-                    : null;
+                    : animeRoot.TryGetProperty("original_title", out var orig)
+                      && !string.IsNullOrWhiteSpace(orig.GetString())
+                        ? orig.GetString()
+                        : null;
+
+            var poster = animeRoot.TryGetProperty("poster", out var pst) ? pst.GetString() : null;
 
             var details = new AnimeDetails
             {
@@ -120,8 +129,45 @@ public partial class AnimpowProvider : IAnimeProvider
                 EnglishTitle  = englishTitle,
                 RomajiTitle   = romajiTitle,
                 JapaneseTitle = japaneseTitle,
+                PosterUrl     = poster,
                 Summary       = animeRoot.TryGetProperty("description", out var desc) ? desc.GetString() ?? "" : ""
             };
+
+            string? rootMalId = null;
+            if (animeRoot.TryGetProperty("mal_id", out var malProp))
+            {
+                rootMalId = malProp.ValueKind == JsonValueKind.Number
+                                ? malProp.GetInt32().ToString()
+                                : malProp.GetString();
+                if (rootMalId == "0" || string.IsNullOrEmpty(rootMalId))
+                {
+                    rootMalId = null;
+                }
+            }
+
+            string? rootTmdbId = null;
+            if (animeRoot.TryGetProperty("tmdb_id", out var tmdbProp))
+            {
+                rootTmdbId = tmdbProp.ValueKind == JsonValueKind.Number
+                                 ? tmdbProp.GetInt32().ToString()
+                                 : tmdbProp.GetString();
+                if (rootTmdbId == "0" || string.IsNullOrEmpty(rootTmdbId))
+                {
+                    rootTmdbId = null;
+                }
+            }
+
+            string? rootAniListId = null;
+            if (animeRoot.TryGetProperty("anilist_id", out var aniProp))
+            {
+                rootAniListId = aniProp.ValueKind == JsonValueKind.Number
+                                    ? aniProp.GetInt32().ToString()
+                                    : aniProp.GetString();
+                if (rootAniListId == "0" || string.IsNullOrEmpty(rootAniListId))
+                {
+                    rootAniListId = null;
+                }
+            }
 
             var parsedSeasons = new HashSet<int>();
 
@@ -139,6 +185,16 @@ public partial class AnimpowProvider : IAnimeProvider
                 }
             }
 
+            var isSeries = !animeRoot.TryGetProperty("is_series", out var isSeriesProp)
+                           || isSeriesProp.ValueKind != JsonValueKind.False;
+            var titleType = animeRoot.TryGetProperty("title_type", out var tt) ? tt.GetString() : "";
+            var isMovie = "movie".Equals(titleType, StringComparison.OrdinalIgnoreCase)
+                          || !isSeries
+                          || AnimeDetails.IsMovieTitle(title)
+                          || AnimeDetails.IsMovieTitle(englishTitle);
+
+            details.Format = isMovie ? ContentFormat.Movie : ContentFormat.Tv;
+
             if (!string.IsNullOrEmpty(episodesJson))
             {
                 using var episodesDoc = JsonDocument.Parse(episodesJson);
@@ -149,7 +205,7 @@ public partial class AnimpowProvider : IAnimeProvider
 
                     foreach (var ep in episodesArray.EnumerateArray())
                     {
-                        var epNum = GetInt32Value(ep, "episode_num", GetInt32Value(ep, "bolum_no"));
+                        var epNum = GetInt32Value(ep, "episode_num", GetInt32Value(ep, "bolum_no", 1));
                         var sNum  = GetInt32Value(ep, "season_num", GetInt32Value(ep, "sezon_no", 1));
 
                         var key = $"{sNum}-{epNum}";
@@ -177,7 +233,7 @@ public partial class AnimpowProvider : IAnimeProvider
                     {
                         var ep       = kvp.Value.element;
                         var sourceId = GetStringValue(ep, "id");
-                        var epNum    = GetInt32Value(ep, "episode_num", GetInt32Value(ep, "bolum_no"));
+                        var epNum    = GetInt32Value(ep, "episode_num", GetInt32Value(ep, "bolum_no", 1));
                         var sNum     = GetInt32Value(ep, "season_num", GetInt32Value(ep, "sezon_no", 1));
 
                         var epName = ep.TryGetProperty("episode_name", out var nameProp)
@@ -186,8 +242,16 @@ public partial class AnimpowProvider : IAnimeProvider
                                              ? baslikProp.GetString()
                                              : null;
 
-                        var numText = $"S{sNum}E{epNum.ToString().PadLeft(2, '0')}";
-                        var epTitle = string.IsNullOrEmpty(epName) ? numText : $"{numText} - {epName}";
+                        string epTitle;
+                        if (details.Format == ContentFormat.Movie && uniqueEpisodes.Count <= 1)
+                        {
+                            epTitle = "Film";
+                        }
+                        else
+                        {
+                            var numText = $"S{sNum}E{epNum.ToString().PadLeft(2, '0')}";
+                            epTitle = string.IsNullOrEmpty(epName) ? numText : $"{numText} - {epName}";
+                        }
 
                         parsedSeasons.Add(sNum);
 
@@ -202,11 +266,25 @@ public partial class AnimpowProvider : IAnimeProvider
                 }
             }
 
+            if (details.Format == ContentFormat.Movie && !details.Episodes.Any())
+            {
+                details.Episodes.Add(new Episode
+                {
+                    Id     = $"watch/{animeId}/s1e1",
+                    Title  = "Film",
+                    Number = 1,
+                    Season = 1
+                });
+            }
+
             foreach (var season in parsedSeasons.OrderBy(s => s))
             {
                 details.SeasonMappings.Add(new SeasonMapping
                 {
-                    SeasonNumber = season
+                    SeasonNumber  = season,
+                    AniListId     = season == 1 ? rootAniListId : null,
+                    MyAnimeListId = season == 1 ? rootMalId : null,
+                    TmdbId        = rootTmdbId
                 });
             }
 
@@ -214,14 +292,12 @@ public partial class AnimpowProvider : IAnimeProvider
             {
                 details.SeasonMappings.Add(new SeasonMapping
                 {
-                    SeasonNumber = 1
+                    SeasonNumber  = 1,
+                    AniListId     = rootAniListId,
+                    MyAnimeListId = rootMalId,
+                    TmdbId        = rootTmdbId
                 });
             }
-
-            var titleType = animeRoot.TryGetProperty("title_type", out var tt) ? tt.GetString() : "";
-            details.Format = "movie".Equals(titleType, StringComparison.OrdinalIgnoreCase)
-                                 ? ContentFormat.Movie
-                                 : ContentFormat.Tv;
 
             details.Episodes = details.Episodes
                                       .OrderBy(e => e.Season ?? 1)
@@ -271,7 +347,7 @@ public partial class AnimpowProvider : IAnimeProvider
             var groups = new List<string>();
             foreach (var ep in episodesArray.EnumerateArray())
             {
-                var epNum = GetInt32Value(ep, "episode_num", GetInt32Value(ep, "bolum_no"));
+                var epNum = GetInt32Value(ep, "episode_num", GetInt32Value(ep, "bolum_no", 1));
                 var sNum  = GetInt32Value(ep, "season_num", GetInt32Value(ep, "sezon_no", 1));
 
                 if (sNum == seasonNum && epNum == episodeNum)
@@ -330,7 +406,7 @@ public partial class AnimpowProvider : IAnimeProvider
             var sources = new List<VideoSource>();
             foreach (var ep in episodesArray.EnumerateArray())
             {
-                var epNum = GetInt32Value(ep, "episode_num", GetInt32Value(ep, "bolum_no"));
+                var epNum = GetInt32Value(ep, "episode_num", GetInt32Value(ep, "bolum_no", 1));
                 var sNum  = GetInt32Value(ep, "season_num", GetInt32Value(ep, "sezon_no", 1));
 
                 if (sNum == seasonNum && epNum == episodeNum)
@@ -356,7 +432,6 @@ public partial class AnimpowProvider : IAnimeProvider
                         ("cdn_m3u8", "Multi")
                     };
 
-                    var hasCdn = false;
                     foreach (var q in qualities)
                     {
                         if (ep.TryGetProperty(q.Key, out var prop) && prop.ValueKind == JsonValueKind.String)
@@ -364,7 +439,6 @@ public partial class AnimpowProvider : IAnimeProvider
                             var streamTokenUrl = prop.GetString();
                             if (!string.IsNullOrEmpty(streamTokenUrl))
                             {
-                                hasCdn = true;
                                 sources.Add(new VideoSource
                                 {
                                     Url     = streamTokenUrl,
@@ -374,23 +448,32 @@ public partial class AnimpowProvider : IAnimeProvider
                                     Group   = groupName,
                                     Headers = new Dictionary<string, string>
                                     {
-                                        { "Referer", BaseUrl }
+                                        { "Referer", BaseUrl + "/" }
                                     }
                                 });
                             }
                         }
                     }
 
-                    if (!hasCdn
-                        && ep.TryGetProperty("url", out var urlProp)
-                        && urlProp.ValueKind == JsonValueKind.String)
+                    if (ep.TryGetProperty("url", out var urlProp) && urlProp.ValueKind == JsonValueKind.String)
                     {
                         var urlValue = urlProp.GetString();
                         if (!string.IsNullOrEmpty(urlValue))
                         {
+                            var effectiveUrl = urlValue;
+                            if (urlValue.Contains("/api/sibnet?url=", StringComparison.OrdinalIgnoreCase))
+                            {
+                                var uIdx = urlValue.IndexOf("url=", StringComparison.OrdinalIgnoreCase);
+                                if (uIdx >= 0)
+                                {
+                                    var rawUrl = urlValue[(uIdx + 4)..];
+                                    effectiveUrl = Uri.UnescapeDataString(rawUrl);
+                                }
+                            }
+
                             sources.Add(new VideoSource
                             {
-                                Url = urlValue,
+                                Url = effectiveUrl,
                                 Quality = ep.TryGetProperty("quality", out var qualProp)
                                               ? qualProp.GetString() ?? ""
                                               : "",
@@ -413,7 +496,7 @@ public partial class AnimpowProvider : IAnimeProvider
         }
     }
 
-    [GeneratedRegex(@"watch/(\d+)/s(\d+)e(\d+)")]
+    [GeneratedRegex(@"watch/([^/?]+)/s(\d+)e(\d+)")]
     private static partial Regex WatchPathRegex();
 
     private async Task EnsureHandshakeAsync(CancellationToken cancellationToken = default)
@@ -520,7 +603,9 @@ public partial class AnimpowProvider : IAnimeProvider
         return Encoding.UTF8.GetString(plaintext);
     }
 
-    private async Task<string> FetchApiAsync(string url, CancellationToken cancellationToken = default)
+    private async Task<string> FetchApiAsync(string url,
+        CancellationToken                           cancellationToken = default,
+        bool                                        isRetry           = false)
     {
         var request = new HttpRequestMessage(HttpMethod.Get, url);
         request.Headers.Add("X-Session-Id", _sessionId);
@@ -531,6 +616,17 @@ public partial class AnimpowProvider : IAnimeProvider
         var response = await _httpClient.SendAsync(request, cancellationToken);
         if (!response.IsSuccessStatusCode)
         {
+            if (!isRetry
+                && (response.StatusCode == HttpStatusCode.BadRequest
+                    || response.StatusCode == HttpStatusCode.Unauthorized))
+            {
+                _logger.LogWarning("AnimPow session invalid or expired ({Status}). Re-handshaking...",
+                                   response.StatusCode);
+                _handshakeComplete = false;
+                await EnsureHandshakeAsync(cancellationToken);
+                return await FetchApiAsync(url, cancellationToken, true);
+            }
+
             return string.Empty;
         }
 
@@ -588,14 +684,24 @@ public partial class AnimpowProvider : IAnimeProvider
     {
         try
         {
-            var coreId = GetInt32Value(item, "animpow_core_id").ToString();
-            if (coreId == "0")
+            var coreId = GetStringValue(item, "animpow_core_id");
+            if (string.IsNullOrWhiteSpace(coreId))
+            {
+                coreId = GetStringValue(item, "main_anime_id");
+            }
+
+            if (string.IsNullOrWhiteSpace(coreId))
+            {
+                coreId = GetStringValue(item, "uuid");
+            }
+
+            if (string.IsNullOrWhiteSpace(coreId))
             {
                 return null;
             }
 
             double? parsedScore = null;
-            if (item.TryGetProperty("jikan_score", out var sc))
+            if (item.TryGetProperty("jikan_score", out var sc) || item.TryGetProperty("vote_average", out sc))
             {
                 switch (sc.ValueKind)
                 {
@@ -603,37 +709,78 @@ public partial class AnimpowProvider : IAnimeProvider
                         parsedScore = sc.GetDouble();
                         break;
                     case JsonValueKind.String:
+                        if (double.TryParse(sc.GetString()?.Replace(",", "."),
+                                            NumberStyles.Any,
+                                            CultureInfo.InvariantCulture,
+                                            out var scoreVal))
                         {
-                            if (double.TryParse(sc.GetString()?.Replace(",", "."),
-                                                NumberStyles.Any,
-                                                CultureInfo.InvariantCulture,
-                                                out var scoreVal))
-                            {
-                                parsedScore = scoreVal;
-                            }
-
-                            break;
+                            parsedScore = scoreVal;
                         }
+
+                        break;
                 }
             }
 
-            var yearVal = item.TryGetProperty("year", out _) ? GetInt32Value(item, "year").ToString() : null;
+            string? yearVal = null;
+            if (item.TryGetProperty("year", out var yrProp))
+            {
+                var yInt = GetInt32Value(item, "year");
+                if (yInt > 0)
+                {
+                    yearVal = yInt.ToString();
+                }
+            }
+            else if (item.TryGetProperty("release_date", out var rdProp) && rdProp.ValueKind == JsonValueKind.String)
+            {
+                var rdStr = rdProp.GetString();
+                if (!string.IsNullOrEmpty(rdStr) && DateTime.TryParse(rdStr, out var parsedDate))
+                {
+                    yearVal = parsedDate.Year.ToString();
+                }
+            }
 
-            var title = item.GetProperty("name").GetString() ?? "";
+            var title = item.TryGetProperty("name", out var nameProp) ? nameProp.GetString() ?? "" : "";
             var englishTitle =
                 item.TryGetProperty("name_english", out var eng) && !string.IsNullOrWhiteSpace(eng.GetString())
                     ? eng.GetString()
                     : null;
+            var romajiTitle =
+                item.TryGetProperty("name_romanji", out var rom) && !string.IsNullOrWhiteSpace(rom.GetString())
+                    ? rom.GetString()
+                    : item.TryGetProperty("title_romaji", out var rom2) && !string.IsNullOrWhiteSpace(rom2.GetString())
+                        ? rom2.GetString()
+                        : null;
+
+            var titleType = item.TryGetProperty("title_type", out var tt)
+                                ? tt.GetString()
+                                : item.TryGetProperty("type", out var tProp)
+                                    ? tProp.GetString()
+                                    : "";
+
+            var isSeries = !item.TryGetProperty("is_series", out var isSeriesProp)
+                           || isSeriesProp.ValueKind != JsonValueKind.False;
+            var isMovie = "movie".Equals(titleType, StringComparison.OrdinalIgnoreCase)
+                          || !isSeries
+                          || AnimeDetails.IsMovieTitle(title)
+                          || AnimeDetails.IsMovieTitle(englishTitle);
+
+            var poster = item.TryGetProperty("poster", out var pst)
+                             ? pst.GetString()
+                             : item.TryGetProperty("poster_path", out var pstPath)
+                                 ? pstPath.GetString()
+                                 : null;
 
             return new SearchResult
             {
                 Id           = coreId,
                 Title        = title,
                 EnglishTitle = englishTitle,
-                PosterUrl    = item.TryGetProperty("poster", out var pst) ? pst.GetString() : null,
+                RomajiTitle  = romajiTitle,
+                PosterUrl    = poster,
                 Url          = $"{BaseUrl}/anime/{coreId}",
                 ProviderName = Name,
                 Type         = ProviderType.Anime,
+                Format       = isMovie ? ContentFormat.Movie : ContentFormat.Tv,
                 Year         = yearVal,
                 Score        = parsedScore
             };

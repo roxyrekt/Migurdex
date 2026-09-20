@@ -4,6 +4,7 @@ using Migurdex.Shared.Enums;
 using Migurdex.Shared.Interfaces;
 using Migurdex.Shared.Models;
 using System.Globalization;
+using System.Net;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
@@ -85,15 +86,19 @@ public partial class AsyaAnimeleriProvider : IAnimeProvider
                                             continue;
                                         }
 
-                                        var slug = ExtractSlug(link);
+                                        var slug         = ExtractSlug(link);
+                                        var decodedTitle = HttpUtility.HtmlDecode(title);
                                         results.Add(new SearchResult
                                         {
                                             Id           = slug,
-                                            Title        = HttpUtility.HtmlDecode(title),
+                                            Title        = decodedTitle,
                                             PosterUrl    = image,
                                             Url          = link,
                                             ProviderName = Name,
-                                            Type         = ProviderType.Anime
+                                            Type         = ProviderType.Anime,
+                                            Format = AnimeDetails.IsMovieTitle(decodedTitle)
+                                                         ? ContentFormat.Movie
+                                                         : ContentFormat.Tv
                                         });
                                     }
                                 }
@@ -427,10 +432,18 @@ public partial class AsyaAnimeleriProvider : IAnimeProvider
     private static string ExtractIframeSrc(string html)
     {
         var match = IframeSrcRegex().Match(html);
-        return match.Success ? match.Groups[1].Value : "";
+        if (match.Success)
+        {
+            var url = !string.IsNullOrEmpty(match.Groups[1].Value)
+                          ? match.Groups[1].Value
+                          : match.Groups[2].Value;
+            return WebUtility.HtmlDecode(url).Trim();
+        }
+
+        return "";
     }
 
-    [GeneratedRegex(@"iframe[^>]+src=[""']([^""']+)[""']", RegexOptions.IgnoreCase, "en-US")]
+    [GeneratedRegex(@"iframe[^>]+src=(?:[""']([^""']+)[""']|([^\s>]+))", RegexOptions.IgnoreCase, "en-US")]
     private static partial Regex IframeSrcRegex();
 
     [GeneratedRegex(@"\d+(?:\.\d+)?")]

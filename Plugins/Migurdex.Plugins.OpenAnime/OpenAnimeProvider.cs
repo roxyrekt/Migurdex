@@ -66,6 +66,13 @@ public class OpenAnimeProvider : IAnimeProvider
                                var englishTitle = !string.IsNullOrWhiteSpace(item.English) ? item.English : null;
                                var romajiTitle  = !string.IsNullOrWhiteSpace(item.Romaji) ? item.Romaji : null;
 
+                               var fmt = ParseFormat(item.Type);
+                               if (fmt is ContentFormat.Tv or ContentFormat.Unknown
+                                   && (AnimeDetails.IsMovieTitle(title) || AnimeDetails.IsMovieTitle(englishTitle)))
+                               {
+                                   fmt = ContentFormat.Movie;
+                               }
+
                                return new SearchResult
                                {
                                    Id           = item.Slug ?? "",
@@ -76,6 +83,7 @@ public class OpenAnimeProvider : IAnimeProvider
                                    Url          = $"{BaseUrl}/anime/{item.Slug}",
                                    ProviderName = Name,
                                    Type         = ProviderType.Anime,
+                                   Format       = fmt,
                                    Score        = item.TmdbScore
                                };
                            })

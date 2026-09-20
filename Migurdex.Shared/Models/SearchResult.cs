@@ -4,10 +4,11 @@ namespace Migurdex.Shared.Models;
 
 public class SearchResult
 {
-    public string       Id           { get; set; } = string.Empty;
-    public string       Title        { get; set; } = string.Empty;
-    public string       ProviderName { get; set; } = string.Empty;
-    public ProviderType Type         { get; set; }
+    public string        Id           { get; set; } = string.Empty;
+    public string        Title        { get; set; } = string.Empty;
+    public string        ProviderName { get; set; } = string.Empty;
+    public ProviderType  Type         { get; set; }
+    public ContentFormat Format       { get; set; } = ContentFormat.Unknown;
 
     public string?       EnglishTitle      { get; set; }
     public string?       RomajiTitle       { get; set; }

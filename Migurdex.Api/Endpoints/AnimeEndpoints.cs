@@ -230,6 +230,7 @@ public static class AnimeEndpoints
         try
         {
             var details = await p.GetDetailsAsync(animeId, cancellationToken);
+            details.Normalize();
             return Results.Ok(details);
         }
         catch (Exception ex)

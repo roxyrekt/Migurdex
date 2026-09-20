@@ -1,4 +1,5 @@
 using Migurdex.Cli.Services;
+using Migurdex.Shared.Enums;
 using Migurdex.Shared.Models;
 using Spectre.Console;
 
@@ -68,13 +69,18 @@ public class SearchResultsView : BaseView
             var idx     = i + 1;
             var idxText = $"#{idx}".PadRight(maxIdxWidth + 1);
 
+            var isMovie          = r.Format == ContentFormat.Movie || AnimeDetails.IsMovieTitle(r.Title);
+            var movieBadge       = isMovie ? " [darkorange3][[Film]][/]" : "";
+            var activeMovieBadge = isMovie ? " [bold darkorange][[Film]][/]" : "";
+            var movieSearchable  = isMovie ? " [Film]" : "";
+
             selectList.Add(new FuzzyChoice
             {
                 Display =
-                    $"[grey]{idxText}[/] [silver]{Markup.Escape(r.Title)} ({r.Year ?? "-"}) ({Markup.Escape(r.ProviderName)})[/]",
+                    $"[grey]{idxText}[/] [silver]{Markup.Escape(r.Title)} ({r.Year ?? "-"}) ({Markup.Escape(r.ProviderName)})[/]{movieBadge}",
                 DisplayActive =
-                    $"[bold pink1]{idxText}[/] [bold white]{Markup.Escape(r.Title)}[/] [bold gold1]({Markup.Escape(r.Year ?? "-")})[/] [bold mediumpurple1]({Markup.Escape(r.ProviderName)})[/]",
-                Searchable      = $"{idxText} - {r.Title} ({r.Year ?? "-"}) ({r.ProviderName})",
+                    $"[bold pink1]{idxText}[/] [bold white]{Markup.Escape(r.Title)}[/] [bold gold1]({Markup.Escape(r.Year ?? "-")})[/] [bold mediumpurple1]({Markup.Escape(r.ProviderName)})[/]{activeMovieBadge}",
+                Searchable      = $"{idxText} - {r.Title} ({r.Year ?? "-"}) ({r.ProviderName}){movieSearchable}",
                 AssociatedValue = r
             });
         }

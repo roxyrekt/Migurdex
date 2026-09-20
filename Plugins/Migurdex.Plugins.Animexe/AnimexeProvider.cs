@@ -4,6 +4,7 @@ using Migurdex.Shared.Enums;
 using Migurdex.Shared.Interfaces;
 using Migurdex.Shared.Models;
 using System.Globalization;
+using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 
@@ -98,6 +99,7 @@ public partial class AnimexeProvider : IAnimeProvider
                     Url          = href,
                     ProviderName = Name,
                     Type         = ProviderType.Anime,
+                    Format       = AnimeDetails.IsMovieTitle(title) ? ContentFormat.Movie : ContentFormat.Tv,
                     Year         = year,
                     Score        = score
                 });
@@ -156,9 +158,16 @@ public partial class AnimexeProvider : IAnimeProvider
                     {
                         malId = value;
                     }
-                    else if (label.Equals("Tür", StringComparison.OrdinalIgnoreCase))
+                    else if (label.Contains("Tür", StringComparison.OrdinalIgnoreCase)
+                             || label.Contains("Tip", StringComparison.OrdinalIgnoreCase)
+                             || label.Contains("Format", StringComparison.OrdinalIgnoreCase)
+                             || label.Contains("Kategori", StringComparison.OrdinalIgnoreCase))
                     {
-                        formatStr = value;
+                        if (value.Contains("Film", StringComparison.OrdinalIgnoreCase)
+                            || value.Contains("Movie", StringComparison.OrdinalIgnoreCase))
+                        {
+                            formatStr = "Film";
+                        }
                     }
                 }
             }
@@ -172,6 +181,14 @@ public partial class AnimexeProvider : IAnimeProvider
                 else
                 {
                     details.Format = ContentFormat.Tv;
+                }
+            }
+
+            if (details.Format is ContentFormat.Tv or ContentFormat.Unknown)
+            {
+                if (AnimeDetails.IsMovieTitle(title) || AnimeDetails.IsMovieSummary(details.Summary))
+                {
+                    details.Format = ContentFormat.Movie;
                 }
             }
 
@@ -393,11 +410,17 @@ public partial class AnimexeProvider : IAnimeProvider
                     continue;
                 }
 
+                var finalUrl = UnwrapStreamUrl(url);
                 var source = new VideoSource
                 {
-                    Url      = url,
-                    Quality  = info.Quality,
-                    Type     = info.Type,
+                    Url = finalUrl,
+                    Quality = info.Quality,
+                    Type = finalUrl.Contains(".m3u8", StringComparison.OrdinalIgnoreCase) ? VideoType.M3U8 : info.Type,
+                    Hoster = finalUrl.Contains("anizium", StringComparison.OrdinalIgnoreCase)
+                                 ? "Anizium"
+                                 : finalUrl.Contains("tau-video", StringComparison.OrdinalIgnoreCase)
+                                     ? "Tau Video"
+                                     : info.Group,
                     Group    = info.Group,
                     Language = info.Language
                 };
@@ -418,6 +441,41 @@ public partial class AnimexeProvider : IAnimeProvider
 
             return [];
         }
+    }
+
+    private static string UnwrapStreamUrl(string url)
+    {
+        if (string.IsNullOrWhiteSpace(url))
+        {
+            return url;
+        }
+
+        if (url.Contains("/stream/proxy?u="))
+        {
+            try
+            {
+                var b64 = url.Split("/stream/proxy?u=").Last();
+                b64 = Uri.UnescapeDataString(b64);
+                var missing = b64.Length % 4;
+                if (missing > 0)
+                {
+                    b64 += new string('=', 4 - missing);
+                }
+
+                var decoded = Encoding.UTF8.GetString(Convert.FromBase64String(b64));
+                if (!string.IsNullOrWhiteSpace(decoded)
+                    && decoded.StartsWith("http", StringComparison.OrdinalIgnoreCase))
+                {
+                    return decoded;
+                }
+            }
+            catch
+            {
+                // ignored
+            }
+        }
+
+        return url;
     }
 
     [GeneratedRegex(@"\b(19|20)\d{2}\b")]
