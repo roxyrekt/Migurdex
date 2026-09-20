@@ -156,6 +156,10 @@ Akış: `TUI -> API -> plugin (+ Rust HTTP) -> kaynak listesi -> MPV`. Native k�
 Bulit-in extractor'lar `Migurdex.Core/Extractors` altında. API tarafında `GET /api/v1/extractors` ve
 `POST /api/v1/extractors/resolve` ile de çağrılabiliyor.
 
+TurkAnime sağlayıcısı, kapanan sitenin arşivinin temizlenip doğrulanmış halini kullanır (ölü kayıtlar atıldı, başlıklar
+onarıldı, AniList/MAL eşleştirmeleri eklendi; canlı Turso veritabanı üzerinden sorgulanır). Ham SQLite dosyası:
+[mdexturkanime/turkanime-db](https://huggingface.co/datasets/mdexturkanime/turkanime-db/blob/main/turkanime-v1.db).
+
 ## Derleme
 
 ```bash
