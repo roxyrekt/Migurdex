@@ -6,9 +6,8 @@ namespace Migurdex.Cli.Services;
 
 public class UpdateService : IUpdateService
 {
-    public const            string   Repo                = "roxyrekt/Migurdex";
-    private const           int      CheckTimeoutSeconds = 8;
-    private static readonly TimeSpan _checkThrottle      = TimeSpan.FromHours(6);
+    public const  string Repo                = "roxyrekt/Migurdex";
+    private const int    CheckTimeoutSeconds = 8;
 
     private readonly HttpClient            _httpClient;
     private readonly IConfigurationService _configService;
@@ -43,11 +42,6 @@ public class UpdateService : IUpdateService
             return null;
         }
 
-        if (!force && DateTime.UtcNow - config.LastUpdateCheckUtc < _checkThrottle)
-        {
-            return null;
-        }
-
         var includePrerelease = channelOverride is not null
                                     ? IsPrereleaseChannel(channelOverride)
                                     : IsPrereleaseChannel(config.UpdateChannel);
@@ -64,16 +58,6 @@ public class UpdateService : IUpdateService
             if (release is null)
             {
                 return null;
-            }
-
-            try
-            {
-                config.LastUpdateCheckUtc = DateTime.UtcNow;
-                _configService.Save();
-            }
-            catch
-            {
-                // ignored
             }
 
             var current = AppInfo.GetVersion();

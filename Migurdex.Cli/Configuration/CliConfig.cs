@@ -14,7 +14,6 @@ public class CliConfig
 
     public bool     UpdateCheckEnabled { get; set; } = true;
     public string   UpdateChannel      { get; set; } = "stable";
-    public DateTime LastUpdateCheckUtc { get; set; } = DateTime.MinValue;
     public string?  SkippedVersion     { get; set; }
 
     public List<string> AutoNeverHosters   { get; set; } = [];
