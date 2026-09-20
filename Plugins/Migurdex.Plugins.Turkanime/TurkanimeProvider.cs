@@ -1,10 +1,7 @@
-using AngleSharp.Html.Parser;
 using Microsoft.Extensions.Logging;
 using Migurdex.Shared.Enums;
 using Migurdex.Shared.Interfaces;
 using Migurdex.Shared.Models;
-using System.Globalization;
-using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
@@ -13,179 +10,119 @@ namespace Migurdex.Plugins.Turkanime;
 
 public partial class TurkanimeProvider : IAnimeProvider
 {
-    private const string AesKey =
-        "710^8A@3@>T2}#zN5xK?kR7KNKb@-A!LzYL5~M1qU0UfdWsZoBm4UUat%}ueUv6E--*hDPPbH7K2bp9^3o41hw,khL:}Kx8080@M";
+    private const string TursoEndpoint = "https://turkanime-roxyrekt.aws-eu-west-1.turso.io/v2/pipeline";
+
+    private const string TursoAuthToken =
+        "eyJhbGciOiJFZERTQSIsInR5cCI6IkpXVCJ9.eyJhIjoicnciLCJpYXQiOjE3ODk5MzQ5NjksImlkIjoiMDFhMGMwNmYtYWUwMS03MTNjLWJkZmYtM2IyYTJhNWI3OTg0Iiwia2lkIjoiak9LeUlDamRqTVZjMllyOENLU2tsMUt5Y0NXM3RUSEk3MXZDbVJFU1VJdyIsInJpZCI6ImJjNDc2NTYxLTE1MTgtNDVkYy05NWYxLWI3NTZhOWQ0OTBhNSJ9.b8Gp_sH15AKSY9F9ukkePS7uY3E-qbbcfkG5a28ldjo2gw_VW-f4diEfo37arXRXanbLvQt81gHHPUdpUXIhAg";
 
     private readonly HttpClient                 _httpClient;
     private readonly ILogger<TurkanimeProvider> _logger;
 
+    private static          List<AnimeCatalogItem>? _catalogCache;
+    private static readonly SemaphoreSlim           _catalogLock = new(1, 1);
+
     public TurkanimeProvider(ISharedBridge bridge, ILogger<TurkanimeProvider> logger)
     {
-        _httpClient = bridge.CreateHttpClient(o => o.AllowAutoRedirect = true);
+        _httpClient = bridge.CreateHttpClient();
         _logger     = logger;
-
-        _httpClient.DefaultRequestHeaders.Add("X-Requested-With", "XMLHttpRequest");
     }
 
     public string       Name    => "TurkAnime";
-    public string       BaseUrl => "https://www.turkanime.tv";
+    public string       BaseUrl => "https://turkanime.tv";
     public ProviderType Type    => ProviderType.Anime;
 
     public async Task<List<SearchResult>> SearchAsync(string query, CancellationToken cancellationToken = default)
     {
+        if (string.IsNullOrWhiteSpace(query))
+        {
+            return [];
+        }
+
         try
         {
-            var request = new HttpRequestMessage(HttpMethod.Post, $"{BaseUrl}/arama");
-            var content = new FormUrlEncodedContent([new KeyValuePair<string, string>("arama", query)]);
-            request.Content = content;
-            request.Headers.Add("Referer", BaseUrl);
+            await EnsureCatalogLoadedAsync(cancellationToken);
 
-            var response = await _httpClient.SendAsync(request, cancellationToken);
+            var q = query.Trim();
 
-            if (!response.IsSuccessStatusCode)
+            if (_catalogCache is { Count: > 0 })
             {
-                return [];
-            }
+                var normalizedQ = NormalizeTitle(q);
 
-            var html   = await response.Content.ReadAsStringAsync(cancellationToken);
-            var parser = new HtmlParser();
-            var doc    = await parser.ParseDocumentAsync(html);
+                var matches = _catalogCache
+                              .Where(a => a.Title.Contains(q, StringComparison.OrdinalIgnoreCase)
+                                          || a.Slug.Contains(q, StringComparison.OrdinalIgnoreCase)
+                                          || (!string.IsNullOrEmpty(a.EnglishTitle)
+                                              && (a.EnglishTitle.Contains(q, StringComparison.OrdinalIgnoreCase)
+                                                  || (!string.IsNullOrEmpty(normalizedQ)
+                                                      && NormalizeTitle(a.EnglishTitle)
+                                                          .Contains(normalizedQ, StringComparison.Ordinal))))
+                                          || (a.Synonyms != null
+                                              && a.Synonyms.Any(s => s.Contains(q, StringComparison.OrdinalIgnoreCase)
+                                                                     || (!string.IsNullOrEmpty(normalizedQ)
+                                                                         && NormalizeTitle(s)
+                                                                             .Contains(
+                                                                                 normalizedQ,
+                                                                                 StringComparison.Ordinal)))))
+                              .OrderBy(a => RankCatalogMatch(a, q, normalizedQ))
+                              .ThenBy(a => a.Id)
+                              .Take(30)
+                              .Select(MapCatalogItem)
+                              .ToList();
 
-            var list = new List<SearchResult>();
-
-            var panels = doc.QuerySelectorAll("#orta-icerik .col-md-6.col-sm-6.col-xs-12");
-            foreach (var panel in panels)
-            {
-                var titleLink = panel.QuerySelector(".panel-title a");
-
-                if (titleLink == null)
+                if (matches.Count > 0)
                 {
-                    continue;
-                }
-
-                var title = titleLink.GetAttribute("data-original-title")
-                            ?? titleLink.GetAttribute("title")
-                            ?? titleLink.TextContent.Trim();
-
-                if (title.EndsWith(" izle", StringComparison.OrdinalIgnoreCase))
-                {
-                    title = title[..^5].Trim();
-                }
-
-                var href = titleLink.GetAttribute("href") ?? "";
-                var slug = href.Split('/').LastOrDefault() ?? "";
-
-                if (string.IsNullOrEmpty(slug))
-                {
-                    continue;
-                }
-
-                var imgEl = panel.QuerySelector(".imaj img");
-                var img   = imgEl?.GetAttribute("data-src") ?? imgEl?.GetAttribute("src") ?? "";
-                if (img.StartsWith("data:image"))
-                {
-                    img = imgEl?.GetAttribute("data-src") ?? img;
-                }
-
-                if (!string.IsNullOrEmpty(img))
-                {
-                    if (img.StartsWith("//"))
-                    {
-                        img = "https:" + img;
-                    }
-                    else if (img.StartsWith("/"))
-                    {
-                        img = BaseUrl + img;
-                    }
-                }
-
-                var descEl  = panel.QuerySelector(".panel-body > .row > .media-object");
-                var summary = descEl?.TextContent.Trim() ?? "";
-                if (summary.Contains("Beğen", StringComparison.OrdinalIgnoreCase))
-                {
-                    summary = summary[..summary.IndexOf("Beğen", StringComparison.OrdinalIgnoreCase)].Trim();
-                }
-
-                list.Add(new SearchResult
-                {
-                    Id    = slug,
-                    Title = title,
-                    Url = href.StartsWith("//")
-                              ? "https:" + href
-                              : href.StartsWith("/")
-                                  ? BaseUrl + href
-                                  : href,
-                    PosterUrl    = img.Replace("/seriler/", "/serilerb/"),
-                    ProviderName = Name,
-                    Type         = ProviderType.Anime,
-                    Format       = AnimeDetails.IsMovieTitle(title) ? ContentFormat.Movie : ContentFormat.Tv
-                });
-            }
-
-            if (list.Count == 0)
-            {
-                if (html.Contains("LİMİT AŞIMI", StringComparison.OrdinalIgnoreCase))
-                {
-                    _logger.LogWarning("search rate limit reached for query: {Query}", query);
-                }
-
-                var redirectMatch = WindowLocationRegex().Match(html);
-                if (!redirectMatch.Success)
-                {
-                    redirectMatch = SimpleWindowLocationRegex().Match(html);
-                }
-
-                if (redirectMatch.Success)
-                {
-                    var slug = redirectMatch.Groups[1].Value.Trim().TrimEnd('/');
-                    if (!string.IsNullOrEmpty(slug))
-                    {
-                        var title =
-                            CultureInfo.CurrentCulture.TextInfo
-                                       .ToTitleCase(slug.Replace("-", " "));
-
-                        var posterUrl = "";
-                        var imgMatch = Regex.Match(html,
-                                                   $@"anime/{Regex.Escape(slug)}[""'].*?data-img=[""']([^""']+)[""']",
-                                                   RegexOptions.IgnoreCase | RegexOptions.Singleline);
-                        if (!imgMatch.Success)
-                        {
-                            imgMatch = TvSeriesImageRegex().Match(html);
-                        }
-
-                        if (imgMatch.Success)
-                        {
-                            posterUrl = imgMatch.Groups[1].Value;
-                            if (posterUrl.StartsWith("//"))
-                            {
-                                posterUrl = "https:" + posterUrl;
-                            }
-                        }
-                        else
-                        {
-                            posterUrl = $"{BaseUrl}/imajlar/serilerb/{slug}.jpg";
-                        }
-
-                        list.Add(new SearchResult
-                        {
-                            Id           = slug,
-                            Title        = title,
-                            Url          = $"{BaseUrl}/anime/{slug}",
-                            PosterUrl    = posterUrl,
-                            ProviderName = Name,
-                            Type         = ProviderType.Anime,
-                            Format       = AnimeDetails.IsMovieTitle(title) ? ContentFormat.Movie : ContentFormat.Tv
-                        });
-                    }
+                    return matches;
                 }
             }
 
-            return list;
+            var ftsRows = await QueryAsync(
+                              "SELECT id, baslik, slug, bolum_sayisi FROM anime WHERE id IN (SELECT rowid FROM anime_fts WHERE anime_fts MATCH ?) LIMIT 30;",
+                              [("text", $"{q}*")],
+                              cancellationToken);
+
+            if (ftsRows.Count == 0)
+            {
+                ftsRows = await QueryAsync(
+                              "SELECT id, baslik, slug, bolum_sayisi FROM anime WHERE baslik LIKE ? LIMIT 30;",
+                              [("text", $"%{q}%")],
+                              cancellationToken);
+            }
+
+            if (ftsRows.Count > 0)
+            {
+                var bySlug = _catalogCache?.ToDictionary(a => a.Slug, StringComparer.OrdinalIgnoreCase);
+
+                return ftsRows.Select(r =>
+                              {
+                                  var title = r.GetValueOrDefault("baslik", "");
+                                  var slug  = r.GetValueOrDefault("slug", "");
+
+                                  if (bySlug != null && bySlug.TryGetValue(slug, out var cached))
+                                  {
+                                      return MapCatalogItem(cached);
+                                  }
+
+                                  return new SearchResult
+                                  {
+                                      Id           = slug,
+                                      Title        = title,
+                                      Url          = $"{BaseUrl}/anime/{slug}",
+                                      PosterUrl    = "",
+                                      ProviderName = Name,
+                                      Type         = ProviderType.Anime,
+                                      Format = AnimeDetails.IsMovieTitle(title)
+                                                   ? ContentFormat.Movie
+                                                   : ContentFormat.Tv
+                                  };
+                              })
+                              .ToList();
+            }
+
+            return await SearchViaAniListAsync(q, cancellationToken);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "search failed");
-
+            _logger.LogError(ex, "TurkAnime search failed for query: {Query}", query);
             return [];
         }
     }
@@ -194,777 +131,737 @@ public partial class TurkanimeProvider : IAnimeProvider
     {
         try
         {
-            var html     = await _httpClient.GetStringAsync($"{BaseUrl}/anime/{animeId}", cancellationToken);
-            var parser   = new HtmlParser();
-            var document = await parser.ParseDocumentAsync(html);
+            var animeRows = await QueryAsync(
+                                """
+                                SELECT a.id, a.baslik, a.slug, a.bolum_sayisi,
+                                       m.english_title, m.poster_url, m.summary,
+                                       m.synonyms_json, m.genres_json,
+                                       m.anilist_id, m.mal_id, m.year, m.score
+                                FROM anime a LEFT JOIN anime_meta m ON m.anime_id = a.id
+                                WHERE a.slug = ? OR a.id = ? LIMIT 1;
+                                """,
+                                [("text", animeId), ("text", animeId)],
+                                cancellationToken);
 
-            var pageTitle = document.QuerySelector(".detay-ust .panel-title")?.TextContent.Trim()
-                            ?? document.QuerySelector("title")
-                                       ?.TextContent.Split('|')
-                                       .FirstOrDefault()
-                                       ?.Replace("izle", "", StringComparison.OrdinalIgnoreCase)
-                                       .Trim()
-                            ?? animeId;
+            if (animeRows.Count == 0)
+            {
+                throw new InvalidOperationException($"Anime not found: {animeId}");
+            }
+
+            var anime     = animeRows[0];
+            var numericId = anime.GetValueOrDefault("id", "0");
+            var title     = anime.GetValueOrDefault("baslik", animeId);
+            var slug      = anime.GetValueOrDefault("slug", animeId);
+
+            var englishTitle = anime.GetValueOrDefault("english_title", "");
+            var posterUrl    = anime.GetValueOrDefault("poster_url", "");
+            var summary      = anime.GetValueOrDefault("summary", "");
+            var synonyms     = ParseJsonList(anime.GetValueOrDefault("synonyms_json", ""));
+            var anilistId    = anime.GetValueOrDefault("anilist_id", "");
+            var malId        = anime.GetValueOrDefault("mal_id", "");
+
+            var isMovie =
+                AnimeDetails.IsMovieTitle(title) || slug.Contains("movie", StringComparison.OrdinalIgnoreCase);
+            var seasonNum = isMovie ? 1 : AnimeDetails.ParseSeasonNumber(title);
 
             var details = new AnimeDetails
             {
-                Title   = pageTitle,
-                Summary = ""
+                Title             = title,
+                EnglishTitle      = string.IsNullOrWhiteSpace(englishTitle) ? null : englishTitle,
+                RomajiTitle       = title,
+                PosterUrl         = string.IsNullOrWhiteSpace(posterUrl) ? null : posterUrl,
+                AlternativeTitles = synonyms,
+                Summary           = summary,
+                Format            = isMovie ? ContentFormat.Movie : ContentFormat.Tv,
+                SeasonMappings =
+                [
+                    new SeasonMapping
+                    {
+                        SeasonNumber = seasonNum,
+                        AniListId = string.IsNullOrWhiteSpace(anilistId) || anilistId == "0"
+                                        ? null
+                                        : anilistId,
+                        MyAnimeListId = string.IsNullOrWhiteSpace(malId) || malId == "0" ? null : malId
+                    }
+                ]
             };
-            var     detectedFormat = ContentFormat.Tv;
-            string? englishTitle   = null;
-            string? japaneseTitle  = null;
-            var     altTitles      = new List<string>();
 
-            var infoTable = document.QuerySelector("#animedetay table");
-            if (infoTable != null)
+            var episodeRows = await QueryAsync(
+                                  "SELECT id, slug, ad FROM bolum WHERE anime_id = ? ORDER BY id ASC;",
+                                  [("integer", numericId)],
+                                  cancellationToken);
+
+            var epNum = 1;
+            foreach (var epRow in episodeRows)
             {
-                var rows = infoTable.QuerySelectorAll("tr");
-                for (var i = 0; i < rows.Length; i++)
+                var epId   = epRow.GetValueOrDefault("id", "");
+                var epSlug = epRow.GetValueOrDefault("slug", "");
+                var epAd   = epRow.GetValueOrDefault("ad", "");
+
+                var num   = epNum;
+                var match = EpisodeRegex().Match(epAd);
+                if (match.Success && int.TryParse(match.Groups[1].Value, out var parsed))
                 {
-                    var cells = rows[i].QuerySelectorAll("td");
-
-                    if (cells.Length == 0)
-                    {
-                        continue;
-                    }
-
-                    var label = cells[0].TextContent.Trim();
-                    if ((label.Contains("İngilizce") || label.Contains("English")) && cells.Length >= 3)
-                    {
-                        var val = cells[2].TextContent.Trim();
-                        if (!string.IsNullOrEmpty(val))
-                        {
-                            englishTitle = val;
-                        }
-                    }
-                    else if ((label.Contains("Japonca") || label.Contains("Japanese")) && cells.Length >= 3)
-                    {
-                        var val = cells[2].TextContent.Trim();
-                        if (!string.IsNullOrEmpty(val))
-                        {
-                            japaneseTitle = val;
-                        }
-                    }
-                    else if (label.Contains("Diğer") && cells.Length >= 3)
-                    {
-                        var val = cells[2].TextContent.Trim();
-                        if (!string.IsNullOrEmpty(val))
-                        {
-                            altTitles.AddRange(val.Split([',', ';', '|'], StringSplitOptions.RemoveEmptyEntries)
-                                                  .Select(x => x.Trim()));
-                        }
-                    }
-                    else if (label.Contains("Kategori") && cells.Length >= 3)
-                    {
-                        var val = cells[2].TextContent.Trim();
-                        if (val.Contains("Movie") || val.Contains("Film"))
-                        {
-                            detectedFormat = ContentFormat.Movie;
-                        }
-                        else if (val.Contains("OVA"))
-                        {
-                            detectedFormat = ContentFormat.Ova;
-                        }
-                        else if (val.Contains("Special"))
-                        {
-                            detectedFormat = ContentFormat.Special;
-                        }
-                    }
-                    else if (label.StartsWith("Özet") && i + 1 < rows.Length)
-                    {
-                        details.Summary = rows[i + 1].TextContent.Trim();
-                    }
+                    num = parsed;
                 }
+
+                details.Episodes.Add(new Episode
+                {
+                    Id     = string.IsNullOrEmpty(epId) ? epSlug : epId,
+                    Title  = string.IsNullOrEmpty(epAd) ? $"{num}. Bölüm" : epAd,
+                    Number = num,
+                    Season = seasonNum
+                });
+
+                epNum++;
             }
-
-            details.EnglishTitle  = englishTitle;
-            details.JapaneseTitle = japaneseTitle;
-            details.AlternativeTitles = altTitles
-                                        .Where(t => !t.Equals(details.Title, StringComparison.OrdinalIgnoreCase)
-                                                    && (englishTitle == null
-                                                        || !t.Equals(englishTitle, StringComparison.OrdinalIgnoreCase))
-                                                    && (japaneseTitle == null
-                                                        || !t.Equals(japaneseTitle,
-                                                                     StringComparison.OrdinalIgnoreCase)))
-                                        .Distinct()
-                                        .ToList();
-
-            if (!string.IsNullOrEmpty(details.Summary))
-            {
-                if (details.Summary.Contains("anime konusu:"))
-                {
-                    details.Summary = details.Summary.Split(["anime konusu:"], StringSplitOptions.None)
-                                             .Last()
-                                             .Trim();
-                }
-
-                if (details.Summary.Contains("Türkçe altyazılı bölüm bilgileri"))
-                {
-                    details.Summary =
-                        details.Summary.Split(["Türkçe altyazılı bölüm bilgileri"], StringSplitOptions.None)[0]
-                               .Trim();
-                }
-
-                details.Summary = details.Summary.Replace("Türk Anime TV'de.", "")
-                                         .Replace("Türk Anime TV'de", "")
-                                         .Trim();
-                if (details.Summary.EndsWith("."))
-                {
-                    details.Summary = details.Summary.TrimEnd('.').Trim() + ".";
-                }
-            }
-
-            var isMovie = details.Title.Contains("Movie")
-                          || animeId.Contains("movie")
-                          || detectedFormat == ContentFormat.Movie;
-            var isOva     = details.Title.Contains("OVA") || detectedFormat == ContentFormat.Ova;
-            var isSpecial = details.Title.Contains("Special") || detectedFormat == ContentFormat.Special;
-
-            var seasonNum = isMovie ? 1 : AnimeDetails.ParseSeasonNumber(details.Title);
-            var seasonMapping = new SeasonMapping
-            {
-                SeasonNumber = seasonNum
-            };
-            details.SeasonMappings.Add(seasonMapping);
-
-            var siteAnimeId = document.QuerySelector(".oylama[data-id], [data-unique-id], a.reactions[data-unique-id]")
-                                      ?.GetAttribute("data-id")
-                              ?? document.QuerySelector(
-                                             ".oylama[data-id], [data-unique-id], a.reactions[data-unique-id]")
-                                         ?.GetAttribute("data-unique-id")
-                              ?? "";
-
-            if (!string.IsNullOrEmpty(siteAnimeId))
-            {
-                var linksTask =
-                    _httpClient.GetStringAsync($"{BaseUrl}/ajax/disbaglanti&animeId={siteAnimeId}", cancellationToken);
-                var episodesTask =
-                    _httpClient.GetStringAsync($"{BaseUrl}/ajax/bolumler&animeId={siteAnimeId}", cancellationToken);
-
-                await Task.WhenAll(linksTask, episodesTask);
-
-                var linksHtml    = await linksTask;
-                var episodesHtml = await episodesTask;
-
-                try
-                {
-                    var linksDoc = await parser.ParseDocumentAsync(linksHtml);
-                    var malUrl   = linksDoc.QuerySelector("a[href*='myanimelist.net/anime/']")?.GetAttribute("href");
-                    if (!string.IsNullOrEmpty(malUrl))
-                    {
-                        seasonMapping.MyAnimeListId = malUrl.TrimEnd('/').Split('/').LastOrDefault();
-                    }
-
-                    var aniUrl = linksDoc.QuerySelector("a[href*='anilist.co/anime/']")?.GetAttribute("href");
-                    if (!string.IsNullOrEmpty(aniUrl))
-                    {
-                        seasonMapping.AniListId = aniUrl.TrimEnd('/').Split('/').LastOrDefault();
-                    }
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex, "failed to parse MAL/AniList links");
-                }
-
-                var epsDoc      = await parser.ParseDocumentAsync(episodesHtml);
-                var rawEpisodes = new List<Episode>();
-                foreach (var element in epsDoc.QuerySelectorAll(
-                             "#bolum-list .list li a[title], .bolumler li a, a[href*='/video/']"))
-                {
-                    var href = element.GetAttribute("href") ?? "";
-                    var title =
-                        element.QuerySelector("span.bolumAdi")?.TextContent.Trim() ?? element.TextContent.Trim();
-
-                    if (string.IsNullOrEmpty(href) && string.IsNullOrEmpty(title))
-                    {
-                        continue;
-                    }
-
-                    var episodeId = href.Contains("/video/") ? href.Split('/').LastOrDefault() ?? "" : "";
-
-                    var finalNum   = 1;
-                    var allNumbers = NumbersOnlyRegex().Matches(title);
-                    if (allNumbers.Count > 0)
-                    {
-                        finalNum = int.Parse(allNumbers.Last().Value);
-                    }
-                    else
-                    {
-                        var slugNumMatch = SlugNumRegex().Match(episodeId);
-                        if (slugNumMatch.Success)
-                        {
-                            finalNum = int.Parse(slugNumMatch.Groups[1].Value);
-                        }
-                    }
-
-                    if (string.IsNullOrEmpty(episodeId))
-                    {
-                        episodeId = title.Contains("Movie", StringComparison.OrdinalIgnoreCase)
-                                        ? $"{animeId}-movie"
-                                        : $"{animeId}-{finalNum}-bolum";
-                    }
-
-                    var cleanedTitle = title.Replace(details.Title, "", StringComparison.OrdinalIgnoreCase).Trim();
-
-                    cleanedTitle = PrefixSymbolsRegex().Replace(cleanedTitle, "").Trim();
-                    if (string.IsNullOrEmpty(cleanedTitle) || DigitsOnlyRegex().IsMatch(cleanedTitle))
-                    {
-                        cleanedTitle =
-                            $"{(string.IsNullOrEmpty(cleanedTitle) ? finalNum.ToString() : cleanedTitle)}. Bölüm";
-                    }
-
-                    rawEpisodes.Add(new Episode
-                    {
-                        Id     = episodeId,
-                        Title  = cleanedTitle,
-                        Number = finalNum,
-                        Season = seasonNum
-                    });
-                }
-
-                foreach (var ep in rawEpisodes.OrderByDescending(x => x.Title.Contains("Movie")
-                                                                      || x.Title.Contains("Film")
-                                                                      || x.Title.Contains("OVA")
-                                                                      || x.Title.Contains("Special")))
-                {
-                    if (details.Episodes.Any(x => x.Number == ep.Number))
-                    {
-                        continue;
-                    }
-
-                    details.Episodes.Add(ep);
-                }
-            }
-
-            details.Format = isMovie
-                                 ? ContentFormat.Movie
-                                 : isOva
-                                     ? ContentFormat.Ova
-                                     : isSpecial
-                                         ? ContentFormat.Special
-                                         : ContentFormat.Tv;
 
             details.Episodes = details.Episodes.OrderBy(e => e.Number).ToList();
-
             return details;
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "failed to get details for {AnimeId}", animeId);
-
+            _logger.LogError(ex, "Failed to get details for anime {AnimeId}", animeId);
             throw;
         }
     }
 
     public async Task<List<string>> GetGroupsAsync(string episodeId, CancellationToken cancellationToken = default)
     {
-        var groups = new List<string>();
         try
         {
-            var epUrl = episodeId.StartsWith("http") ? episodeId : $"{BaseUrl}/video/{episodeId}";
-            var html  = await _httpClient.GetStringAsync(epUrl, cancellationToken);
+            var rows = await QueryAsync(
+                           "SELECT DISTINCT fansub FROM link WHERE (bolum_id = ? OR bolum_id IN (SELECT id FROM bolum WHERE slug = ?)) AND tip = 'url' AND fansub IS NOT NULL AND fansub != '';",
+                           [("text", episodeId), ("text", episodeId)],
+                           cancellationToken);
 
-            var parser = new HtmlParser();
-            var doc    = await parser.ParseDocumentAsync(html);
+            var groups = rows
+                         .Select(r => r.GetValueOrDefault("fansub", "").Trim())
+                         .Where(f => !string.IsNullOrEmpty(f))
+                         .Distinct(StringComparer.OrdinalIgnoreCase)
+                         .ToList();
 
-            var buttons = doc.QuerySelectorAll("a[onclick*='ajax/videosec'], button[onclick*='ajax/videosec']");
-            foreach (var btn in buttons)
+            if (groups.Count == 0)
             {
-                var onclick = btn.GetAttribute("onclick") ?? "";
-                if (onclick.Contains("&v="))
+                groups.Add("Varsayılan");
+            }
+
+            return groups;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to get fansub groups for episode {EpisodeId}", episodeId);
+            return ["Varsayılan"];
+        }
+    }
+
+    public async Task<List<VideoSource>> GetVideoSourcesAsync(
+        string            episodeId,
+        string?           group             = null,
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            List<Dictionary<string, string>> rows;
+            if (!string.IsNullOrWhiteSpace(group) && !group.Equals("Varsayılan", StringComparison.OrdinalIgnoreCase))
+            {
+                rows = await QueryAsync(
+                           "SELECT player, fansub, deger FROM link WHERE (bolum_id = ? OR bolum_id IN (SELECT id FROM bolum WHERE slug = ?)) AND tip = 'url' AND fansub = ?;",
+                           [("text", episodeId), ("text", episodeId), ("text", group)],
+                           cancellationToken);
+            }
+            else
+            {
+                rows = await QueryAsync(
+                           "SELECT player, fansub, deger FROM link WHERE (bolum_id = ? OR bolum_id IN (SELECT id FROM bolum WHERE slug = ?)) AND tip = 'url';",
+                           [("text", episodeId), ("text", episodeId)],
+                           cancellationToken);
+            }
+
+            var sources  = new List<VideoSource>();
+            var seenUrls = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            foreach (var r in rows)
+            {
+                var rawUrl   = r.GetValueOrDefault("deger", "").Trim();
+                var cleanUrl = CleanVideoUrl(rawUrl);
+                if (string.IsNullOrEmpty(cleanUrl) || !seenUrls.Add(cleanUrl))
                 {
                     continue;
                 }
 
-                var name = btn.TextContent.Trim();
-                if (!string.IsNullOrEmpty(name) && !groups.Contains(name, StringComparer.OrdinalIgnoreCase))
+                var player = r.GetValueOrDefault("player", "Video");
+                var fansub = r.GetValueOrDefault("fansub", group ?? "Varsayılan");
+
+                var serverName = NormalizeServerName(player);
+
+                sources.Add(new VideoSource
                 {
-                    groups.Add(name);
-                }
+                    Hoster  = serverName,
+                    Quality = "Bilinmiyor",
+                    Url     = cleanUrl,
+                    Group   = string.IsNullOrWhiteSpace(fansub) ? "Varsayılan" : fansub,
+                    Type    = VideoType.Embed
+                });
             }
 
-            if (groups.Count == 0)
-            {
-                var dangerHeartBtn = doc.QuerySelector(".btn-group .btn-danger .fa-heart, button.btn-danger .fa-heart")
-                                        ?.ParentElement;
-                if (dangerHeartBtn != null)
-                {
-                    var name = dangerHeartBtn.TextContent.Trim();
-                    if (!string.IsNullOrEmpty(name) && !groups.Contains(name, StringComparer.OrdinalIgnoreCase))
-                    {
-                        groups.Add(name);
-                    }
-                }
-            }
+            return sources;
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "failed to get fansub groups for episode {EpisodeId}", episodeId);
+            _logger.LogError(ex, "Failed to get video sources for episode {EpisodeId}", episodeId);
+            return [];
+        }
+    }
+
+    private async Task<List<SearchResult>> SearchViaAniListAsync(string query,
+        CancellationToken                                               cancellationToken = default)
+    {
+        try
+        {
+            if (_catalogCache is not { Count: > 0 })
+            {
+                return [];
+            }
+
+            var mediaGroups = await ResolveTitlesViaAniListAsync(query, cancellationToken);
+            if (mediaGroups.Count == 0)
+            {
+                return [];
+            }
+
+            var normalizedQuery = NormalizeTitle(query);
+
+            var seen           = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var results        = new List<SearchResult>();
+            var usedCandidates = new List<string>();
+
+            foreach (var candidates in mediaGroups)
+            {
+                if (results.Count >= 30)
+                {
+                    break;
+                }
+
+                var queryMatchesMedia = !string.IsNullOrEmpty(normalizedQuery)
+                                        && candidates.Any(c => !string.IsNullOrEmpty(c.Normalized)
+                                                               && (c.Normalized.Contains(normalizedQuery,
+                                                                       StringComparison.Ordinal)
+                                                                   || normalizedQuery.Contains(
+                                                                       c.Normalized,
+                                                                       StringComparison.Ordinal)));
+
+                if (!queryMatchesMedia)
+                {
+                    continue;
+                }
+
+                foreach (var candidate in candidates)
+                {
+                    if (candidate.Normalized.Length < 4)
+                    {
+                        continue;
+                    }
+
+                    usedCandidates.Add(candidate.Normalized);
+                    foreach (var item in _catalogCache)
+                    {
+                        if (results.Count >= 30)
+                        {
+                            break;
+                        }
+
+                        if (string.IsNullOrWhiteSpace(item.Title) || string.IsNullOrWhiteSpace(item.Slug))
+                        {
+                            continue;
+                        }
+
+                        var normalizedTitle = NormalizeTitle(item.Title);
+                        var normalizedSlug  = NormalizeTitle(item.Slug.Replace('-', ' '));
+
+                        if (string.IsNullOrEmpty(normalizedTitle) || string.IsNullOrEmpty(normalizedSlug))
+                        {
+                            continue;
+                        }
+
+                        if (normalizedTitle.Contains(candidate.Normalized, StringComparison.Ordinal)
+                            || normalizedSlug.Contains(candidate.Normalized, StringComparison.Ordinal))
+                        {
+                            if (seen.Add(item.Slug))
+                            {
+                                results.Add(MapCatalogItem(item));
+                            }
+                        }
+                    }
+
+                    if (results.Count >= 30)
+                    {
+                        break;
+                    }
+                }
+
+                if (results.Count >= 30)
+                {
+                    break;
+                }
+            }
+
+            return results
+                   .OrderBy(r => RankFallbackMatch(r.Title, usedCandidates))
+                   .ThenBy(r => r.Id, StringComparer.OrdinalIgnoreCase)
+                   .ToList();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "TurkAnime AniList fallback failed for query: {Query}", query);
+
+            return [];
+        }
+    }
+
+    private static int RankFallbackMatch(string title, List<string> candidates)
+    {
+        var normalizedTitle = NormalizeTitle(title);
+        if (string.IsNullOrEmpty(normalizedTitle))
+        {
+            return 3;
         }
 
-        if (groups.Count == 0)
+        foreach (var candidate in candidates)
         {
-            groups.Add("Varsayılan");
+            if (normalizedTitle.Equals(candidate, StringComparison.Ordinal))
+            {
+                return 0;
+            }
+        }
+
+        foreach (var candidate in candidates)
+        {
+            if (normalizedTitle.StartsWith(candidate, StringComparison.Ordinal))
+            {
+                return 1;
+            }
+        }
+
+        return 2;
+    }
+
+    private async Task<List<List<(string Raw, string Normalized)>>> ResolveTitlesViaAniListAsync(
+        string            query,
+        CancellationToken cancellationToken = default)
+    {
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        cts.CancelAfter(TimeSpan.FromSeconds(8));
+
+        const string gql = """
+                           query ($search: String) {
+                             Page (perPage: 5) {
+                               media (search: $search, type: ANIME) {
+                                 title { romaji english native }
+                                 synonyms
+                               }
+                             }
+                           }
+                           """;
+
+        var payload = JsonSerializer.Serialize(new
+        {
+            query = gql,
+            variables = new
+            {
+                search = query
+            }
+        });
+
+        using var request = new HttpRequestMessage(HttpMethod.Post, "https://graphql.anilist.co");
+        request.Headers.Add("User-Agent", "Migurdex/1.0");
+        request.Content = new StringContent(payload, Encoding.UTF8, "application/json");
+
+        using var response = await _httpClient.SendAsync(request, cts.Token);
+        if (!response.IsSuccessStatusCode)
+        {
+            return [];
+        }
+
+        await using var stream = await response.Content.ReadAsStreamAsync(cts.Token);
+        using var       doc    = await JsonDocument.ParseAsync(stream, cancellationToken: cts.Token);
+
+        if (!doc.RootElement.TryGetProperty("data", out var data)
+            || !data.TryGetProperty("Page", out var page)
+            || !page.TryGetProperty("media", out var mediaArr)
+            || mediaArr.ValueKind != JsonValueKind.Array)
+        {
+            return [];
+        }
+
+        var groups = new List<List<(string Raw, string Normalized)>>();
+
+        foreach (var media in mediaArr.EnumerateArray())
+        {
+            if (media.ValueKind != JsonValueKind.Object)
+            {
+                continue;
+            }
+
+            var titles = new List<(string Raw, string Normalized)>();
+
+            void AddTitle(string? raw)
+            {
+                if (string.IsNullOrWhiteSpace(raw))
+                {
+                    return;
+                }
+
+                var normalized = NormalizeTitle(raw);
+                if (!string.IsNullOrEmpty(normalized)
+                    && titles.All(t => !t.Normalized.Equals(normalized, StringComparison.Ordinal)))
+                {
+                    titles.Add((raw, normalized));
+                }
+            }
+
+            if (media.TryGetProperty("title", out var titleObj) && titleObj.ValueKind == JsonValueKind.Object)
+            {
+                AddTitle(titleObj.TryGetProperty("romaji", out var romaji) ? romaji.GetString() : null);
+                AddTitle(titleObj.TryGetProperty("english", out var english) ? english.GetString() : null);
+                AddTitle(titleObj.TryGetProperty("native", out var native) ? native.GetString() : null);
+            }
+
+            if (media.TryGetProperty("synonyms", out var synonyms) && synonyms.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var syn in synonyms.EnumerateArray().Take(5))
+                {
+                    AddTitle(syn.GetString());
+                }
+            }
+
+            if (titles.Count > 0)
+            {
+                groups.Add(titles);
+            }
         }
 
         return groups;
     }
 
-    public async Task<List<VideoSource>> GetVideoSourcesAsync(string episodeId,
-        string?                                                      group             = null,
-        CancellationToken                                            cancellationToken = default)
+    private static string NormalizeTitle(string? s)
     {
-        var sources = new List<VideoSource>();
+        if (string.IsNullOrWhiteSpace(s))
+        {
+            return string.Empty;
+        }
+
+        var sb = new StringBuilder(s.Length);
+        foreach (var c in s.ToLowerInvariant())
+        {
+            sb.Append(char.IsLetterOrDigit(c) ? c : ' ');
+        }
+
+        return string.Join(" ", sb.ToString().Split(' ', StringSplitOptions.RemoveEmptyEntries));
+    }
+
+    private async Task EnsureCatalogLoadedAsync(CancellationToken ct)
+    {
+        if (_catalogCache != null)
+        {
+            return;
+        }
+
+        await _catalogLock.WaitAsync(ct);
         try
         {
-            var epUrl = episodeId.StartsWith("http") ? episodeId : $"{BaseUrl}/video/{episodeId}";
-            var html  = await _httpClient.GetStringAsync(epUrl, cancellationToken);
-
-            var parser = new HtmlParser();
-            var doc    = await parser.ParseDocumentAsync(html);
-
-            var allButtons = doc.QuerySelectorAll("a[onclick*='ajax/videosec'], button[onclick*='ajax/videosec']");
-
-            var directHostBtns = new List<(string HostName, string AjaxUrl)>();
-            var fansubBtns     = new List<(string GroupName, string AjaxUrl)>();
-
-            foreach (var btn in allButtons)
+            if (_catalogCache != null)
             {
-                var text    = btn.TextContent.Trim();
-                var onclick = btn.GetAttribute("onclick") ?? "";
-                var match   = SingleQuoteParamRegex().Match(onclick);
-
-                if (!match.Success)
-                {
-                    continue;
-                }
-
-                var ajaxUrl = match.Groups[1].Value;
-                if (ajaxUrl.Contains("&v="))
-                {
-                    directHostBtns.Add((text, ajaxUrl));
-                }
-                else
-                {
-                    fansubBtns.Add((text, ajaxUrl));
-                }
+                return;
             }
 
-            string ExtractSingleFansubName()
+            var rows = await QueryAsync(
+                           """
+                           SELECT a.id, a.baslik, a.slug, a.bolum_sayisi,
+                                  m.english_title, m.year, m.poster_url, m.score,
+                                  m.genres_json, m.synonyms_json,
+                                  m.anilist_id, m.mal_id
+                           FROM anime a LEFT JOIN anime_meta m ON m.anime_id = a.id
+                           ORDER BY a.id ASC;
+                           """,
+                           null,
+                           ct);
+            if (rows.Count > 0)
             {
-                var dangerHeartBtn = doc.QuerySelector(".btn-group .btn-danger .fa-heart, button.btn-danger .fa-heart")
-                                        ?.ParentElement;
-                if (dangerHeartBtn != null)
-                {
-                    var name = dangerHeartBtn.TextContent.Trim();
-                    if (!string.IsNullOrEmpty(name))
-                    {
-                        return name;
-                    }
-                }
+                _catalogCache = rows.Select(r => new AnimeCatalogItem(
+                                                int.TryParse(r.GetValueOrDefault("id", "0"), out var id) ? id : 0,
+                                                r.GetValueOrDefault("baslik", ""),
+                                                r.GetValueOrDefault("slug", ""),
+                                                int.TryParse(r.GetValueOrDefault("bolum_sayisi", "0"), out var cnt)
+                                                    ? cnt
+                                                    : 0,
+                                                r.GetValueOrDefault("english_title", ""),
+                                                r.GetValueOrDefault("year", ""),
+                                                r.GetValueOrDefault("poster_url", ""),
+                                                ParseJsonList(r.GetValueOrDefault("synonyms_json", "")),
+                                                ParseJsonList(r.GetValueOrDefault("genres_json", "")),
+                                                double.TryParse(r.GetValueOrDefault("score", ""),
+                                                                System.Globalization.NumberStyles.Any,
+                                                                System.Globalization.CultureInfo
+                                                                      .InvariantCulture,
+                                                                out var sc)
+                                                    ? sc
+                                                    : null,
+                                                r.GetValueOrDefault("anilist_id", ""),
+                                                r.GetValueOrDefault("mal_id", "")
+                                            ))
+                                    .ToList();
 
-                var ceviriEl = doc.QuerySelector(".alert.ceviri, .alert-info.ceviri, .alert-info, .ceviri");
-                if (ceviriEl != null)
-                {
-                    var text  = ceviriEl.TextContent;
-                    var match = CeviriTranslatorRegex().Match(text);
-                    if (match.Success)
-                    {
-                        var name = match.Groups[1].Value.Trim();
-                        if (!string.IsNullOrEmpty(name))
-                        {
-                            return name;
-                        }
-                    }
-                }
-
-                return string.IsNullOrWhiteSpace(group) ? "Varsayılan" : group;
-            }
-
-            string NormalizeUrl(string rawUrl)
-            {
-                if (string.IsNullOrWhiteSpace(rawUrl))
-                {
-                    return string.Empty;
-                }
-
-                var url = rawUrl.Replace("\\/", "/").Replace("\\", "").Trim().Trim('"');
-                if (url.StartsWith("//"))
-                {
-                    return "https:" + url;
-                }
-
-                if (url.StartsWith("/"))
-                {
-                    return BaseUrl + url;
-                }
-
-                if (!url.StartsWith("http://", StringComparison.OrdinalIgnoreCase)
-                    && !url.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
-                {
-                    return "https://" + url;
-                }
-
-                return url;
-            }
-
-            string ProcessIframeUrl(string rawUrl)
-            {
-                var url = NormalizeUrl(rawUrl);
-
-                if (url.Contains("/embed/") && url.Contains("/url/"))
-                {
-                    var decrypted = DecryptEmbedUrl(url);
-                    if (!string.IsNullOrEmpty(decrypted))
-                    {
-                        return NormalizeUrl(decrypted);
-                    }
-                }
-
-                return url;
-            }
-
-            if (directHostBtns.Count > 0)
-            {
-                var singleFansubName = ExtractSingleFansubName();
-
-                var mainPageIframeRaw =
-                    doc.QuerySelector("#videodetay iframe, iframe[src*='embed'], iframe[src*='turkanime']")
-                       ?.GetAttribute("src");
-
-                if (!string.IsNullOrEmpty(mainPageIframeRaw))
-                {
-                    var mainIframe = ProcessIframeUrl(mainPageIframeRaw);
-                    if (!sources.Any(s => s.Url.Equals(mainIframe, StringComparison.OrdinalIgnoreCase)))
-                    {
-                        sources.Add(new VideoSource
-                        {
-                            Url   = mainIframe,
-                            Group = singleFansubName,
-                            Type  = VideoType.Embed
-                        });
-                    }
-                }
-
-                var hostTasks = new List<Task<(string HostName, string Html)>>();
-
-                foreach (var (hName, hostAjaxUrl) in directHostBtns)
-                {
-                    hostTasks.Add(Task.Run(async () =>
-                    {
-                        try
-                        {
-                            var req = new HttpRequestMessage(HttpMethod.Get, $"{BaseUrl}/{hostAjaxUrl.TrimStart('/')}");
-                            req.Headers.Add("X-Requested-With", "XMLHttpRequest");
-                            req.Headers.Add("Referer", epUrl);
-
-                            var res = await _httpClient.SendAsync(req, cancellationToken);
-                            if (res.IsSuccessStatusCode)
-                            {
-                                var text = await res.Content.ReadAsStringAsync(cancellationToken);
-                                return (hName, text);
-                            }
-                        }
-                        catch (Exception ex)
-                        {
-                            _logger.LogWarning(ex, "failed to fetch host player HTML for: {HostName}", hName);
-                        }
-
-                        return (hName, "");
-                    }));
-                }
-
-                var hostResults = await Task.WhenAll(hostTasks);
-
-                foreach (var (hName, hostHtml) in hostResults)
-                {
-                    if (string.IsNullOrEmpty(hostHtml))
-                    {
-                        continue;
-                    }
-
-                    var iframeMatch = IframeTagSrcRegex().Match(hostHtml);
-                    if (iframeMatch.Success)
-                    {
-                        var iframeSrc = ProcessIframeUrl(iframeMatch.Groups[1].Value);
-
-                        if (!sources.Any(s => s.Url.Equals(iframeSrc, StringComparison.OrdinalIgnoreCase)))
-                        {
-                            sources.Add(new VideoSource
-                            {
-                                Url   = iframeSrc,
-                                Group = singleFansubName,
-                                Type  = VideoType.Embed
-                            });
-                        }
-                    }
-                }
-
-                return sources;
-            }
-
-            var targetFansubs = new List<(string GroupName, string AjaxUrl)>();
-
-            if (!string.IsNullOrWhiteSpace(group))
-            {
-                foreach (var f in fansubBtns)
-                {
-                    if (f.GroupName.Equals(group, StringComparison.OrdinalIgnoreCase)
-                        || f.GroupName.Contains(group, StringComparison.OrdinalIgnoreCase)
-                        || group.Contains(f.GroupName, StringComparison.OrdinalIgnoreCase))
-                    {
-                        targetFansubs.Add(f);
-                    }
-                }
-            }
-
-            if (targetFansubs.Count == 0)
-            {
-                targetFansubs.AddRange(fansubBtns);
-            }
-
-            foreach (var (gName, ajaxUrl) in targetFansubs)
-            {
-                try
-                {
-                    var ajaxRequest = new HttpRequestMessage(HttpMethod.Get, $"{BaseUrl}/{ajaxUrl.TrimStart('/')}");
-                    ajaxRequest.Headers.Add("X-Requested-With", "XMLHttpRequest");
-                    ajaxRequest.Headers.Add("Referer", epUrl);
-
-                    var ajaxResponse = await _httpClient.SendAsync(ajaxRequest, cancellationToken);
-                    if (!ajaxResponse.IsSuccessStatusCode)
-                    {
-                        continue;
-                    }
-
-                    var ajaxHtml = await ajaxResponse.Content.ReadAsStringAsync(cancellationToken);
-                    var ajaxDoc  = await parser.ParseDocumentAsync(ajaxHtml);
-
-                    var initialIframeRaw = ajaxDoc.QuerySelector("#videodetay iframe, iframe[src*='turkanime']")
-                                                  ?.GetAttribute("src");
-                    if (!string.IsNullOrEmpty(initialIframeRaw))
-                    {
-                        var initialIframe = ProcessIframeUrl(initialIframeRaw);
-
-                        if (!sources.Any(s => s.Url.Equals(initialIframe, StringComparison.OrdinalIgnoreCase)))
-                        {
-                            sources.Add(new VideoSource
-                            {
-                                Url     = initialIframe,
-                                Hoster  = "TurkAnime",
-                                Group   = gName,
-                                Quality = "Auto",
-                                Type    = VideoType.Embed
-                            });
-                        }
-                    }
-
-                    var hostButtons =
-                        ajaxDoc.QuerySelectorAll("button[onclick*='ajax/videosec'], a[onclick*='ajax/videosec']");
-                    var hostTasks = new List<Task<(string HostName, string Html)>>();
-
-                    foreach (var hBtn in hostButtons)
-                    {
-                        var hName   = hBtn.TextContent.Trim();
-                        var onclick = hBtn.GetAttribute("onclick") ?? "";
-
-                        if (string.IsNullOrEmpty(hName)
-                            || hName.Contains("Takip")
-                            || hName.Contains("Mesaj")
-                            || hName.Contains("Profil"))
-                        {
-                            continue;
-                        }
-
-                        var match = SingleQuoteParamRegex().Match(onclick);
-                        if (match.Success)
-                        {
-                            var hostAjaxUrl = match.Groups[1].Value;
-                            if (hostAjaxUrl.Contains("&v="))
-                            {
-                                hostTasks.Add(Task.Run(async () =>
-                                {
-                                    try
-                                    {
-                                        var req = new HttpRequestMessage(
-                                            HttpMethod.Get,
-                                            $"{BaseUrl}/{hostAjaxUrl.TrimStart('/')}");
-
-                                        req.Headers.Add("X-Requested-With", "XMLHttpRequest");
-                                        req.Headers.Add("Referer", epUrl);
-
-                                        var res = await _httpClient.SendAsync(req, cancellationToken);
-                                        if (res.IsSuccessStatusCode)
-                                        {
-                                            var text = await res.Content.ReadAsStringAsync(cancellationToken);
-                                            return (hName, text);
-                                        }
-                                    }
-                                    catch (Exception ex)
-                                    {
-                                        _logger.LogWarning(ex, "failed to fetch player HTML for: {HostName}", hName);
-                                    }
-
-                                    return (hName, "");
-                                }));
-                            }
-                        }
-                    }
-
-                    var hostResults = await Task.WhenAll(hostTasks);
-                    foreach (var (hName, hostHtml) in hostResults)
-                    {
-                        if (string.IsNullOrEmpty(hostHtml))
-                        {
-                            continue;
-                        }
-
-                        var iframeMatch = IframeTagSrcRegex().Match(hostHtml);
-                        if (iframeMatch.Success)
-                        {
-                            var iframeSrc = ProcessIframeUrl(iframeMatch.Groups[1].Value);
-
-                            if (!sources.Any(s => s.Url.Equals(iframeSrc, StringComparison.OrdinalIgnoreCase)))
-                            {
-                                sources.Add(new VideoSource
-                                {
-                                    Url   = iframeSrc,
-                                    Group = gName,
-                                    Type  = VideoType.Embed
-                                });
-                            }
-                        }
-                    }
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex,
-                                     "failed to get video sources for group {Group} on episode {EpisodeId}",
-                                     gName,
-                                     episodeId);
-                }
+                _logger.LogInformation("TurkAnime catalog initialized with {Count} animes.", _catalogCache.Count);
             }
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "failed to get video sources for episode {EpisodeId}", episodeId);
+            _logger.LogWarning(ex, "Failed to prefetch TurkAnime catalog, will query remote Turso database directly.");
         }
-
-        return sources;
+        finally
+        {
+            _catalogLock.Release();
+        }
     }
 
-    [GeneratedRegex(@"(?:window|top)\.location\s*=\s*[""'](?:https?:)?//[^""']*/?anime/([^""']+)",
-                    RegexOptions.IgnoreCase)]
-    private static partial Regex WindowLocationRegex();
-
-    [GeneratedRegex(@"window\.location\s*=\s*[""']anime/([^""']+)[""']", RegexOptions.IgnoreCase)]
-    private static partial Regex SimpleWindowLocationRegex();
-
-    [GeneratedRegex(@"""@type""\s*:\s*""TVSeries"".*?""image""\s*:\s*[""']([^""']+)[""']",
-                    RegexOptions.IgnoreCase | RegexOptions.Singleline)]
-    private static partial Regex TvSeriesImageRegex();
-
-    [GeneratedRegex(@"(\d+)")]
-    private static partial Regex NumbersOnlyRegex();
-
-    [GeneratedRegex(@"-(\d+)-bolum")]
-    private static partial Regex SlugNumRegex();
-
-    [GeneratedRegex(@"^[.\s\-:]+")]
-    private static partial Regex PrefixSymbolsRegex();
-
-    [GeneratedRegex(@"^\d+$")]
-    private static partial Regex DigitsOnlyRegex();
-
-    [GeneratedRegex(@"'([^']+)'")]
-    private static partial Regex SingleQuoteParamRegex();
-
-    [GeneratedRegex(@"Çeviri\s*:\s*([^/\r\n<]+)", RegexOptions.IgnoreCase)]
-    private static partial Regex CeviriTranslatorRegex();
-
-    [GeneratedRegex(@"iframe[^>]+src=[""']([^""']+)[""']", RegexOptions.IgnoreCase)]
-    private static partial Regex IframeTagSrcRegex();
-
-    [GeneratedRegex(@"/url/([^?&]+)")]
-    private static partial Regex UrlQueryParamRegex();
-
-    private string? DecryptEmbedUrl(string embedUrl)
+    private async Task<List<Dictionary<string, string>>> QueryAsync(
+        string                         sql,
+        (string Type, string Value)[]? args = null,
+        CancellationToken              ct   = default)
     {
+        var stmtObj = new Dictionary<string, object>
+        {
+            ["sql"] = sql
+        };
+
+        if (args is { Length: > 0 })
+        {
+            stmtObj["args"] = args.Select(a => new Dictionary<string, string>
+                                  {
+                                      ["type"]  = a.Type,
+                                      ["value"] = a.Value
+                                  })
+                                  .ToList();
+        }
+
+        var payload = new
+        {
+            requests = new[]
+            {
+                new
+                {
+                    type = "execute",
+                    stmt = stmtObj
+                }
+            }
+        };
+
+        using var request = new HttpRequestMessage(HttpMethod.Post, TursoEndpoint);
+        request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", TursoAuthToken);
+        request.Content = new StringContent(JsonSerializer.Serialize(payload), Encoding.UTF8, "application/json");
+
+        using var response = await _httpClient.SendAsync(request, ct);
+        if (!response.IsSuccessStatusCode)
+        {
+            _logger.LogWarning("Turso query failed with status code: {StatusCode}", response.StatusCode);
+            return [];
+        }
+
+        await using var stream = await response.Content.ReadAsStreamAsync(ct);
+        using var       doc    = await JsonDocument.ParseAsync(stream, cancellationToken: ct);
+
+        if (!doc.RootElement.TryGetProperty("results", out var results) || results.GetArrayLength() == 0)
+        {
+            return [];
+        }
+
+        var firstRes = results[0];
+        if (!firstRes.TryGetProperty("response", out var respObj)
+            || !respObj.TryGetProperty("result", out var resultObj))
+        {
+            return [];
+        }
+
+        var cols = new List<string>();
+        if (resultObj.TryGetProperty("cols", out var colsArr))
+        {
+            foreach (var col in colsArr.EnumerateArray())
+            {
+                cols.Add(col.GetProperty("name").GetString() ?? "");
+            }
+        }
+
+        var rowsList = new List<Dictionary<string, string>>();
+        if (resultObj.TryGetProperty("rows", out var rowsArr))
+        {
+            foreach (var rowArr in rowsArr.EnumerateArray())
+            {
+                var dict = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                var idx  = 0;
+                foreach (var cell in rowArr.EnumerateArray())
+                {
+                    if (idx < cols.Count)
+                    {
+                        var val = "";
+                        if (cell.TryGetProperty("value", out var v))
+                        {
+                            val = v.ValueKind switch
+                            {
+                                JsonValueKind.String => v.GetString() ?? "",
+                                JsonValueKind.Null   => "",
+                                _                    => v.ToString()
+                            };
+                        }
+
+                        dict[cols[idx]] = val;
+                    }
+
+                    idx++;
+                }
+
+                rowsList.Add(dict);
+            }
+        }
+
+        return rowsList;
+    }
+
+    private static string CleanVideoUrl(string url)
+    {
+        if (string.IsNullOrWhiteSpace(url))
+        {
+            return string.Empty;
+        }
+
+        url = url.Trim().Trim('"').Replace("\\/", "/");
+
+        if (url.Contains("href.li/?", StringComparison.OrdinalIgnoreCase))
+        {
+            var idx = url.IndexOf("href.li/?", StringComparison.OrdinalIgnoreCase);
+            url = url[(idx + 9)..];
+        }
+
+        if (url.StartsWith("https:https://", StringComparison.OrdinalIgnoreCase))
+        {
+            url = url["https:".Length..];
+        }
+        else if (url.StartsWith("http:https://", StringComparison.OrdinalIgnoreCase))
+        {
+            url = url["http:".Length..];
+        }
+        else if (url.StartsWith("//"))
+        {
+            url = "https:" + url;
+        }
+
+        return url;
+    }
+
+    private static string NormalizeServerName(string player)
+    {
+        return player.ToUpperInvariant() switch
+        {
+            "SIBNET"                   => "Sibnet",
+            "MAIL" or "MAIL.RU"        => "Mail.ru",
+            "ODNOKLASSNIKI" or "OK.RU" => "Okru",
+            "GDRIVE" or "GOOGLE DRIVE" => "GoogleDrive",
+            "MP4UPLOAD"                => "Mp4Upload",
+            "UQLOAD"                   => "Uqload",
+            "SENDVID"                  => "Sendvid",
+            "VOE"                      => "Voe",
+            "VK"                       => "VK",
+            "DOODSTREAM" or "DOOD"     => "DoodStream",
+            "FILEMOON"                 => "Filemoon",
+            "YOURUPLOAD"               => "YourUpload",
+            "VUDEA" or "VUDEO"         => "Vudeo",
+            _                          => player
+        };
+    }
+
+    [GeneratedRegex(@"(\d+)\.\s*Bölüm", RegexOptions.IgnoreCase)]
+    private static partial Regex EpisodeRegex();
+
+    private static int RankCatalogMatch(AnimeCatalogItem a, string query, string normalizedQuery)
+    {
+        if (a.Title.Equals(query, StringComparison.OrdinalIgnoreCase)
+            || (!string.IsNullOrEmpty(normalizedQuery)
+                && NormalizeTitle(a.Title).Equals(normalizedQuery, StringComparison.Ordinal)))
+        {
+            return 0;
+        }
+
+        if (a.Title.StartsWith(query, StringComparison.OrdinalIgnoreCase))
+        {
+            return 1;
+        }
+
+        if (a.Title.Contains(query, StringComparison.OrdinalIgnoreCase)
+            || (!string.IsNullOrEmpty(normalizedQuery)
+                && NormalizeTitle(a.Title).Contains(normalizedQuery, StringComparison.Ordinal)))
+        {
+            return 2;
+        }
+
+        return 3;
+    }
+
+    private SearchResult MapCatalogItem(AnimeCatalogItem a)
+    {
+        return new SearchResult
+        {
+            Id           = a.Slug,
+            Title        = a.Title,
+            Url          = $"{BaseUrl}/anime/{a.Slug}",
+            PosterUrl    = string.IsNullOrWhiteSpace(a.PosterUrl) ? "" : a.PosterUrl,
+            EnglishTitle = string.IsNullOrWhiteSpace(a.EnglishTitle) ? null : a.EnglishTitle,
+            RomajiTitle  = a.Title,
+            Year         = string.IsNullOrWhiteSpace(a.Year) ? null : a.Year,
+            Score        = a.Score,
+            Categories   = a.Genres is { Count: > 0 } ? a.Genres : null,
+            ProviderName = Name,
+            Type         = ProviderType.Anime,
+            Format       = AnimeDetails.IsMovieTitle(a.Title) ? ContentFormat.Movie : ContentFormat.Tv
+        };
+    }
+
+    private static List<string> ParseJsonList(string json)
+    {
+        if (string.IsNullOrWhiteSpace(json))
+        {
+            return [];
+        }
+
         try
         {
-            var match = UrlQueryParamRegex().Match(embedUrl);
-            if (!match.Success)
+            using var doc = JsonDocument.Parse(json);
+            if (doc.RootElement.ValueKind != JsonValueKind.Array)
             {
-                return null;
+                return [];
             }
 
-            var b64       = match.Groups[1].Value;
-            var jsonBytes = Convert.FromBase64String(b64);
-            var jsonStr   = Encoding.UTF8.GetString(jsonBytes);
-
-            using var doc  = JsonDocument.Parse(jsonStr);
-            var       root = doc.RootElement;
-
-            var ctStr   = root.GetProperty("ct").GetString()!;
-            var ivHex   = root.GetProperty("iv").GetString()!;
-            var saltHex = root.GetProperty("s").GetString()!;
-
-            var cipherBytes = Convert.FromBase64String(ctStr);
-            var ivBytes     = Convert.FromHexString(ivHex);
-            var saltBytes   = Convert.FromHexString(saltHex);
-
-            var passBytes = Encoding.UTF8.GetBytes(AesKey);
-
-            using var md5 = MD5.Create();
-            var       d1  = md5.ComputeHash(Concat(passBytes, saltBytes));
-            var       d2  = md5.ComputeHash(Concat(d1, passBytes, saltBytes));
-
-            var key = Concat(d1, d2);
-
-            using var aes = Aes.Create();
-            aes.Key     = key;
-            aes.IV      = ivBytes;
-            aes.Mode    = CipherMode.CBC;
-            aes.Padding = PaddingMode.PKCS7;
-
-            using var decryptor      = aes.CreateDecryptor();
-            var       decryptedBytes = decryptor.TransformFinalBlock(cipherBytes, 0, cipherBytes.Length);
-            var decryptedStr = Encoding.UTF8.GetString(decryptedBytes)
-                                       .Replace("\\/", "/")
-                                       .Replace("\\", "")
-                                       .Trim()
-                                       .Trim('"');
-
-            if (decryptedStr.StartsWith("//"))
-            {
-                decryptedStr = "https:" + decryptedStr;
-            }
-
-            return decryptedStr;
+            return doc.RootElement.EnumerateArray()
+                      .Select(e => e.GetString() ?? "")
+                      .Where(s => !string.IsNullOrWhiteSpace(s))
+                      .ToList();
         }
-        catch (Exception ex)
+        catch
         {
-            _logger.LogWarning(ex, "failed to decrypt embed URL");
-
-            return null;
+            return [];
         }
     }
 
-    private static byte[] Concat(byte[] a, byte[] b)
-    {
-        var result = new byte[a.Length + b.Length];
-        Buffer.BlockCopy(a, 0, result, 0, a.Length);
-        Buffer.BlockCopy(b, 0, result, a.Length, b.Length);
-        return result;
-    }
-
-    private static byte[] Concat(byte[] a, byte[] b, byte[] c)
-    {
-        var result = new byte[a.Length + b.Length + c.Length];
-        Buffer.BlockCopy(a, 0, result, 0, a.Length);
-        Buffer.BlockCopy(b, 0, result, a.Length, b.Length);
-        Buffer.BlockCopy(c, 0, result, a.Length + b.Length, c.Length);
-        return result;
-    }
+    private record AnimeCatalogItem(
+        int           Id,
+        string        Title,
+        string        Slug,
+        int           EpisodeCount,
+        string        EnglishTitle = "",
+        string        Year         = "",
+        string        PosterUrl    = "",
+        List<string>? Synonyms     = null,
+        List<string>? Genres       = null,
+        double?       Score        = null,
+        string        AniListId    = "",
+        string        MalId        = "");
 }
