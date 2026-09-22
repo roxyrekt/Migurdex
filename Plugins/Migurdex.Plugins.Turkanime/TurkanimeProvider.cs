@@ -13,7 +13,7 @@ public partial class TurkanimeProvider : IAnimeProvider
     private const string TursoEndpoint = "https://turkanime-roxyrekt.aws-eu-west-1.turso.io/v2/pipeline";
 
     private const string TursoAuthToken =
-        "eyJhbGciOiJFZERTQSIsInR5cCI6IkpXVCJ9.eyJhIjoicm8iLCJpYXQiOjE3OTAwOTU3ODEsImlkIjoiMDFhMGMwNmYtYWUwMS03MTNjLWJkZmYtM2IyYTJhNWI3OTg0Iiwia2lkIjoiak9LeUlDamRqTVZjMllyOENLU2tsMUt5Y0NXM3RUSEk3MXZDbVJFU1VJdyIsInJpZCI6ImJjNDc2NTYxLTE1MTgtNDVkYy05NWYxLWI3NTZhOWQ0OTBhNSJ9.6Vroz6uIDqlROXPcwJlqPN4mtVWOFwgGWQzsblx63-BkCNJlMSAEG4yZNsU2QzMzhTlmcb_N_tsySpE2wDexDA";
+        "eyJhbGciOiJFZERTQSIsInR5cCI6IkpXVCJ9.eyJhIjoicm8iLCJpYXQiOjE3OTAwOTcwNTgsImlkIjoiMDFhMGMwNmYtYWUwMS03MTNjLWJkZmYtM2IyYTJhNWI3OTg0Iiwia2lkIjoiak9LeUlDamRqTVZjMllyOENLU2tsMUt5Y0NXM3RUSEk3MXZDbVJFU1VJdyIsInJpZCI6ImJjNDc2NTYxLTE1MTgtNDVkYy05NWYxLWI3NTZhOWQ0OTBhNSJ9.wyEqXzBp_B5X57h3ALSugj4jFTTgjtDosQCke1dxswDcKVGeK8-CEu8iJuYO4HROhvG0Hy6GgBaGM6wXZpKMAQ";
 
     private readonly HttpClient                 _httpClient;
     private readonly ILogger<TurkanimeProvider> _logger;
