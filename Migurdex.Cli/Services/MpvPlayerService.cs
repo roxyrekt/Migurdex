@@ -175,7 +175,7 @@ public class MpvPlayerService : IMpvPlayerService
         {
             AnsiConsole.Clear();
             AnsiConsole.MarkupLine(
-                $"[grey]~~[/] [bold cyan]Oynatılıyor:[/] [white]{Markup.Escape(historyEntry.AnimeTitle)}[/] [grey]~~[/]");
+                $"[bold cyan]Oynatılıyor:[/] {Markup.Escape(historyEntry.AnimeTitle)}");
             if (!string.IsNullOrWhiteSpace(mediaTitle))
             {
                 AnsiConsole.MarkupLine($"[grey]{Markup.Escape(mediaTitle)}[/]");

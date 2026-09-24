@@ -7,8 +7,8 @@ namespace Migurdex.Cli.Tui;
 
 public static class SyncAmbiguityPrompt
 {
-    public static void HandleAfterPlayback(IServiceProvider serviceProvider,
-        SyncOutcome                                         outcome)
+    public static async Task HandleAfterPlaybackAsync(IServiceProvider serviceProvider,
+        SyncOutcome                                                    outcome)
     {
         if (outcome.Kind is not SyncOutcomeKind.Ambiguous
             || outcome.Entry is null
@@ -27,10 +27,11 @@ public static class SyncAmbiguityPrompt
             var title      = DisplayTitle(candidate.Metadata);
             var searchable = $"{title} {candidate.Metadata.AniListId}";
             bySearchable[searchable] = candidate;
+            var shortTitle = Theme.Ellipsize(title, 52);
             choices.Add(new FuzzyChoice
             {
-                Display       = $"[cyan]{Markup.Escape(title)}[/] [grey]{Detail(candidate.Metadata)}[/]",
-                DisplayActive = $"[bold cyan]{Markup.Escape(title)}[/] [grey]{Detail(candidate.Metadata)}[/]",
+                Display       = $"{Markup.Escape(shortTitle)} [grey]{Detail(candidate.Metadata)}[/]",
+                DisplayActive = $"[bold white]{Markup.Escape(shortTitle)}[/] [grey]{Detail(candidate.Metadata)}[/]",
                 Searchable    = searchable
             });
         }
@@ -40,7 +41,9 @@ public static class SyncAmbiguityPrompt
             Console.ReadKey(true);
         }
 
-        var picked = FuzzyPrompt.Show($"Tracker eşleşmesi: {entry.AnimeTitle}", choices);
+        var picked = FuzzyPrompt.Show($"Tracker eşleşmesi: {entry.AnimeTitle}",
+                                      choices,
+                                      headerLines: ["[grey]Hangisi doğru eser? İzlemen buna işlenecek.[/]"]);
         if (picked is null || !bySearchable.TryGetValue(picked.Searchable, out var selected))
         {
             return;
@@ -53,9 +56,8 @@ public static class SyncAmbiguityPrompt
         }
 
         var malId = selected.Metadata.MyAnimeListId;
-        var saved = api.SaveTrackerMappingAsync(entry.Provider, entry.AnimeId, anilistId, malId, entry.AnimeTitle)
-                       .GetAwaiter()
-                       .GetResult();
+        var saved =
+            await api.SaveTrackerMappingAsync(entry.Provider, entry.AnimeId, anilistId, malId, entry.AnimeTitle);
         if (!saved)
         {
             Toast.Show("[red]Eşleşme kaydedilemedi; sonra tekrar sorulacak.[/]");
@@ -63,15 +65,15 @@ public static class SyncAmbiguityPrompt
         }
 
         var sync   = (WatchSyncService) serviceProvider.GetService(typeof(WatchSyncService))!;
-        var pushed = sync.FlushQueueAsync().GetAwaiter().GetResult();
+        var pushed = await sync.FlushQueueAsync();
         if (pushed > 0)
         {
             outcome.Kind = SyncOutcomeKind.Pushed;
-            Toast.Show("[green]✓[/] Eşleşti, izleme senkronize edildi.", 1200);
+            Toast.Show("[green]✓ Eşleşti, izleme senkronize edildi.[/]", 1200);
         }
         else
         {
-            Toast.Show("[yellow]![/] Eşleşti, gönderim kuyrukta denenecek.", 1200);
+            Toast.Show("[yellow]! Eşleşti, gönderim kuyrukta denenecek.[/]", 1200);
         }
     }
 
@@ -81,11 +83,11 @@ public static class SyncAmbiguityPrompt
         {
             var trackers = string.Join(" & ", outcome.SyncedTo);
             var epText   = outcome.Progress.HasValue ? $" [grey](Bölüm {outcome.Progress.Value})[/]" : "";
-            Toast.Show($"[green]✓[/] Senkronize edildi: [bold cyan]{trackers}[/]{epText}", 1200);
+            Toast.Show($"[green]✓ Senkronize edildi:[/] {trackers}{epText}", 1200);
         }
         else if (outcome.Kind == SyncOutcomeKind.Queued)
         {
-            Toast.Show("[yellow]![/] İzleme kuyruğa alındı (bağlantı kurulunca iletilecek)", 1200);
+            Toast.Show("[yellow]! İzleme kuyruğa alındı.[/]", 1200);
         }
     }
 
@@ -111,7 +113,7 @@ public static class SyncAmbiguityPrompt
 
         if (meta.Score.HasValue)
         {
-            parts.Add($"%{(int) Math.Round(meta.Score.Value * 10)}");
+            parts.Add($"★ {meta.Score.Value:F1}");
         }
 
         parts.Add($"id:{meta.AniListId}");

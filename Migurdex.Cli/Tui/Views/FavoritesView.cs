@@ -1,4 +1,5 @@
 using Migurdex.Cli.Services;
+using Migurdex.Shared.Models;
 using Spectre.Console;
 
 namespace Migurdex.Cli.Tui.Views;
@@ -25,7 +26,7 @@ public class FavoritesView : BaseView
         return "Favoriler";
     }
 
-    public override void Render(ITuiNavigator navigator)
+    public override Task RenderAsync(ITuiNavigator navigator)
     {
         var viewRunning = true;
         while (viewRunning)
@@ -35,22 +36,18 @@ public class FavoritesView : BaseView
             if (favorites.Count == 0)
             {
                 FuzzyPrompt.Show("Favoriler",
-                [
-                    new FuzzyChoice
-                    {
-                        Display       = "[grey]Henüz favori eklenmedi.[/]",
-                        DisplayActive = "[grey]Henüz favori eklenmedi.[/]",
-                        Searchable    = "Henüz favori eklenmedi"
-                    },
-                    new FuzzyChoice
-                    {
-                        Display       = "[red]Geri[/]",
-                        DisplayActive = "[bold red]Geri[/]",
-                        Searchable    = "Geri"
-                    }
-                ]);
+                                 [
+                                     new FuzzyChoice
+                                     {
+                                         Display       = "[grey]Henüz favori yok.[/]",
+                                         DisplayActive = "[grey]Henüz favori yok.[/]",
+                                         Searchable    = "Henüz favori yok"
+                                     },
+                                     TuiHelpers.Back()
+                                 ],
+                                 headerLines: ["[grey]Arama › detay ekranından ♥ ile ekle[/]"]);
                 navigator.Pop();
-                return;
+                return Task.CompletedTask;
             }
 
             var choices = favorites.Select((f, idx) =>
@@ -59,46 +56,35 @@ public class FavoritesView : BaseView
                                            _configService.Config.DisabledProviders.Contains(
                                                f.ProviderName,
                                                StringComparer.OrdinalIgnoreCase);
-                                       var providerSuffix = isDisabled ? " [red][[!]][/]" : "";
-
+                                       var title = Theme.Ellipsize(f.AnimeTitle, 52);
                                        return new FuzzyChoice
                                        {
                                            Display =
-                                               $"[grey]#{idx + 1}[/] [silver]{Markup.Escape(f.AnimeTitle)} ({Markup.Escape(f.ProviderName)}){providerSuffix}[/]",
+                                               $"[grey]#{idx + 1}[/] {Markup.Escape(title)} [grey]({Markup.Escape(f.ProviderName)})[/]{TuiHelpers.DisabledBadge(isDisabled)}",
                                            DisplayActive =
-                                               $"[bold pink1]#{idx + 1}[/] [bold white]{Markup.Escape(f.AnimeTitle)}[/] [bold mediumpurple1]({Markup.Escape(f.ProviderName)})[/]{providerSuffix}",
-                                           Searchable = $"#{idx + 1} - {f.AnimeTitle} ({f.ProviderName})"
+                                               $"[bold white]{Markup.Escape(title)}[/] [grey]({Markup.Escape(f.ProviderName)})[/]{TuiHelpers.DisabledBadge(isDisabled)}",
+                                           Searchable      = $"#{idx + 1} - {f.AnimeTitle} ({f.ProviderName})",
+                                           AssociatedValue = f
                                        };
                                    })
                                    .ToList();
 
-            choices.Add(new FuzzyChoice
-            {
-                Display       = "[red]Tümünü Temizle[/]",
-                DisplayActive = "[bold red reverse]Tümünü Temizle[/]",
-                Searchable    = "Tümünü Temizle"
-            });
-
-            choices.Add(new FuzzyChoice
-            {
-                Display       = "[red]Geri[/]",
-                DisplayActive = "[bold red]Geri[/]",
-                Searchable    = "Geri"
-            });
+            choices.Add(TuiHelpers.ClearAll());
+            choices.Add(TuiHelpers.Back());
 
             var choice = FuzzyPrompt.Show("Favoriler", choices, initialSelection: _lastSelectedSearchable);
 
             if (choice == null || choice.Searchable == "Geri")
             {
                 navigator.Pop();
-                return;
+                return Task.CompletedTask;
             }
 
             _lastSelectedSearchable = choice.Searchable;
 
             if (choice.Searchable == "Tümünü Temizle")
             {
-                if (AnsiConsole.Confirm("[bold red]Tüm favoriler silinsin mi?[/]"))
+                if (Theme.Confirm("[red]Tüm favoriler silinsin mi?[/]"))
                 {
                     _historyService.ClearFavorites();
                     Toast.Show("[green]Temizlendi.[/]");
@@ -107,39 +93,28 @@ public class FavoritesView : BaseView
                 continue;
             }
 
-            var selectedIndex = int.Parse(choice.Searchable.Split(' ')[0][1..]);
-            var selectedFav   = favorites[selectedIndex - 1];
+            if (choice.AssociatedValue is not FavoriteEntry selectedFav)
+            {
+                continue;
+            }
 
             var actionRunning = true;
             while (actionRunning)
             {
                 var actionChoices = new List<FuzzyChoice>
                 {
-                    new()
-                    {
-                        Display       = "[silver]Detaylara Git[/]",
-                        DisplayActive = "[bold white]Detaylara Git[/]",
-                        Searchable    = "Detaylar"
-                    },
-                    new()
-                    {
-                        Display       = "[red]Favorilerden Kaldır[/]",
-                        DisplayActive = "[bold red]Favorilerden Kaldır[/]",
-                        Searchable    = "Sil"
-                    },
-                    new()
-                    {
-                        Display       = "[silver]Geri[/]",
-                        DisplayActive = "[bold white]Geri[/]",
-                        Searchable    = "Geri"
-                    }
+                    Theme.AsAction(Theme.MenuItem("Detaylar", "Detaylara git")),
+                    Theme.AsAction(Theme.MenuItemMarkup("Sil",
+                                                        "[red]Favorilerden kaldır[/]",
+                                                        "[bold white]Favorilerden kaldır[/]")),
+                    TuiHelpers.Back()
                 };
 
                 var actionChoice = FuzzyPrompt.Show(selectedFav.AnimeTitle,
                                                     actionChoices,
                                                     headerLines:
                                                     [
-                                                        $"[grey]Sağlayıcı:[/] [bold mediumpurple1]{Markup.Escape(selectedFav.ProviderName)}[/]"
+                                                        TuiHelpers.ProviderLine(selectedFav.ProviderName)
                                                     ]);
 
                 if (actionChoice == null || actionChoice.Searchable == "Geri")
@@ -165,5 +140,7 @@ public class FavoritesView : BaseView
                 }
             }
         }
+
+        return Task.CompletedTask;
     }
 }

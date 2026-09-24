@@ -3,6 +3,7 @@ using Migurdex.Cli.Services;
 using Migurdex.Core.Services;
 using Migurdex.Shared.Enums;
 using Spectre.Console;
+using System.Text.Json;
 
 namespace Migurdex.Cli.Tui.Views;
 
@@ -37,13 +38,18 @@ public class SettingsView : BaseView
         return "Ayarlar";
     }
 
-    public override void Render(ITuiNavigator navigator)
+    public override async Task RenderAsync(ITuiNavigator navigator)
     {
         var settingsRunning = true;
         var cursorIndex     = 0;
 
         var items = new List<SettingItem>
         {
+            new()
+            {
+                IsSection = true,
+                Label     = "Oynatma"
+            },
             new()
             {
                 Id          = "AutoPlay",
@@ -55,6 +61,28 @@ public class SettingsView : BaseView
                 Id          = "Timeout",
                 Label       = "Bekleme Süresi",
                 ValueGetter = c => $"{c.AutoSelectTimeoutSeconds:F1} sn"
+            },
+            new()
+            {
+                Id          = "PlayerLogs",
+                Label       = "Oynatıcı Logları",
+                ValueGetter = c => c.ShowPlayerLogs ? "Açık" : "Kapalı"
+            },
+            new()
+            {
+                IsSection = true,
+                Label     = "Gizlilik"
+            },
+            new()
+            {
+                Id          = "Incognito",
+                Label       = "Gizli Mod",
+                ValueGetter = c => c.EnableIncognitoMode ? "Açık" : "Kapalı"
+            },
+            new()
+            {
+                IsSection = true,
+                Label     = "Bildirim"
             },
             new()
             {
@@ -70,15 +98,8 @@ public class SettingsView : BaseView
             },
             new()
             {
-                Id          = "Incognito",
-                Label       = "Gizli Mod",
-                ValueGetter = c => c.EnableIncognitoMode ? "Açık" : "Kapalı"
-            },
-            new()
-            {
-                Id          = "PlayerLogs",
-                Label       = "Oynatıcı Logları",
-                ValueGetter = c => c.ShowPlayerLogs ? "Açık" : "Kapalı"
+                IsSection = true,
+                Label     = "Güncelleme"
             },
             new()
             {
@@ -100,6 +121,11 @@ public class SettingsView : BaseView
             },
             new()
             {
+                IsSection = true,
+                Label     = "Bağlantı"
+            },
+            new()
+            {
                 Id          = "Api",
                 Label       = "API Adresi",
                 ValueGetter = c => c.ApiBaseUrl
@@ -118,6 +144,11 @@ public class SettingsView : BaseView
             },
             new()
             {
+                IsSection = true,
+                Label     = "Liste"
+            },
+            new()
+            {
                 Id       = "Providers",
                 Label    = "Sağlayıcı Yönetimi...",
                 IsAction = true
@@ -127,6 +158,11 @@ public class SettingsView : BaseView
                 Id       = "Sorting",
                 Label    = "Sıralama Öncelikleri...",
                 IsAction = true
+            },
+            new()
+            {
+                IsSection = true,
+                Label     = "Değişiklikler"
             },
             new()
             {
@@ -142,26 +178,28 @@ public class SettingsView : BaseView
             }
         };
 
-        while (settingsRunning)
+        cursorIndex = NextSelectable(items, cursorIndex, 1);
+        var baseline = SnapshotConfig();
+
+        Grid BuildTable(CliConfig config)
         {
-            AnsiConsole.Clear();
-            AnsiConsole.MarkupLine("[grey]~~[/] [bold cyan]Ayarlar[/] [grey]~~[/]");
-            AnsiConsole.WriteLine();
-
-            var config = _configService.Config;
-
             var table = new Table().NoBorder().HideHeaders();
             table.AddColumn("Label", c => c.Width(25));
             table.AddColumn("Value");
 
             for (var i = 0; i < items.Count; i++)
             {
-                var item       = items[i];
+                var item = items[i];
+                if (item.IsSection)
+                {
+                    table.AddRow($"[cyan]{Markup.Escape(item.Label)}[/]", "");
+                    continue;
+                }
+
                 var isSelected = i == cursorIndex;
 
-                var labelPrefix = isSelected ? "> " : "  ";
-                var labelStyle  = isSelected ? "bold white" : "grey";
-                var valueStyle  = isSelected ? "bold cyan" : "cyan";
+                var labelPrefix = isSelected ? "› " : "  ";
+                var labelStyle  = isSelected ? "bold white on grey23" : "grey";
 
                 if (item.IsAction)
                 {
@@ -180,37 +218,104 @@ public class SettingsView : BaseView
                 }
                 else
                 {
-                    var val = item.ValueGetter(config);
-                    table.AddRow($"[{labelStyle}]{labelPrefix}{item.Label}[/]", $"[{valueStyle}][[{val}]][/]");
+                    var val        = item.ValueGetter(config);
+                    var valueStyle = GetValueStyle(item.Id, val, isSelected);
+                    table.AddRow($"[{labelStyle}]{labelPrefix}{item.Label}[/]",
+                                 $"[{valueStyle}][[{Markup.Escape(val)}]][/]");
                 }
             }
 
-            AnsiConsole.Write(table);
+            var grid = new Grid();
+            grid.AddColumn();
+            grid.AddRow(table);
+            grid.AddRow(new Text(string.Empty));
+            grid.AddRow(new Markup("[grey]↑↓ gez • Enter değiştir • Esc geri[/]"));
+            return grid;
+        }
+
+        while (settingsRunning)
+        {
+            AnsiConsole.Clear();
+            Theme.WriteHeader("Ayarlar");
             AnsiConsole.WriteLine();
-            AnsiConsole.MarkupLine("[grey]Yön tuşları ile gezinin, Enter ile değiştirin.[/]");
 
-            var key = Console.ReadKey(true);
-            switch (key.Key)
+            SettingItem? pendingSelection = null;
+            var          pendingEscape    = false;
+
+            await AnsiConsole.Live(BuildTable(_configService.Config))
+                             .StartAsync(async ctx =>
+                             {
+                                 var last = string.Empty;
+                                 while (settingsRunning && pendingSelection is null && !pendingEscape)
+                                 {
+                                     var config = _configService.Config;
+                                     var fp     = cursorIndex + "|" + SnapshotConfig();
+                                     if (!fp.Equals(last, StringComparison.Ordinal))
+                                     {
+                                         ctx.UpdateTarget(BuildTable(config));
+                                         last = fp;
+                                     }
+
+                                     if (Console.KeyAvailable)
+                                     {
+                                         var key = Console.ReadKey(true);
+                                         switch (key.Key)
+                                         {
+                                             case ConsoleKey.UpArrow:
+                                                 cursorIndex = NextSelectable(items, cursorIndex, -1);
+                                                 break;
+                                             case ConsoleKey.DownArrow:
+                                                 cursorIndex = NextSelectable(items, cursorIndex, 1);
+                                                 break;
+                                             case ConsoleKey.Enter:
+                                                 var selected = items[cursorIndex];
+                                                 if (!selected.IsSection)
+                                                 {
+                                                     pendingSelection = selected;
+                                                 }
+
+                                                 break;
+                                             case ConsoleKey.Escape:
+                                                 pendingEscape = true;
+                                                 break;
+                                         }
+                                     }
+                                     else
+                                     {
+                                         await Task.Delay(15);
+                                     }
+                                 }
+                             });
+
+            if (pendingEscape && settingsRunning)
             {
-                case ConsoleKey.UpArrow:
-                    cursorIndex = (cursorIndex - 1 + items.Count) % items.Count;
-                    break;
-                case ConsoleKey.DownArrow:
-                    cursorIndex = (cursorIndex + 1) % items.Count;
-                    break;
-                case ConsoleKey.Enter:
-                    var selected = items[cursorIndex];
-                    if (HandleSelection(selected, config, navigator, ref settingsRunning))
-                    {
-                    }
-
-                    break;
-                case ConsoleKey.Escape:
+                if (SnapshotConfig() == baseline
+                    || Theme.Confirm("[red]Kaydedilmeden çıkılsın mı?[/]", false))
+                {
                     _configService.Reload();
                     settingsRunning = false;
                     navigator.Pop();
-                    break;
+                }
             }
+            else if (pendingSelection is not null && settingsRunning)
+            {
+                if (await HandleSelectionAsync(pendingSelection, _configService.Config, navigator))
+                {
+                    settingsRunning = false;
+                }
+            }
+        }
+    }
+
+    private string SnapshotConfig()
+    {
+        try
+        {
+            return JsonSerializer.Serialize(_configService.Config);
+        }
+        catch
+        {
+            return string.Empty;
         }
     }
 
@@ -249,7 +354,53 @@ public class SettingsView : BaseView
         return $"AniList bağlı. Token son kullanma: {token.ExpiresAtUtc:u}.";
     }
 
-    private void RunAniListLogin()
+    private static async Task<string?> WaitForLoopbackCodeAsync(int port, string callbackPath, string serviceName)
+    {
+        string? code = null;
+        using (var cts = new CancellationTokenSource())
+        {
+            var waitTask = LoopbackCodeReceiver.WaitForCodeAsync(port,
+                                                                 callbackPath,
+                                                                 TimeSpan.FromMinutes(2),
+                                                                 cancellationToken: cts.Token);
+            while (!waitTask.IsCompleted)
+            {
+                if (Console.KeyAvailable && Console.ReadKey(true).Key == ConsoleKey.Escape)
+                {
+                    cts.Cancel();
+                    Toast.Show("[grey]Vazgeçildi.[/]");
+                    return null;
+                }
+
+                try
+                {
+                    await Task.Delay(200, cts.Token);
+                }
+                catch (OperationCanceledException)
+                {
+                    break;
+                }
+            }
+
+            if (waitTask.Status == TaskStatus.RanToCompletion)
+            {
+                code = await waitTask;
+            }
+        }
+
+        if (string.IsNullOrWhiteSpace(code))
+        {
+            code = Theme.Ask("Kod (boş = vazgeç):", string.Empty)?.Trim();
+            if (string.IsNullOrEmpty(code))
+            {
+                return null;
+            }
+        }
+
+        return code;
+    }
+
+    private async Task RunAniListLoginAsync()
     {
         if (!AniListAppCredentials.IsConfigured)
         {
@@ -262,7 +413,7 @@ public class SettingsView : BaseView
             && !existing.IsExpired)
         {
             Toast.Show(AniListDetail());
-            if (AnsiConsole.Confirm("AniList bağlantısı kesilsin mi?", false))
+            if (Theme.Confirm("AniList bağlantısı kesilsin mi?", false))
             {
                 _tokenStore.Remove(WatchSyncService.ProviderName);
                 Toast.Show("[green]AniList çıkış yapıldı.[/]");
@@ -276,41 +427,15 @@ public class SettingsView : BaseView
 
         AnsiConsole.MarkupLine("[cyan]Tarayıcıda AniList onayını verin.[/] [grey](Esc: vazgeç)[/]");
 
-        string? code = null;
-        using (var cts = new CancellationTokenSource())
-        {
-            var waitTask = LoopbackCodeReceiver.WaitForCodeAsync(AniListOAuthDefaults.LoopbackPort,
-                                                                 AniListOAuthDefaults.CallbackPath,
-                                                                 TimeSpan.FromMinutes(2),
-                                                                 cancellationToken: cts.Token);
-            while (!waitTask.IsCompleted)
-            {
-                if (Console.KeyAvailable && Console.ReadKey(true).Key == ConsoleKey.Escape)
-                {
-                    cts.Cancel();
-                    Toast.Show("[grey]Vazgeçildi.[/]");
-                    return;
-                }
-
-                Thread.Sleep(200);
-            }
-
-            if (waitTask.Status == TaskStatus.RanToCompletion)
-            {
-                code = waitTask.Result;
-            }
-        }
-
+        var code = await WaitForLoopbackCodeAsync(AniListOAuthDefaults.LoopbackPort,
+                                                  AniListOAuthDefaults.CallbackPath,
+                                                  "AniList");
         if (string.IsNullOrWhiteSpace(code))
         {
-            code = AnsiConsole.Ask("Kod (boş = vazgeç):", string.Empty)?.Trim();
-            if (string.IsNullOrEmpty(code))
-            {
-                return;
-            }
+            return;
         }
 
-        var token = _aniListOAuth.ExchangeCodeAsync(code, redirectUri).GetAwaiter().GetResult();
+        var token = await _aniListOAuth.ExchangeCodeAsync(code, redirectUri);
         if (token is null)
         {
             Toast.Show("[red]Token alınamadı; tekrar deneyin.[/]");
@@ -351,7 +476,7 @@ public class SettingsView : BaseView
         return $"MyAnimeList bağlı. Token son kullanma: {token.ExpiresAtUtc:u}.";
     }
 
-    private void RunMalLogin()
+    private async Task RunMalLoginAsync()
     {
         if (!MalAppCredentials.IsConfigured)
         {
@@ -364,7 +489,7 @@ public class SettingsView : BaseView
             && !existing.IsExpired)
         {
             Toast.Show(MalDetail());
-            if (AnsiConsole.Confirm("MyAnimeList bağlantısı kesilsin mi?", false))
+            if (Theme.Confirm("MyAnimeList bağlantısı kesilsin mi?", false))
             {
                 _tokenStore.Remove(WatchSyncService.MalProviderName);
                 Toast.Show("[green]MyAnimeList çıkış yapıldı.[/]");
@@ -378,41 +503,15 @@ public class SettingsView : BaseView
 
         AnsiConsole.MarkupLine("[cyan]Tarayıcıda MyAnimeList onayını verin.[/] [grey](Esc: vazgeç)[/]");
 
-        string? code = null;
-        using (var cts = new CancellationTokenSource())
-        {
-            var waitTask = LoopbackCodeReceiver.WaitForCodeAsync(MalAppCredentials.LoopbackPort,
-                                                                 MalAppCredentials.CallbackPath,
-                                                                 TimeSpan.FromMinutes(2),
-                                                                 cancellationToken: cts.Token);
-            while (!waitTask.IsCompleted)
-            {
-                if (Console.KeyAvailable && Console.ReadKey(true).Key == ConsoleKey.Escape)
-                {
-                    cts.Cancel();
-                    Toast.Show("[grey]Vazgeçildi.[/]");
-                    return;
-                }
-
-                Thread.Sleep(200);
-            }
-
-            if (waitTask.Status == TaskStatus.RanToCompletion)
-            {
-                code = waitTask.Result;
-            }
-        }
-
+        var code = await WaitForLoopbackCodeAsync(MalAppCredentials.LoopbackPort,
+                                                  MalAppCredentials.CallbackPath,
+                                                  "MyAnimeList");
         if (string.IsNullOrWhiteSpace(code))
         {
-            code = AnsiConsole.Ask("Kod (boş = vazgeç):", string.Empty)?.Trim();
-            if (string.IsNullOrEmpty(code))
-            {
-                return;
-            }
+            return;
         }
 
-        var token = _malOAuth.ExchangeCodeAsync(code, redirectUri).GetAwaiter().GetResult();
+        var token = await _malOAuth.ExchangeCodeAsync(code, redirectUri);
         if (token is null)
         {
             Toast.Show("[red]Token alınamadı; tekrar deneyin.[/]");
@@ -429,16 +528,16 @@ public class SettingsView : BaseView
         return _rpcTitleModes[(idx + 1) % _rpcTitleModes.Length];
     }
 
-    private void RunUpdateCheckNow()
+    private async Task RunUpdateCheckNowAsync()
     {
         UpdateCheckResult? result = null;
-        AnsiConsole.Status()
-                   .Spinner(Spinner.Known.Dots)
-                   .Start("Sürüm kontrol ediliyor...",
-                          _ =>
-                          {
-                              result = _updateService.CheckForUpdatesAsync(true).GetAwaiter().GetResult();
-                          });
+        await AnsiConsole.Status()
+                         .Spinner(Spinner.Known.Dots)
+                         .StartAsync("Sürüm kontrol ediliyor...",
+                                     async _ =>
+                                     {
+                                         result = await _updateService.CheckForUpdatesAsync(true);
+                                     });
 
         if (result is null)
         {
@@ -457,7 +556,7 @@ public class SettingsView : BaseView
                    + "Çıkıp [cyan]migurdex update[/] ile kurun.");
     }
 
-    private bool HandleSelection(SettingItem item, CliConfig config, ITuiNavigator navigator, ref bool running)
+    private async Task<bool> HandleSelectionAsync(SettingItem item, CliConfig config, ITuiNavigator navigator)
     {
         switch (item.Id)
         {
@@ -466,7 +565,7 @@ public class SettingsView : BaseView
                 break;
             case "Timeout":
                 config.AutoSelectTimeoutSeconds =
-                    AnsiConsole.Ask("Bekleme süresi (sn):", config.AutoSelectTimeoutSeconds);
+                    Theme.Ask("Bekleme süresi (sn):", config.AutoSelectTimeoutSeconds);
 
                 if (config.AutoSelectTimeoutSeconds < 0.2)
                 {
@@ -500,10 +599,10 @@ public class SettingsView : BaseView
                 config.SkippedVersion = null;
                 break;
             case "CheckUpdate":
-                RunUpdateCheckNow();
+                await RunUpdateCheckNowAsync();
                 break;
             case "Api":
-                var apiUrl = (AnsiConsole.Ask("API adresi:", config.ApiBaseUrl ?? string.Empty) ?? string.Empty).Trim()
+                var apiUrl = (Theme.Ask("API adresi:", config.ApiBaseUrl ?? string.Empty) ?? string.Empty).Trim()
                     .TrimEnd('/');
                 if (string.IsNullOrEmpty(apiUrl))
                 {
@@ -521,26 +620,24 @@ public class SettingsView : BaseView
                 config.ApiBaseUrl = apiUrl;
                 break;
             case "AniList":
-                RunAniListLogin();
+                await RunAniListLoginAsync();
                 break;
             case "MyAnimeList":
-                RunMalLogin();
+                await RunMalLoginAsync();
                 break;
             case "Providers":
-                ConfigureProviders(config);
+                await ConfigureProvidersAsync(config);
                 break;
             case "Sorting":
-                ConfigureSortingPriorities(config);
+                await ConfigureSortingPrioritiesAsync(config);
                 break;
             case "Save":
                 _configService.Save();
                 Toast.Show("[green]Kaydedildi.[/]");
-                running = false;
                 navigator.Pop();
                 return true;
             case "Cancel":
                 _configService.Reload();
-                running = false;
                 navigator.Pop();
                 return true;
         }
@@ -548,18 +645,18 @@ public class SettingsView : BaseView
         return false;
     }
 
-    private void ConfigureProviders(CliConfig config)
+    private async Task ConfigureProvidersAsync(CliConfig config)
     {
         var active = true;
 
         ApiResult<IReadOnlyList<ProviderInfo>>? providersResult = null;
-        AnsiConsole.Status()
-                   .Spinner(Spinner.Known.Dots)
-                   .Start("Sağlayıcılar yükleniyor...",
-                          _ =>
-                          {
-                              providersResult = _apiClient.GetProvidersAsync().GetAwaiter().GetResult();
-                          });
+        await AnsiConsole.Status()
+                         .Spinner(Spinner.Known.Dots)
+                         .StartAsync("Sağlayıcılar yükleniyor...",
+                                     async _ =>
+                                     {
+                                         providersResult = await _apiClient.GetProvidersAsync();
+                                     });
 
         var providers   = providersResult!.Data;
         var cursorIndex = 0;
@@ -576,24 +673,23 @@ public class SettingsView : BaseView
             }
         }
 
-        while (active)
+        if (providers.Count == 0)
         {
             AnsiConsole.Clear();
-            AnsiConsole.MarkupLine("[grey]~~[/] [bold cyan]Sağlayıcı Yönetimi[/] [grey]~~[/]");
+            Theme.WriteHeader("Sağlayıcı yönetimi");
             AnsiConsole.WriteLine();
-
-            if (providers.Count == 0)
+            AnsiConsole.MarkupLine("[red]Sağlayıcı listesi alınamadı.[/]");
+            if (providersResult.Error is not null)
             {
-                AnsiConsole.MarkupLine("[red]Sağlayıcı listesi alınamadı.[/]");
-                if (providersResult.Error is not null)
-                {
-                    AnsiConsole.MarkupLine($"[grey]{Markup.Escape(providersResult.Error)}[/]");
-                }
-
-                Console.ReadKey(true);
-                return;
+                AnsiConsole.MarkupLine($"[grey]{Markup.Escape(providersResult.Error)}[/]");
             }
 
+            Console.ReadKey(true);
+            return;
+        }
+
+        Grid BuildGrid()
+        {
             var table = new Table().NoBorder().HideHeaders();
             table.AddColumn("Name", c => c.Width(25));
             table.AddColumn("Status");
@@ -604,8 +700,8 @@ public class SettingsView : BaseView
                 var isSelected = i == cursorIndex;
                 var isDisabled = config.DisabledProviders.Contains(p.Name, StringComparer.OrdinalIgnoreCase);
 
-                var labelPrefix = isSelected ? "> " : "  ";
-                var labelStyle  = isSelected ? "bold white" : "grey";
+                var labelPrefix = isSelected ? "› " : "  ";
+                var labelStyle  = isSelected ? "bold white on grey23" : "grey";
                 var statusText  = isDisabled ? "Kapalı" : "Açık";
                 var statusStyle =
                     isDisabled
@@ -618,58 +714,91 @@ public class SettingsView : BaseView
             }
 
             table.AddRow("", "");
-            var backLabel = cursorIndex == providers.Count ? "> Geri" : "  Geri";
+            var backLabel = cursorIndex == providers.Count ? "› Geri" : "  Geri";
             var backStyle = cursorIndex == providers.Count ? "bold yellow" : "yellow";
             table.AddRow($"[{backStyle}]{backLabel}[/]", "");
 
-            AnsiConsole.Write(table);
-            AnsiConsole.WriteLine();
-            AnsiConsole.MarkupLine("[grey]Yön tuşları ile gezinin, Enter ile değiştirin.[/]");
-
-            var key = Console.ReadKey(true);
-            switch (key.Key)
-            {
-                case ConsoleKey.UpArrow:
-                    cursorIndex = (cursorIndex - 1 + providers.Count + 1) % (providers.Count + 1);
-                    break;
-                case ConsoleKey.DownArrow:
-                    cursorIndex = (cursorIndex + 1) % (providers.Count + 1);
-                    break;
-                case ConsoleKey.Enter:
-                    if (cursorIndex == providers.Count)
-                    {
-                        active = false;
-                    }
-                    else
-                    {
-                        var p = providers[cursorIndex];
-                        _lastProviderName = p.Name;
-                        if (config.DisabledProviders.Contains(p.Name, StringComparer.OrdinalIgnoreCase))
-                        {
-                            config.DisabledProviders.RemoveAll(x => x.Equals(p.Name,
-                                                                             StringComparison.OrdinalIgnoreCase));
-                        }
-                        else
-                        {
-                            config.DisabledProviders.Add(p.Name);
-                        }
-                    }
-
-                    break;
-                case ConsoleKey.Escape:
-                    active = false;
-                    break;
-            }
+            var grid = new Grid();
+            grid.AddColumn();
+            grid.AddRow(table);
+            grid.AddRow(new Text(string.Empty));
+            grid.AddRow(new Markup("[grey]↑↓ gez • Enter değiştir • Esc geri[/]"));
+            return grid;
         }
+
+        string Fingerprint() => cursorIndex + "|" + string.Join(",", config.DisabledProviders);
+
+        AnsiConsole.Clear();
+        Theme.WriteHeader("Sağlayıcı yönetimi");
+        AnsiConsole.WriteLine();
+
+        AnsiConsole.Live(BuildGrid())
+                   .Start(ctx =>
+                   {
+                       var last = string.Empty;
+                       while (active)
+                       {
+                           var fp = Fingerprint();
+                           if (!fp.Equals(last, StringComparison.Ordinal))
+                           {
+                               ctx.UpdateTarget(BuildGrid());
+                               last = fp;
+                           }
+
+                           if (Console.KeyAvailable)
+                           {
+                               var key = Console.ReadKey(true);
+                               switch (key.Key)
+                               {
+                                   case ConsoleKey.UpArrow:
+                                       cursorIndex = (cursorIndex - 1 + providers.Count + 1) % (providers.Count + 1);
+                                       break;
+                                   case ConsoleKey.DownArrow:
+                                       cursorIndex = (cursorIndex + 1) % (providers.Count + 1);
+                                       break;
+                                   case ConsoleKey.Enter:
+                                       if (cursorIndex == providers.Count)
+                                       {
+                                           active = false;
+                                       }
+                                       else
+                                       {
+                                           var p = providers[cursorIndex];
+                                           _lastProviderName = p.Name;
+                                           if (config.DisabledProviders.Contains(
+                                                   p.Name,
+                                                   StringComparer.OrdinalIgnoreCase))
+                                           {
+                                               config.DisabledProviders.RemoveAll(x => x.Equals(p.Name,
+                                                   StringComparison.OrdinalIgnoreCase));
+                                           }
+                                           else
+                                           {
+                                               config.DisabledProviders.Add(p.Name);
+                                           }
+                                       }
+
+                                       break;
+                                   case ConsoleKey.Escape:
+                                       active = false;
+                                       break;
+                               }
+                           }
+                           else
+                           {
+                               Thread.Sleep(15);
+                           }
+                       }
+                   });
     }
 
-    private void ConfigureSortingPriorities(CliConfig config)
+    private async Task ConfigureSortingPrioritiesAsync(CliConfig config)
     {
         var active = true;
         while (active)
         {
             AnsiConsole.Clear();
-            AnsiConsole.MarkupLine("[grey]~~[/] [bold cyan]Sıralama Öncelikleri[/] [grey]~~[/]");
+            Theme.WriteHeader("Sıralama öncelikleri");
             AnsiConsole.WriteLine();
 
             var choices = new List<FuzzyChoice>
@@ -796,7 +925,7 @@ public class SettingsView : BaseView
 
                 case "Sunucu/Oynatıcı":
                     {
-                        var mergedHosters = GetMergedHosters();
+                        var mergedHosters = await GetMergedHostersAsync();
                         var items = mergedHosters.Select(h => new ReorderItem
                                                  {
                                                      Key         = h,
@@ -813,7 +942,7 @@ public class SettingsView : BaseView
 
                 case "Otomatik: Sunucular":
                     ConfigureAutoList("Otomatik: Sunucular",
-                                      GetMergedHosters(),
+                                      await GetMergedHostersAsync(),
                                       config.AutoNeverHosters,
                                       config.AutoOnlyHosters);
                     break;
@@ -839,19 +968,19 @@ public class SettingsView : BaseView
         }
     }
 
-    private List<string> GetMergedHosters()
+    private async Task<List<string>> GetMergedHostersAsync()
     {
         var config = _configService.Config;
 
         ApiResult<IReadOnlyList<string>>? extractorsResult = null;
-        AnsiConsole.Status()
-                   .Spinner(Spinner.Known.Dots)
-                   .Start("Sunucu listesi yükleniyor...",
-                          _ =>
-                          {
-                              extractorsResult =
-                                  _apiClient.GetExtractorsAsync().GetAwaiter().GetResult();
-                          });
+        await AnsiConsole.Status()
+                         .Spinner(Spinner.Known.Dots)
+                         .StartAsync("Sunucu listesi yükleniyor...",
+                                     async _ =>
+                                     {
+                                         extractorsResult =
+                                             await _apiClient.GetExtractorsAsync();
+                                     });
 
         var mergedHosters = new List<string>(config.PreferredHosterOrder);
         foreach (var ext in extractorsResult!.Data)
@@ -915,15 +1044,10 @@ public class SettingsView : BaseView
         List<string>                             onlyList)
     {
         var cursorIndex = 0;
+        var running     = true;
 
-        while (true)
+        Grid BuildGrid()
         {
-            AnsiConsole.Clear();
-            AnsiConsole.MarkupLine($"[grey]~~[/] [bold cyan]{Markup.Escape(title)}[/] [grey]~~[/]");
-            AnsiConsole.MarkupLine(
-                "[green]Otomatik:[/] [grey]kural yok ·[/] [red]Asla:[/] [grey]otomatik seçilmez ·[/] [gold1]Sadece:[/] [grey]yalnız işaretliler otomatik seçilir[/]");
-            AnsiConsole.WriteLine();
-
             var table = new Table().NoBorder().HideHeaders();
             table.AddColumn("Name", c => c.Width(25));
             table.AddColumn("Status");
@@ -934,8 +1058,8 @@ public class SettingsView : BaseView
                 var isSelected = i == cursorIndex;
                 var state      = AutoRuleState(item, neverList, onlyList);
 
-                var labelPrefix = isSelected ? "> " : "  ";
-                var labelStyle  = isSelected ? "bold white" : "grey";
+                var labelPrefix = isSelected ? "› " : "  ";
+                var labelStyle  = isSelected ? "bold white on grey23" : "grey";
                 var stateText = state switch
                 {
                     "Asla"   => "Asla",
@@ -945,7 +1069,7 @@ public class SettingsView : BaseView
                 var stateStyle = state switch
                 {
                     "Asla"   => isSelected ? "bold red" : "red",
-                    "Sadece" => isSelected ? "bold gold1" : "gold1",
+                    "Sadece" => isSelected ? "bold yellow" : "yellow",
                     _        => isSelected ? "bold green" : "green"
                 };
 
@@ -954,35 +1078,115 @@ public class SettingsView : BaseView
             }
 
             table.AddRow("", "");
-            var backLabel = cursorIndex == allItems.Count ? "> Geri" : "  Geri";
+            var backLabel = cursorIndex == allItems.Count ? "› Geri" : "  Geri";
             var backStyle = cursorIndex == allItems.Count ? "bold yellow" : "yellow";
             table.AddRow($"[{backStyle}]{backLabel}[/]", "");
 
-            AnsiConsole.Write(table);
-            AnsiConsole.WriteLine();
-            AnsiConsole.MarkupLine("[grey]Enter ile durumu değiştirin (Otomatik → Asla → Sadece).[/]");
+            var grid = new Grid();
+            grid.AddColumn();
+            grid.AddRow(table);
+            grid.AddRow(new Text(string.Empty));
+            grid.AddRow(new Markup("[grey]Enter değiştir (Otomatik → Asla → Sadece) • Esc geri[/]"));
+            return grid;
+        }
 
-            var key = Console.ReadKey(true);
-            switch (key.Key)
+        string Fingerprint() => cursorIndex + "|" + string.Join(",", neverList) + "|" + string.Join(",", onlyList);
+
+        AnsiConsole.Clear();
+        Theme.WriteHeader(title);
+        AnsiConsole.MarkupLine(
+            "[green]Otomatik:[/] [grey]kural yok ·[/] [red]Asla:[/] [grey]otomatik seçilmez ·[/] [yellow]Sadece:[/] [grey]yalnız işaretliler otomatik seçilir[/]");
+        AnsiConsole.WriteLine();
+
+        AnsiConsole.Live(BuildGrid())
+                   .Start(ctx =>
+                   {
+                       var last = string.Empty;
+                       while (running)
+                       {
+                           var fp = Fingerprint();
+                           if (!fp.Equals(last, StringComparison.Ordinal))
+                           {
+                               ctx.UpdateTarget(BuildGrid());
+                               last = fp;
+                           }
+
+                           if (Console.KeyAvailable)
+                           {
+                               var key = Console.ReadKey(true);
+                               switch (key.Key)
+                               {
+                                   case ConsoleKey.UpArrow:
+                                       cursorIndex = (cursorIndex - 1 + allItems.Count + 1) % (allItems.Count + 1);
+                                       break;
+                                   case ConsoleKey.DownArrow:
+                                       cursorIndex = (cursorIndex + 1) % (allItems.Count + 1);
+                                       break;
+                                   case ConsoleKey.Enter:
+                                       if (cursorIndex == allItems.Count)
+                                       {
+                                           running = false;
+                                       }
+                                       else
+                                       {
+                                           CycleAutoRule(allItems[cursorIndex], neverList, onlyList);
+                                       }
+
+                                       break;
+                                   case ConsoleKey.Escape:
+                                       running = false;
+                                       break;
+                               }
+                           }
+                           else
+                           {
+                               Thread.Sleep(15);
+                           }
+                       }
+                   });
+
+        AnsiConsole.Clear();
+    }
+
+    private static int NextSelectable(List<SettingItem> items, int from, int direction)
+    {
+        if (items.Count == 0)
+        {
+            return from;
+        }
+
+        var idx = from;
+        for (var step = 0; step < items.Count; step++)
+        {
+            idx = (idx + direction + items.Count) % items.Count;
+            if (!items[idx].IsSection)
             {
-                case ConsoleKey.UpArrow:
-                    cursorIndex = (cursorIndex - 1 + allItems.Count + 1) % (allItems.Count + 1);
-                    break;
-                case ConsoleKey.DownArrow:
-                    cursorIndex = (cursorIndex + 1) % (allItems.Count + 1);
-                    break;
-                case ConsoleKey.Enter:
-                    if (cursorIndex == allItems.Count)
-                    {
-                        return;
-                    }
-
-                    CycleAutoRule(allItems[cursorIndex], neverList, onlyList);
-                    break;
-                case ConsoleKey.Escape:
-                    return;
+                return idx;
             }
         }
+
+        return from;
+    }
+
+    private static string GetValueStyle(string id, string value, bool isSelected)
+    {
+        var bold = isSelected ? "bold " : "";
+        var color = id switch
+        {
+            "AutoPlay" or "Rpc" or "Incognito" or "PlayerLogs" or "UpdateCheck" =>
+                value == "Açık" ? "green" : "grey",
+            "UpdateChannel" => value == "Pre-release" ? "yellow" : "green",
+            "AniList" or "MyAnimeList" => value.Contains("Süresi dolmuş")
+                                              ? "red"
+                                              : value.StartsWith("Bağlı (yenilenecek)")
+                                                  ? "yellow"
+                                                  : value.StartsWith("Bağlı")
+                                                      ? "green"
+                                                      : "grey",
+            _ => isSelected ? "white" : "silver"
+        };
+
+        return $"{bold}{color}";
     }
 
     private class SettingItem
@@ -991,5 +1195,6 @@ public class SettingsView : BaseView
         public string                  Label       { get; set; } = string.Empty;
         public Func<CliConfig, string> ValueGetter { get; set; } = _ => string.Empty;
         public bool                    IsAction    { get; set; }
+        public bool                    IsSection   { get; set; }
     }
 }

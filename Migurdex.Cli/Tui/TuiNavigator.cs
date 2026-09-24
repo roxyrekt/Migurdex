@@ -10,7 +10,7 @@ public interface ITuiNavigator
     void      Pop();
     void      Replace(BaseView view);
     BaseView? Peek();
-    void      Start(BaseView initialView);
+    Task      StartAsync(BaseView initialView);
     void      Exit();
 }
 
@@ -26,10 +26,10 @@ public class TuiNavigator : ITuiNavigator
 
     public bool IsRunning { get; private set; } = true;
 
-    public void Start(BaseView initialView)
+    public async Task StartAsync(BaseView initialView)
     {
         Push(initialView);
-        RunLoop();
+        await RunLoopAsync();
     }
 
     public void Push(BaseView view, bool skipOnBack = false)
@@ -81,7 +81,7 @@ public class TuiNavigator : ITuiNavigator
         _rpcService?.UpdateNavigationPresence(view.GetRpcState());
     }
 
-    private void RunLoop()
+    private async Task RunLoopAsync()
     {
         while (IsRunning && _viewStack.Count > 0)
         {
@@ -89,7 +89,7 @@ public class TuiNavigator : ITuiNavigator
             UpdateRpc(currentView);
             try
             {
-                currentView.Render(this);
+                await currentView.RenderAsync(this);
             }
             catch (Exception ex)
             {

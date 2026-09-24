@@ -3,7 +3,7 @@ namespace Migurdex.Cli.Tui;
 public abstract class BaseView
 {
     public          bool SkipOnBack { get; set; }
-    public abstract void Render(ITuiNavigator navigator);
+    public abstract Task RenderAsync(ITuiNavigator navigator);
 
     public virtual string GetRpcState()
     {

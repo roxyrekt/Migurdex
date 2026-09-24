@@ -81,12 +81,40 @@ public static class FuzzyPrompt
         return idx >= 0 ? idx : 0;
     }
 
+    private static string SelectedRowMarkup(FuzzyChoice choice, string query)
+    {
+        if (string.IsNullOrWhiteSpace(query))
+        {
+            return choice.DisplayActive;
+        }
+
+        return Theme.HighlightDisplay(choice.DisplayActive, query);
+    }
+
+    private static string UnselectedRowMarkup(FuzzyChoice choice, string query)
+    {
+        if (string.IsNullOrWhiteSpace(query))
+        {
+            return choice.Display;
+        }
+
+        return Theme.HighlightDisplay(choice.Display, query);
+    }
+
+    private static string FooterMarkup(int cursorIndex, int count, string? customHelp = null)
+    {
+        var pos = count > 1 ? $" • {cursorIndex + 1}/{count}" : "";
+        return $"[grey]{customHelp ?? "↑↓ gez • Enter seç • Esc geri • yazarak filtrele"}{pos}[/]";
+    }
+
     public static FuzzyChoice? Show(
-        string                   title,
-        IEnumerable<FuzzyChoice> choices,
-        int                      pageSize         = 15,
-        string?                  initialSelection = null,
-        IEnumerable<string>?     headerLines      = null)
+        string                      title,
+        IEnumerable<FuzzyChoice>    choices,
+        int                         pageSize          = 15,
+        string?                     initialSelection  = null,
+        IEnumerable<string>?        headerLines       = null,
+        Func<string, FuzzyChoice?>? pinnedRowProvider = null,
+        string?                     footerHelp        = null)
     {
         var choicesList     = choices.ToList();
         var headersList     = headerLines?.Where(h => !string.IsNullOrWhiteSpace(h)).ToList();
@@ -97,31 +125,28 @@ public static class FuzzyPrompt
         FuzzyChoice? result    = null;
         var          isRunning = true;
 
-        while (isRunning)
+        Grid BuildGrid(List<FuzzyChoice> filtered)
         {
-            var filtered = FuzzyMatcher.Rank(choicesList, query);
-
-            if (cursorIndex >= filtered.Count)
-            {
-                cursorIndex = Math.Max(0, filtered.Count - 1);
-            }
-
-            AnsiConsole.Clear();
-
             var grid = new Grid();
             grid.AddColumn();
 
-            grid.AddRow(new Markup($"[grey]~~[/] [bold cyan]{title.TrimEnd(':')}[/] [grey]~~[/]"));
+            var countSuffix = filtered.Count > 0
+                                  ? string.IsNullOrWhiteSpace(query)
+                                        ? $"  [grey]{filtered.Count} öğe[/]"
+                                        : $"  [grey]{filtered.Count} sonuç[/]"
+                                  : string.Empty;
+            grid.AddRow(new Markup($"[bold cyan]{Markup.Escape(title.TrimEnd(':'))}[/]{countSuffix}"));
             if (headersList != null)
             {
                 foreach (var header in headersList)
                 {
                     grid.AddRow(new Markup(header));
                 }
+
+                grid.AddRow(new Text(string.Empty));
             }
 
-            grid.AddRow(new Text(string.Empty));
-            grid.AddRow(new Markup($"[bold cyan]Filtre:[/] {FormatQueryWithCursor(query, textCursorIndex)}"));
+            grid.AddRow(new Markup($"[grey]Ara:[/] {FormatQueryWithCursor(query, textCursorIndex)}"));
             grid.AddRow(new Text(string.Empty));
 
             var startIdx = Math.Max(0, cursorIndex - (pageSize / 2));
@@ -136,28 +161,27 @@ public static class FuzzyPrompt
                 var choice = filtered[i];
                 if (i == cursorIndex)
                 {
-                    grid.AddRow(new Markup($"> {choice.DisplayActive}"));
+                    grid.AddRow(new Markup($"[bold cyan]›[/] {SelectedRowMarkup(choice, query)}"));
                 }
                 else
                 {
-                    grid.AddRow(new Markup($"  {choice.Display}"));
+                    grid.AddRow(new Markup($"  {UnselectedRowMarkup(choice, query)}"));
                 }
             }
 
             if (filtered.Count == 0)
             {
-                grid.AddRow(new Markup("  [red]Sonuç yok.[/]"));
+                grid.AddRow(new Markup("  [grey]Sonuç yok.[/]"));
             }
 
             grid.AddRow(new Text(string.Empty));
-            grid.AddRow(
-                new Markup(
-                    "[grey]Filtrele: [/] [bold white]Enter[/] [grey]Seç[/]  [bold white]Esc[/] [grey]Geri[/]"));
+            grid.AddRow(new Markup(FooterMarkup(cursorIndex, filtered.Count, footerHelp)));
 
-            AnsiConsole.Write(grid);
+            return grid;
+        }
 
-            var keyInfo = Console.ReadKey(true);
-
+        void HandleKey(ConsoleKeyInfo keyInfo, List<FuzzyChoice> filtered)
+        {
             if (IsWordDeleteKey(keyInfo))
             {
                 DeleteWordBeforeCursor(ref query, ref textCursorIndex);
@@ -226,6 +250,49 @@ public static class FuzzyPrompt
         }
 
         AnsiConsole.Clear();
+        AnsiConsole.Live(BuildGrid(FuzzyMatcher.Rank(choicesList, query)))
+                   .Start(ctx =>
+                   {
+                       var lastQuery      = "\0";
+                       var lastCursor     = -1;
+                       var lastTextCursor = -1;
+
+                       while (isRunning)
+                       {
+                           var filtered = FuzzyMatcher.Rank(choicesList, query);
+                           if (!string.IsNullOrWhiteSpace(query)
+                               && pinnedRowProvider?.Invoke(query.Trim()) is { } pinned)
+                           {
+                               filtered.Insert(0, pinned);
+                           }
+
+                           if (cursorIndex >= filtered.Count)
+                           {
+                               cursorIndex = Math.Max(0, filtered.Count - 1);
+                           }
+
+                           if (!query.Equals(lastQuery, StringComparison.Ordinal)
+                               || cursorIndex != lastCursor
+                               || textCursorIndex != lastTextCursor)
+                           {
+                               ctx.UpdateTarget(BuildGrid(filtered));
+                               lastQuery      = query;
+                               lastCursor     = cursorIndex;
+                               lastTextCursor = textCursorIndex;
+                           }
+
+                           if (Console.KeyAvailable)
+                           {
+                               HandleKey(Console.ReadKey(true), filtered);
+                           }
+                           else
+                           {
+                               Thread.Sleep(15);
+                           }
+                       }
+                   });
+
+        AnsiConsole.Clear();
         return result;
     }
 
@@ -236,11 +303,13 @@ public static class FuzzyPrompt
         FuzzyChoice                      cancelChoice,
         int                              pageSize         = 15,
         StreamScanStats?                 stats            = null,
-        string?                          initialSelection = null)
+        string?                          initialSelection = null,
+        IEnumerable<string>?             headerLines      = null)
     {
-        var rawItems   = new List<T>();
-        var isScanning = true;
-        var cts        = new CancellationTokenSource();
+        var rawItems    = new List<T>();
+        var headersList = headerLines?.Where(h => !string.IsNullOrWhiteSpace(h)).ToList();
+        var isScanning  = true;
+        var cts         = new CancellationTokenSource();
 
         var backgroundTask = Task.Run(async () =>
                                       {
@@ -282,6 +351,7 @@ public static class FuzzyPrompt
         var lastReceived = -1;
         var ticks        = 0;
 
+        AnsiConsole.Clear();
         AnsiConsole.Live(new Text("Yükleniyor..."))
                    .Start(ctx =>
                    {
@@ -349,15 +419,23 @@ public static class FuzzyPrompt
                                                       : string.Empty;
                                var status =
                                    isScanning
-                                       ? $"[yellow]{spinnerFrames[spinnerIdx]} Aranıyor...[/]{detailSuffix}"
-                                       : $"[green]OK[/]{detailSuffix}";
+                                       ? $"[yellow]{spinnerFrames[spinnerIdx]} Aranıyor...[/]"
+                                       : "[green]Bitti[/]";
 
-                               grid.AddRow(new Markup($"[grey]~~[/] [bold cyan]{title}[/] [grey]~~[/]"));
+                               grid.AddRow(new Markup($"[bold cyan]{Markup.Escape(title)}[/]{detailSuffix}"));
+                               if (headersList != null)
+                               {
+                                   foreach (var header in headersList)
+                                   {
+                                       grid.AddRow(new Markup(header));
+                                   }
+                               }
+
                                grid.AddRow(new Text(string.Empty));
                                grid.AddRow(new Markup(status));
                                grid.AddRow(new Text(string.Empty));
                                grid.AddRow(
-                                   new Markup($"[bold cyan]Arama:[/] {FormatQueryWithCursor(query, textCursorIndex)}"));
+                                   new Markup($"[grey]Ara:[/] {FormatQueryWithCursor(query, textCursorIndex)}"));
                                grid.AddRow(new Text(string.Empty));
 
                                var startIdx = Math.Max(0, cursorIndex - (pageSize / 2));
@@ -372,17 +450,17 @@ public static class FuzzyPrompt
                                    var choice = filtered[i];
                                    if (i == cursorIndex)
                                    {
-                                       grid.AddRow(new Markup($"> {choice.DisplayActive}"));
+                                       grid.AddRow(new Markup($"[bold cyan]›[/] {SelectedRowMarkup(choice, query)}"));
                                    }
                                    else
                                    {
-                                       grid.AddRow(new Markup($"  {choice.Display}"));
+                                       grid.AddRow(new Markup($"  {UnselectedRowMarkup(choice, query)}"));
                                    }
                                }
 
                                if (filtered.Count == 0)
                                {
-                                   grid.AddRow(new Markup("  [red]Sonuç yok.[/]"));
+                                   grid.AddRow(new Markup("  [grey]Sonuç yok.[/]"));
                                }
 
                                if (!isScanning && errorCount > 0)
@@ -393,7 +471,7 @@ public static class FuzzyPrompt
                                grid.AddRow(new Text(string.Empty));
                                grid.AddRow(
                                    new Markup(
-                                       "[grey]Filtrele: [/] [bold white]Enter[/] [grey]Seç[/]  [bold white]Esc[/] [grey]Geri[/]"));
+                                       "[grey]↑↓ gez • Enter seç • Esc geri • yazarak filtrele[/]"));
 
                                ctx.UpdateTarget(grid);
 

@@ -21,78 +21,55 @@ public class SearchView : BaseView
         return "Arama";
     }
 
-    public override void Render(ITuiNavigator navigator)
+    public override Task RenderAsync(ITuiNavigator navigator)
     {
         var searchHistory = _historyService.GetSearchHistory();
-        var choices = new List<FuzzyChoice>
-        {
-            new()
-            {
-                Display       = "[silver]Arama yap...[/]",
-                DisplayActive = "[bold white]Arama yap...[/]",
-                Searchable    = "Arama yap..."
-            }
-        };
-        choices.AddRange(searchHistory.Select(q => new FuzzyChoice
-        {
-            Display       = $"[silver]{Markup.Escape(q)}[/]",
-            DisplayActive = $"[bold white]{Markup.Escape(q)}[/]",
-            Searchable    = q
-        }));
+        var choices       = searchHistory.Select(q => Theme.MenuItem(q)).ToList();
 
         if (searchHistory.Count > 0)
         {
-            choices.Add(new FuzzyChoice
-            {
-                Display       = "[grey]Geçmişi Yönet...[/]",
-                DisplayActive = "[bold yellow]Geçmişi Yönet...[/]",
-                Searchable    = "Geçmişi Yönet..."
-            });
+            choices.Add(TuiHelpers.ManageHistory());
         }
 
-        choices.Add(new FuzzyChoice
-        {
-            Display       = "[red]Geri[/]",
-            DisplayActive = "[bold red]Geri[/]",
-            Searchable    = "Geri"
-        });
+        choices.Add(TuiHelpers.Back());
 
-        var preChoice = FuzzyPrompt.Show("Arama", choices, initialSelection: _lastSelectedSearchable);
+        var historyEmpty = searchHistory.Count == 0;
+        var preChoice = FuzzyPrompt.Show("Arama",
+                                         choices,
+                                         initialSelection: _lastSelectedSearchable,
+                                         headerLines: historyEmpty
+                                                          ? ["[grey]Aramak için yazmaya başla, Enter ile ara[/]"]
+                                                          : null,
+                                         pinnedRowProvider: TuiHelpers.DirectSearchRow,
+                                         footerHelp: historyEmpty ? "Yaz + Enter: ara • Esc: geri" : null);
+
+        if (preChoice?.AssociatedValue is string directQuery)
+        {
+            _historyService.AddSearchQuery(directQuery);
+            PushResults(navigator, directQuery);
+            return Task.CompletedTask;
+        }
 
         if (preChoice == null || preChoice.Searchable == "Geri")
         {
             navigator.Pop();
-            return;
+            return Task.CompletedTask;
         }
 
         if (preChoice.Searchable == "Geçmişi Yönet...")
         {
             ShowManageHistory();
-            return;
+            return Task.CompletedTask;
         }
 
         _lastSelectedSearchable = preChoice.Searchable;
 
-        string query;
-        if (preChoice.Searchable == "Arama yap...")
-        {
-            AnsiConsole.Clear();
-            AnsiConsole.MarkupLine("[grey]~~[/] [bold cyan]Anime Arama[/] [grey]~~[/]");
-            AnsiConsole.WriteLine();
-            query = AnsiConsole.Ask<string>("[bold cyan]Anime Adı:[/] ").Trim();
-            if (string.IsNullOrWhiteSpace(query))
-            {
-                navigator.Pop();
-                return;
-            }
+        PushResults(navigator, preChoice.Searchable);
+        return Task.CompletedTask;
+    }
 
-            _historyService.AddSearchQuery(query);
-        }
-        else
-        {
-            query = preChoice.Searchable;
-        }
-
+    private void PushResults(ITuiNavigator navigator, string query)
+    {
         var resultsView = (SearchResultsView) _serviceProvider.GetService(typeof(SearchResultsView))!;
         resultsView.SetTarget(query);
         navigator.Push(resultsView);
@@ -108,27 +85,14 @@ public class SearchView : BaseView
                 return;
             }
 
-            var choices = searchHistory.Select(q => new FuzzyChoice
-                                       {
-                                           Display       = $"[silver]{Markup.Escape(q)}[/]",
-                                           DisplayActive = $"[bold red]Sil:[/] [bold white]{Markup.Escape(q)}[/]",
-                                           Searchable    = q
-                                       })
-                                       .ToList();
+            var choices = searchHistory
+                          .Select(q => Theme.MenuItemMarkup(q,
+                                                            $"{Markup.Escape(q)}",
+                                                            $"[red]Sil:[/] {Markup.Escape(q)}"))
+                          .ToList();
 
-            choices.Add(new FuzzyChoice
-            {
-                Display       = "[red]Tümünü Temizle[/]",
-                DisplayActive = "[bold red reverse]Tümünü Temizle[/]",
-                Searchable    = "Tümünü Temizle"
-            });
-
-            choices.Add(new FuzzyChoice
-            {
-                Display       = "[red]Geri[/]",
-                DisplayActive = "[bold red]Geri[/]",
-                Searchable    = "Geri"
-            });
+            choices.Add(TuiHelpers.ClearAll());
+            choices.Add(TuiHelpers.Back());
 
             var choice = FuzzyPrompt.Show("Arama Geçmişi", choices);
 
@@ -139,7 +103,7 @@ public class SearchView : BaseView
 
             if (choice.Searchable == "Tümünü Temizle")
             {
-                if (AnsiConsole.Confirm("[bold red]Tüm arama geçmişi silinsin mi?[/]"))
+                if (Theme.Confirm("[red]Tüm arama geçmişi silinsin mi?[/]"))
                 {
                     _historyService.ClearSearchHistory();
                     _lastSelectedSearchable = null;

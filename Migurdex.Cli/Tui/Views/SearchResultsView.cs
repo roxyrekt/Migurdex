@@ -35,21 +35,22 @@ public class SearchResultsView : BaseView
         return string.IsNullOrEmpty(q) ? "Arama" : $"Arama: {q}";
     }
 
-    public override void Render(ITuiNavigator navigator)
+    public override Task RenderAsync(ITuiNavigator navigator)
     {
         if (string.IsNullOrWhiteSpace(_query))
         {
             navigator.Pop();
-            return;
+            return Task.CompletedTask;
         }
 
         if (!_scanned)
         {
             ShowLiveResults(navigator);
-            return;
+            return Task.CompletedTask;
         }
 
         ShowStaticResults(navigator);
+        return Task.CompletedTask;
     }
 
     private List<FuzzyChoice> FormatSearchResults(List<SearchResult?> rawList)
@@ -72,17 +73,23 @@ public class SearchResultsView : BaseView
             var idx     = i + 1;
             var idxText = $"#{idx}".PadRight(maxIdxWidth + 1);
 
-            var isMovie          = r.Format == ContentFormat.Movie || AnimeDetails.IsMovieTitle(r.Title);
-            var movieBadge       = isMovie ? " [darkorange3][[Film]][/]" : "";
-            var activeMovieBadge = isMovie ? " [bold darkorange][[Film]][/]" : "";
-            var movieSearchable  = isMovie ? " [Film]" : "";
+            var isMovie  = r.Format == ContentFormat.Movie || AnimeDetails.IsMovieTitle(r.Title);
+            var isSeries = !isMovie && r.Format == ContentFormat.Tv;
+            var formatBadge = isMovie
+                                  ? $" {Theme.Badge("Film", "yellow")}"
+                                  : isSeries
+                                      ? $" {Theme.Badge("Dizi", "grey")}"
+                                      : "";
+            var movieSearchable = isMovie ? " [Film]" : "";
+            var scoreBadge      = r.Score is > 0 ? $" [yellow]★ {r.Score.Value:F1}[/]" : "";
 
+            var title = Theme.Ellipsize(r.Title, 52);
             selectList.Add(new FuzzyChoice
             {
                 Display =
-                    $"[grey]{idxText}[/] [silver]{Markup.Escape(r.Title)} ({r.Year ?? "-"}) ({Markup.Escape(r.ProviderName)})[/]{movieBadge}",
+                    $"[grey]{idxText}[/] {Markup.Escape(title)}{scoreBadge} [grey]({Markup.Escape(r.Year ?? "-")} • {Markup.Escape(r.ProviderName)})[/]{formatBadge}",
                 DisplayActive =
-                    $"[bold pink1]{idxText}[/] [bold white]{Markup.Escape(r.Title)}[/] [bold gold1]({Markup.Escape(r.Year ?? "-")})[/] [bold mediumpurple1]({Markup.Escape(r.ProviderName)})[/]{activeMovieBadge}",
+                    $"[bold white]{Markup.Escape(title)}[/]{scoreBadge} [grey]({Markup.Escape(r.Year ?? "-")} • {Markup.Escape(r.ProviderName)})[/]{formatBadge}",
                 Searchable      = $"{idxText} - {r.Title} ({r.Year ?? "-"}) ({r.ProviderName}){movieSearchable}",
                 AssociatedValue = r
             });
@@ -125,19 +132,15 @@ public class SearchResultsView : BaseView
         var stream       = _apiClient.SearchAnimeStreamAsync(_query!, stats: scanStats);
         var mappedStream = stream.Select(item => item.Data).Where(data => data != null);
 
-        var cancelChoice = new FuzzyChoice
-        {
-            Display       = "[red]Geri[/]",
-            DisplayActive = "[bold red]Geri[/]",
-            Searchable    = "Geri"
-        };
+        var cancelChoice = TuiHelpers.Back();
 
         var promptResult =
-            FuzzyPrompt.ShowDynamic($"Sonuçlar: {_query}",
+            FuzzyPrompt.ShowDynamic("Sonuçlar",
                                     mappedStream,
                                     FormatSearchResults,
                                     cancelChoice,
-                                    stats: scanStats);
+                                    stats: scanStats,
+                                    headerLines: [$"[grey]{Markup.Escape(_query!.Trim())}[/]"]);
         var selection = promptResult?.Selection;
 
         _scanned = true;
@@ -159,17 +162,20 @@ public class SearchResultsView : BaseView
     private void ShowStaticResults(ITuiNavigator navigator)
     {
         var cachedChoices = FormatSearchResults(_items);
-        cachedChoices.Insert(0,
-                             new FuzzyChoice
-                             {
-                                 Display       = "[yellow]Yeni Arama[/]",
-                                 DisplayActive = "[bold yellow]Yeni Arama[/]",
-                                 Searchable    = "Yeni Arama"
-                             });
+        cachedChoices.Insert(0, TuiHelpers.NewSearch());
 
-        var cachedSelection = FuzzyPrompt.Show($"Sonuçlar: {_query}",
+        var cachedSelection = FuzzyPrompt.Show("Sonuçlar",
                                                cachedChoices,
-                                               initialSelection: _lastSelectedSearchable);
+                                               initialSelection: _lastSelectedSearchable,
+                                               headerLines: [$"[grey]{Markup.Escape(_query!.Trim())}[/]"],
+                                               pinnedRowProvider: TuiHelpers.DirectSearchRow);
+
+        if (cachedSelection?.AssociatedValue is string newQuery)
+        {
+            SetTarget(newQuery);
+            navigator.Replace(this);
+            return;
+        }
 
         if (cachedSelection == null || cachedSelection.Searchable == "Yeni Arama")
         {

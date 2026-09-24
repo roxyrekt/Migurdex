@@ -22,14 +22,14 @@ public static class ReorderPrompt
         int? grabbedIdx   = null;
         var  isRunning    = true;
 
-        while (isRunning)
-        {
-            AnsiConsole.Clear();
+        List<ReorderItem>? result = null;
 
+        Grid BuildGrid()
+        {
             var grid = new Grid();
             grid.AddColumn();
 
-            grid.AddRow(new Markup($"[grey]~~[/] [bold cyan]{title}[/] [grey]~~[/]"));
+            grid.AddRow(new Markup($"[bold cyan]{Markup.Escape(title)}[/]"));
             grid.AddRow(new Text(string.Empty));
 
             for (var i = 0; i < list.Count; i++)
@@ -45,12 +45,12 @@ public static class ReorderPrompt
                 {
                     if (isGrabbed)
                     {
-                        prefix       = "[bold gold1] 🤝 > [/]";
-                        contentStyle = "bold gold1 reverse";
+                        prefix       = "[bold yellow] 🤝 › [/]";
+                        contentStyle = "bold yellow reverse";
                     }
                     else
                     {
-                        prefix       = "[bold pink1]  >  [/]";
+                        prefix       = "[bold cyan]  ›  [/]";
                         contentStyle = "bold white";
                     }
                 }
@@ -58,8 +58,8 @@ public static class ReorderPrompt
                 {
                     if (isGrabbed)
                     {
-                        prefix       = "[bold gold1] 🤝   [/]";
-                        contentStyle = "bold gold1";
+                        prefix       = "[bold yellow] 🤝   [/]";
+                        contentStyle = "bold yellow";
                     }
                     else
                     {
@@ -72,15 +72,16 @@ public static class ReorderPrompt
             }
 
             grid.AddRow(new Text(string.Empty));
-            grid.AddRow(new Markup("[grey]~~ Kontroller ~~[/]"));
+            grid.AddRow(new Markup("[grey]Kontroller[/]"));
             grid.AddRow(
                 new Markup(
-                    " [bold pink1]↑/↓[/] [grey]Gezin / Taşı ·[/] [bold gold1]Space[/] [grey]Elemanı Tut / Bırak ·[/] [bold green]Enter[/] [grey]Kaydet ·[/] [bold red]Esc[/] [grey]İptal[/]"));
+                    " [cyan]↑/↓[/] [grey]gezin/taşı •[/] [cyan]Space[/] [grey]tut/bırak •[/] [cyan]Enter[/] [grey]kaydet •[/] [cyan]Esc[/] [grey]iptal[/]"));
 
-            AnsiConsole.Write(grid);
+            return grid;
+        }
 
-            var keyInfo = Console.ReadKey(true);
-
+        void HandleKey(ConsoleKeyInfo keyInfo)
+        {
             switch (keyInfo.Key)
             {
                 case ConsoleKey.UpArrow:
@@ -143,16 +144,48 @@ public static class ReorderPrompt
                     }
                     else
                     {
-                        return list;
+                        result    = list;
+                        isRunning = false;
                     }
 
                     break;
 
                 case ConsoleKey.Escape:
-                    return null;
+                    result    = null;
+                    isRunning = false;
+                    break;
             }
         }
 
-        return null;
+        string Fingerprint() =>
+            string.Join("\n", list.Select(i => i.Key)) + "|" + highlightIdx + "|" + (grabbedIdx?.ToString() ?? "-");
+
+        AnsiConsole.Clear();
+        AnsiConsole.Live(BuildGrid())
+                   .Start(ctx =>
+                   {
+                       var last = string.Empty;
+                       while (isRunning)
+                       {
+                           var fp = Fingerprint();
+                           if (!fp.Equals(last, StringComparison.Ordinal))
+                           {
+                               ctx.UpdateTarget(BuildGrid());
+                               last = fp;
+                           }
+
+                           if (Console.KeyAvailable)
+                           {
+                               HandleKey(Console.ReadKey(true));
+                           }
+                           else
+                           {
+                               Thread.Sleep(15);
+                           }
+                       }
+                   });
+
+        AnsiConsole.Clear();
+        return result;
     }
 }

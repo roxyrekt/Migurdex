@@ -38,7 +38,7 @@ public class WatchHistoryView : BaseView
 
         if (filledBlocks > 0)
         {
-            return $"[pink1]{filled[..^1]}╸[/][grey]{empty}[/]";
+            return $"[cyan]{filled[..^1]}╸[/][grey]{empty}[/]";
         }
 
         return $"[grey]{empty}[/]";
@@ -84,7 +84,7 @@ public class WatchHistoryView : BaseView
         return "Geçmiş";
     }
 
-    public override void Render(ITuiNavigator navigator)
+    public override async Task RenderAsync(ITuiNavigator navigator)
     {
         var historyRunning = true;
 
@@ -95,20 +95,16 @@ public class WatchHistoryView : BaseView
             if (fullHistory.Count == 0)
             {
                 FuzzyPrompt.Show("Geçmiş",
-                [
-                    new FuzzyChoice
-                    {
-                        Display       = "[grey]Henüz izleme geçmişi yok.[/]",
-                        DisplayActive = "[grey]Henüz izleme geçmişi yok.[/]",
-                        Searchable    = "Henüz izleme geçmişi yok"
-                    },
-                    new FuzzyChoice
-                    {
-                        Display       = "[red]Geri[/]",
-                        DisplayActive = "[bold red]Geri[/]",
-                        Searchable    = "Geri"
-                    }
-                ]);
+                                 [
+                                     new FuzzyChoice
+                                     {
+                                         Display       = "[grey]Henüz izleme geçmişi yok.[/]",
+                                         DisplayActive = "[grey]Henüz izleme geçmişi yok.[/]",
+                                         Searchable    = "Henüz izleme geçmişi yok"
+                                     },
+                                     TuiHelpers.Back()
+                                 ],
+                                 headerLines: ["[grey]İzlediğin bölümler burada listelenir[/]"]);
                 navigator.Pop();
                 return;
             }
@@ -116,19 +112,8 @@ public class WatchHistoryView : BaseView
             var groupedHistory = GetGroupedHistory(fullHistory);
             var choices        = BuildHistoryChoices(groupedHistory);
 
-            choices.Add(new FuzzyChoice
-            {
-                Display       = "[grey]Geçmişi Yönet...[/]",
-                DisplayActive = "[bold yellow]Geçmişi Yönet...[/]",
-                Searchable    = "Geçmişi Yönet..."
-            });
-
-            choices.Add(new FuzzyChoice
-            {
-                Display       = "[red]Geri[/]",
-                DisplayActive = "[bold red]Geri[/]",
-                Searchable    = "Geri"
-            });
+            choices.Add(TuiHelpers.ManageHistory());
+            choices.Add(TuiHelpers.Back());
 
             var choice = FuzzyPrompt.Show("Geçmiş", choices, initialSelection: _lastSelectedSearchable);
 
@@ -158,7 +143,7 @@ public class WatchHistoryView : BaseView
             }
 
             _lastSelectedSearchable = choice.Searchable;
-            ResumePlayback(navigator, selectedHistory);
+            await ResumePlaybackAsync(navigator, selectedHistory);
             historyRunning = false;
             return;
         }
@@ -206,14 +191,14 @@ public class WatchHistoryView : BaseView
                                      config.DisabledProviders.Contains(
                                          h.ProviderName,
                                          StringComparer.OrdinalIgnoreCase);
-                                 var providerSuffix = isDisabled ? " [red][[!]][/]" : "";
+                                 var providerSuffix = TuiHelpers.DisabledBadge(isDisabled);
 
                                  return new FuzzyChoice
                                  {
                                      Display =
-                                         $"[grey]{idxText}[/] [silver]{Markup.Escape(paddedTitle)}[/]  {bar}  [grey]{Markup.Escape(epText)} ({progressPercent})  |  {Markup.Escape(h.ProviderName)}{providerSuffix}[/]",
+                                         $"[grey]{idxText}[/] {Markup.Escape(paddedTitle)}  {bar}  [grey]{Markup.Escape(epText)} ({progressPercent}) • {Markup.Escape(h.ProviderName)}[/]{providerSuffix}",
                                      DisplayActive =
-                                         $"[bold pink1]{idxText}[/] [bold white]{Markup.Escape(paddedTitle)}[/]  {bar}  [bold gold1]{Markup.Escape(epText)}[/] [grey]({progressPercent})[/]  [bold mediumpurple1]|  {Markup.Escape(h.ProviderName)}[/]{providerSuffix}",
+                                         $"[bold white]{Markup.Escape(paddedTitle)}[/]  {bar}  [grey]{Markup.Escape(epText)} ({progressPercent}) • {Markup.Escape(h.ProviderName)}[/]{providerSuffix}",
                                      Searchable      = $"{idxText} - {h.AnimeTitle} ({epText})",
                                      AssociatedValue = h
                                  };
@@ -221,7 +206,7 @@ public class WatchHistoryView : BaseView
                              .ToList();
     }
 
-    private void ResumePlayback(ITuiNavigator navigator, WatchHistoryEntry selectedHistory)
+    private async Task ResumePlaybackAsync(ITuiNavigator navigator, WatchHistoryEntry selectedHistory)
     {
         var epNumParsed = selectedHistory.EpisodeNumber;
         if (epNumParsed == 0)
@@ -246,11 +231,9 @@ public class WatchHistoryView : BaseView
         try
         {
             var apiClient = (IApiClientService) _serviceProvider.GetService(typeof(IApiClientService))!;
-            details = apiClient
-                      .GetAnimeDetailsAsync(selectedHistory.ProviderName, selectedHistory.AnimeId)
-                      .GetAwaiter()
-                      .GetResult()
-                      .Data;
+            details = (await apiClient
+                           .GetAnimeDetailsAsync(selectedHistory.ProviderName, selectedHistory.AnimeId))
+                .Data;
 
             if (details is { Episodes.Count: > 0 })
             {
@@ -297,18 +280,8 @@ public class WatchHistoryView : BaseView
             }
 
             var choices = BuildHistoryChoices(groupedHistory);
-            choices.Add(new FuzzyChoice
-            {
-                Display       = "[red]Tümünü Temizle[/]",
-                DisplayActive = "[bold red reverse]Tümünü Temizle[/]",
-                Searchable    = "Tümünü Temizle"
-            });
-            choices.Add(new FuzzyChoice
-            {
-                Display       = "[red]Geri[/]",
-                DisplayActive = "[bold red]Geri[/]",
-                Searchable    = "Geri"
-            });
+            choices.Add(TuiHelpers.ClearAll());
+            choices.Add(TuiHelpers.Back());
 
             var choice = FuzzyPrompt.Show("Geçmişi Yönet", choices, initialSelection: manageSelected);
 
@@ -319,7 +292,7 @@ public class WatchHistoryView : BaseView
 
             if (choice.Searchable == "Tümünü Temizle")
             {
-                if (AnsiConsole.Confirm("[bold red]Tüm izleme geçmişi silinsin mi?[/]"))
+                if (Theme.Confirm("[red]Tüm izleme geçmişi silinsin mi?[/]"))
                 {
                     _historyService.ClearWatchHistory();
                     _lastSelectedSearchable = null;
@@ -339,28 +312,19 @@ public class WatchHistoryView : BaseView
 
             var actionChoice = FuzzyPrompt.Show(selectedHistory.AnimeTitle,
                                                 [
-                                                    new FuzzyChoice
-                                                    {
-                                                        Display       = "[silver]Detaylar[/]",
-                                                        DisplayActive = "[bold white]Detaylar[/]",
-                                                        Searchable    = "Detaylar"
-                                                    },
-                                                    new FuzzyChoice
-                                                    {
-                                                        Display       = "[red]Kayıttan Sil[/]",
-                                                        DisplayActive = "[bold red]Kayıttan Sil[/]",
-                                                        Searchable    = "Sil"
-                                                    },
-                                                    new FuzzyChoice
-                                                    {
-                                                        Display       = "[silver]Geri[/]",
-                                                        DisplayActive = "[bold white]Geri[/]",
-                                                        Searchable    = "Geri"
-                                                    }
+                                                    Theme.AsAction(Theme.MenuItem("Detaylar")),
+                                                    Theme.AsAction(
+                                                        Theme.MenuItemMarkup(
+                                                            "Sil",
+                                                            "[red]Kayıttan sil[/]",
+                                                            "[bold white]Kayıttan sil[/]")),
+                                                    TuiHelpers.Back()
                                                 ],
                                                 headerLines:
                                                 [
-                                                    $"[grey]Sağlayıcı:[/] [bold mediumpurple1]{Markup.Escape(selectedHistory.ProviderName)}[/]  [grey]•[/]  [grey]Son:[/] [bold gold1]{GetFormattedEpisodeText(selectedHistory)}[/]"
+                                                    TuiHelpers.MetaLine(
+                                                        TuiHelpers.ProviderLine(selectedHistory.ProviderName),
+                                                        $"[grey]Son:[/] {Markup.Escape(GetFormattedEpisodeText(selectedHistory))}")
                                                 ]);
 
             if (actionChoice == null || actionChoice.Searchable == "Geri")

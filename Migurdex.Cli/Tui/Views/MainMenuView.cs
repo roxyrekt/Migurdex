@@ -1,9 +1,14 @@
+using Migurdex.Cli.Services;
+using Migurdex.Shared.Update;
+using Spectre.Console;
+
 namespace Migurdex.Cli.Tui.Views;
 
 public class MainMenuView : BaseView
 {
     private readonly IServiceProvider _serviceProvider;
-    private          string?          _lastSelectedSearchable;
+
+    private string? _lastSelectedSearchable;
 
     public MainMenuView(IServiceProvider serviceProvider)
     {
@@ -15,43 +20,21 @@ public class MainMenuView : BaseView
         return "Ana Menü";
     }
 
-    public override void Render(ITuiNavigator navigator)
+    public override async Task RenderAsync(ITuiNavigator navigator)
     {
         var menuChoices = new List<FuzzyChoice>
         {
-            new()
-            {
-                Display       = "[silver]Arama[/]",
-                DisplayActive = "[bold white]Arama[/]",
-                Searchable    = "Arama"
-            },
-            new()
-            {
-                Display       = "[silver]Favoriler[/]",
-                DisplayActive = "[bold white]Favoriler[/]",
-                Searchable    = "Favoriler"
-            },
-            new()
-            {
-                Display       = "[silver]Geçmiş[/]",
-                DisplayActive = "[bold white]Geçmiş[/]",
-                Searchable    = "Geçmiş"
-            },
-            new()
-            {
-                Display       = "[silver]Ayarlar[/]",
-                DisplayActive = "[bold white]Ayarlar[/]",
-                Searchable    = "Ayarlar"
-            },
-            new()
-            {
-                Display       = "[red]Çıkış[/]",
-                DisplayActive = "[bold red]Çıkış[/]",
-                Searchable    = "Çıkış"
-            }
+            Theme.MenuItem("Arama"),
+            Theme.MenuItem("Favoriler"),
+            Theme.MenuItem("Geçmiş"),
+            Theme.MenuItem("Ayarlar"),
+            Theme.BackChoice("Çıkış")
         };
 
-        var choice = FuzzyPrompt.Show("Migurdex Terminal", menuChoices, initialSelection: _lastSelectedSearchable);
+        var choice = FuzzyPrompt.Show("Migurdex",
+                                      menuChoices,
+                                      initialSelection: _lastSelectedSearchable,
+                                      headerLines: await BuildStatusLinesAsync());
 
         if (choice == null || choice.Searchable == "Çıkış")
         {
@@ -76,5 +59,32 @@ public class MainMenuView : BaseView
                 navigator.Push((BaseView) _serviceProvider.GetService(typeof(SettingsView))!);
                 break;
         }
+    }
+
+    private async Task<List<string>> BuildStatusLinesAsync()
+    {
+        var lines = new List<string>
+        {
+            AppInfo.IsDevBuild ? "[grey]dev[/]" : $"[grey]v{Markup.Escape(AppInfo.GetVersion())}[/]"
+        };
+
+        try
+        {
+            var api = _serviceProvider.GetService(typeof(IApiClientService)) as IApiClientService;
+            if (api is not null)
+            {
+                var providers = await api.GetProvidersAsync();
+                if (providers.IsSuccess)
+                {
+                    lines.Add($"[grey]{providers.Data.Count} sağlayıcı[/]");
+                }
+            }
+        }
+        catch
+        {
+            // ignored
+        }
+
+        return lines;
     }
 }

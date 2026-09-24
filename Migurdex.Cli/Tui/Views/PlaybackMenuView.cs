@@ -7,8 +7,9 @@ namespace Migurdex.Cli.Tui.Views;
 
 public class PlaybackMenuView : BaseView
 {
-    private readonly IMpvPlayerService _playerService;
-    private readonly IServiceProvider  _serviceProvider;
+    private readonly PlaybackOrchestrator _playback;
+    private readonly IMpvPlayerService    _playerService;
+    private readonly IServiceProvider     _serviceProvider;
 
     private List<Episode>      _allEpisodes = [];
     private string?            _animeId;
@@ -21,9 +22,12 @@ public class PlaybackMenuView : BaseView
     private VideoSource?       _selectedSource;
     private SyncOutcome?       _syncOutcome;
 
-    public PlaybackMenuView(IMpvPlayerService playerService, IServiceProvider serviceProvider)
+    public PlaybackMenuView(IMpvPlayerService playerService,
+        PlaybackOrchestrator                  playback,
+        IServiceProvider                      serviceProvider)
     {
         _playerService   = playerService;
+        _playback        = playback;
         _serviceProvider = serviceProvider;
     }
 
@@ -68,7 +72,7 @@ public class PlaybackMenuView : BaseView
         return string.IsNullOrEmpty(title) ? "İzleme Sonrası" : $"{title}{episodeInfoStr}";
     }
 
-    public override void Render(ITuiNavigator navigator)
+    public override async Task RenderAsync(ITuiNavigator navigator)
     {
         if (string.IsNullOrEmpty(_provider)
             || string.IsNullOrEmpty(_animeId)
@@ -90,7 +94,10 @@ public class PlaybackMenuView : BaseView
         var selectedSource = _selectedSource;
         var historyEntry   = _historyEntry;
 
-        var headerLines  = new List<string>();
+        var headerLines = new List<string>
+        {
+            $"[grey]{Markup.Escape(TuiHelpers.EllipsizedTitle(animeTitle))} › {Markup.Escape(TuiHelpers.FormatEpisodeRef(episode))}[/]"
+        };
         var progressLine = FormatProgressLine(historyEntry);
         if (progressLine is not null)
         {
@@ -127,13 +134,9 @@ public class PlaybackMenuView : BaseView
                                     ? ""
                                     : $" - {Markup.Escape(nextEpisode.Title)}";
 
-            menuChoices.Add(new FuzzyChoice
-            {
-                Display = $"[bold green]Sonraki Bölüm[/] [silver]({nextEpLabel})[/]",
-                DisplayActive =
-                    $"[bold green]Sonraki Bölüm[/] [bold white]({nextEpLabel}{nextTitlePart})[/]",
-                Searchable = "Sonraki Bölüm"
-            });
+            menuChoices.Add(Theme.AsAction(Theme.MenuItemMarkup("Sonraki Bölüm",
+                                                                $"Sonraki bölüm [grey]({Markup.Escape(nextEpLabel)})[/]",
+                                                                $"[bold white]Sonraki bölüm ({Markup.Escape(nextEpLabel)}{nextTitlePart})[/]")));
         }
 
         if (prevEpisode != null)
@@ -145,42 +148,22 @@ public class PlaybackMenuView : BaseView
                                     ? ""
                                     : $" - {Markup.Escape(prevEpisode.Title)}";
 
-            menuChoices.Add(new FuzzyChoice
-            {
-                Display = $"[silver]Önceki Bölüm[/] [grey]({prevEpLabel})[/]",
-                DisplayActive =
-                    $"[bold white]Önceki Bölüm[/] [bold white]({prevEpLabel}{prevTitlePart})[/]",
-                Searchable = "Önceki Bölüm"
-            });
+            menuChoices.Add(Theme.AsAction(Theme.MenuItemMarkup("Önceki Bölüm",
+                                                                $"Önceki bölüm [grey]({Markup.Escape(prevEpLabel)})[/]",
+                                                                $"[bold white]Önceki bölüm ({Markup.Escape(prevEpLabel)}{prevTitlePart})[/]")));
         }
 
-        menuChoices.Add(new FuzzyChoice
-        {
-            Display       = "[silver]Kaynağı Değiştir[/] [grey](Farklı Oynatıcı/Çözünürlük Seç)[/]",
-            DisplayActive = "[bold white]Kaynağı Değiştir[/] [bold gold1](Farklı Oynatıcı/Çözünürlük Seç)[/]",
-            Searchable    = "Kaynağı Değiştir"
-        });
+        menuChoices.Add(Theme.AsAction(Theme.MenuItem("Kaynağı Değiştir")));
 
         var resumeSeconds = historyEntry.LastPositionSeconds;
         var replayLabel = resumeSeconds > 0
                               ? $"Devam Et ({FormatTimestamp(resumeSeconds)})"
                               : "Baştan İzle";
-        menuChoices.Add(new FuzzyChoice
-        {
-            Display       = $"[silver]{Markup.Escape(replayLabel)}[/]",
-            DisplayActive = $"[bold white]{Markup.Escape(replayLabel)}[/]",
-            Searchable    = "Tekrar İzle"
-        });
+        menuChoices.Add(Theme.AsAction(Theme.MenuItem("Tekrar İzle", replayLabel)));
 
-        menuChoices.Add(new FuzzyChoice
-        {
-            Display       = "[red]Bölüm Listesi[/]",
-            DisplayActive = "[bold red]Bölüm Listesi[/]",
-            Searchable    = "Bölüm Listesi"
-        });
+        menuChoices.Add(Theme.AsAction(Theme.MenuItem("Bölüm Listesi")));
 
-        var promptTitle = $"İzleme Sonrası: {animeTitle}";
-        var choice = FuzzyPrompt.Show(promptTitle,
+        var choice = FuzzyPrompt.Show("İzleme sonrası",
                                       menuChoices,
                                       initialSelection: _lastSelectedSearchable,
                                       headerLines: headerLines);
@@ -223,25 +206,8 @@ public class PlaybackMenuView : BaseView
         }
         else if (choice.Searchable == "Tekrar İzle")
         {
-            AnsiConsole.MarkupLine("[green]OK:[/] Tekrar başlatılıyor...");
-            SyncOutcome? syncOutcome = null;
-            AnsiConsole.Status()
-                       .Spinner(Spinner.Known.Dots)
-                       .Start("Hazırlanıyor...",
-                              ctx =>
-                              {
-                                  syncOutcome = _playerService
-                                                .PlayAsync(selectedSource.Url,
-                                                           historyEntry,
-                                                           selectedSource.Headers,
-                                                           selectedSource.Subtitles)
-                                                .GetAwaiter()
-                                                .GetResult();
-                              });
-            _syncOutcome = syncOutcome;
-            SyncAmbiguityPrompt.HandleAfterPlayback(_serviceProvider,
-                                                    syncOutcome ?? new SyncOutcome());
-            SyncAmbiguityPrompt.ShowPlaybackNotification(syncOutcome ?? new SyncOutcome());
+            AnsiConsole.MarkupLine("[green]✓[/] Tekrar başlatılıyor...");
+            _syncOutcome = await _playback.PlayAndNotifyAsync(selectedSource, historyEntry, false);
         }
     }
 

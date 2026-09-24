@@ -12,6 +12,7 @@ public class EpisodeSourcesView : BaseView
     private readonly IApiClientService     _apiClient;
     private readonly IConfigurationService _configService;
     private readonly IHistoryService       _historyService;
+    private readonly PlaybackOrchestrator  _playback;
     private readonly IMpvPlayerService     _playerService;
     private readonly IServiceProvider      _serviceProvider;
     private          List<Episode>         _allEpisodes = [];
@@ -30,12 +31,14 @@ public class EpisodeSourcesView : BaseView
         IMpvPlayerService     playerService,
         IHistoryService       historyService,
         IConfigurationService configService,
+        PlaybackOrchestrator  playback,
         IServiceProvider      serviceProvider)
     {
         _apiClient       = apiClient;
         _playerService   = playerService;
         _historyService  = historyService;
         _configService   = configService;
+        _playback        = playback;
         _serviceProvider = serviceProvider;
     }
 
@@ -73,30 +76,24 @@ public class EpisodeSourcesView : BaseView
     {
         var sorted = SourceSelector.SortVideoSources(rawList, config);
 
-        var maxIdxWidth = sorted.Count > 0 ? sorted.Count.ToString().Length : 1;
-        var maxGroup    = sorted.Count > 0 ? sorted.Max(s => (s.Group ?? "Bilinmeyen Fansub").Length) : 0;
-        var maxHoster   = sorted.Count > 0 ? sorted.Max(s => (s.Hoster ?? "Bilinmeyen Oynatıcı").Length) : 0;
-        var maxQuality  = sorted.Count > 0 ? sorted.Max(s => (s.Quality ?? "Auto").Length) : 0;
-
         var selectList = new List<FuzzyChoice>();
         for (var i = 0; i < sorted.Count; i++)
         {
-            var src         = sorted[i];
-            var groupText   = (src.Group ?? "Bilinmeyen Fansub").PadRight(maxGroup);
-            var hosterText  = (src.Hoster ?? "Bilinmeyen Oynatıcı").PadRight(maxHoster);
-            var qualityText = (src.Quality ?? "Auto").PadRight(maxQuality);
-            var formatText  = src.Type.ToString();
+            var src     = sorted[i];
+            var group   = Theme.Ellipsize(src.Group ?? "Bilinmeyen", 22);
+            var hoster  = Theme.Ellipsize(src.Hoster ?? "Bilinmeyen", 18);
+            var quality = src.Quality ?? "Auto";
+            var format  = src.Type.ToString();
 
-            var idx     = i + 1;
-            var idxText = $"#{idx}".PadRight(maxIdxWidth + 1);
+            var idx = i + 1;
 
             selectList.Add(new FuzzyChoice
             {
                 Display =
-                    $"[grey]{idxText}[/] [silver]{Markup.Escape(groupText)}  |  {Markup.Escape(hosterText)}  |  {Markup.Escape(qualityText)}  |  {formatText}[/]",
+                    $"[grey]#{idx}[/] {Markup.Escape(group)} [grey]•[/] {Markup.Escape(hoster)} [grey]•[/] [white]{Markup.Escape(quality)}[/] [grey]• {format}[/]",
                 DisplayActive =
-                    $"[bold pink1]{idxText}[/] [bold white]{Markup.Escape(groupText)}[/]  [grey]|[/]  [bold mediumpurple1]{Markup.Escape(hosterText)}[/]  [grey]|[/]  [bold gold1]{Markup.Escape(qualityText)}[/]  [grey]|[/]  [bold cornflowerblue]{formatText}[/]",
-                Searchable      = $"{idxText} - {groupText} | {hosterText} | {qualityText} | {formatText}",
+                    $"[bold white]{Markup.Escape(group)} • {Markup.Escape(hoster)} • {Markup.Escape(quality)}[/] [grey]• {format}[/]",
+                Searchable      = $"#{idx} - {group} | {hoster} | {quality} | {format}",
                 AssociatedValue = src
             });
         }
@@ -119,7 +116,7 @@ public class EpisodeSourcesView : BaseView
         return $"{_animeTitle} S{season} E{ep}";
     }
 
-    public override void Render(ITuiNavigator navigator)
+    public override async Task RenderAsync(ITuiNavigator navigator)
     {
         if (string.IsNullOrEmpty(_provider)
             || string.IsNullOrEmpty(_animeId)
@@ -148,12 +145,8 @@ public class EpisodeSourcesView : BaseView
         if (config.AutoSelectBestSource && _cachedSources.Count == 0 && !_isFallbackMode)
         {
             AnsiConsole.Clear();
-            AnsiConsole.MarkupLine(
-                $"[grey]~~[/] [bold cyan]Otomatik: {animeTitle} - Bölüm {episode.Number}[/] [grey]~~[/]");
-            AnsiConsole.WriteLine();
-            AnsiConsole.MarkupLine("[cyan]Kaynaklar taranıyor...[/]");
-            AnsiConsole.MarkupLine("[grey]İptal için [bold red]Esc[/] tuşuna basın.[/]");
-            AnsiConsole.WriteLine();
+            Theme.WriteHeader($"{animeTitle}", $"Bölüm {episode.Number} • otomatik seçim");
+            AnsiConsole.MarkupLine("[cyan]Kaynaklar taranıyor...[/] [grey](Esc: vazgeç)[/]");
 
             var resolvedSources = new List<VideoSource>();
             var cts             = new CancellationTokenSource();
@@ -185,59 +178,62 @@ public class EpisodeSourcesView : BaseView
                                       },
                                       cts.Token);
 
-            var       spinnerFrames     = new[] { "⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏" };
-            var       spinnerIdx        = 0;
             var       startTime         = DateTime.UtcNow;
             DateTime? firstReceivedTime = null;
 
-            while (!streamTask.IsCompleted && !cts.IsCancellationRequested)
-            {
-                if (Console.KeyAvailable)
-                {
-                    var key = Console.ReadKey(true);
-                    if (key.Key == ConsoleKey.Escape)
-                    {
-                        userCancelled = true;
-                        cts.Cancel();
-                        break;
-                    }
-                }
+            AnsiConsole.Status()
+                       .Spinner(Spinner.Known.Dots)
+                       .Start("Kaynaklar taranıyor...",
+                              ctx =>
+                              {
+                                  while (!streamTask.IsCompleted && !cts.IsCancellationRequested)
+                                  {
+                                      if (Console.KeyAvailable)
+                                      {
+                                          var key = Console.ReadKey(true);
+                                          if (key.Key == ConsoleKey.Escape)
+                                          {
+                                              userCancelled = true;
+                                              cts.Cancel();
+                                              break;
+                                          }
+                                      }
 
-                int currentCount;
-                lock (resolvedSources)
-                {
-                    currentCount = resolvedSources.Count;
-                }
+                                      int currentCount;
+                                      lock (resolvedSources)
+                                      {
+                                          currentCount = resolvedSources.Count;
+                                      }
 
-                if (currentCount > 0 && firstReceivedTime == null)
-                {
-                    firstReceivedTime = DateTime.UtcNow;
-                }
+                                      if (currentCount > 0 && firstReceivedTime == null)
+                                      {
+                                          firstReceivedTime = DateTime.UtcNow;
+                                      }
 
-                var elapsedSinceStart = (DateTime.UtcNow - startTime).TotalSeconds;
-                if (elapsedSinceStart >= 240.0)
-                {
-                    cts.Cancel();
-                    break;
-                }
+                                      var elapsedSinceStart = (DateTime.UtcNow - startTime).TotalSeconds;
+                                      if (elapsedSinceStart >= 240.0)
+                                      {
+                                          cts.Cancel();
+                                          break;
+                                      }
 
-                if (firstReceivedTime != null)
-                {
-                    var elapsedSinceFirst = (DateTime.UtcNow - firstReceivedTime.Value).TotalSeconds;
-                    if (elapsedSinceFirst >= config.AutoSelectTimeoutSeconds)
-                    {
-                        cts.Cancel();
-                        break;
-                    }
-                }
+                                      if (firstReceivedTime != null)
+                                      {
+                                          var elapsedSinceFirst =
+                                              (DateTime.UtcNow - firstReceivedTime.Value).TotalSeconds;
+                                          if (elapsedSinceFirst >= config.AutoSelectTimeoutSeconds)
+                                          {
+                                              cts.Cancel();
+                                              break;
+                                          }
+                                      }
 
-                AnsiConsole.Markup(
-                    $"\r [bold yellow]{spinnerFrames[spinnerIdx]}[/] {currentCount} kaynak bulundu...      ");
-                spinnerIdx = (spinnerIdx + 1) % spinnerFrames.Length;
-                Thread.Sleep(80);
-            }
+                                      ctx.Status($"[grey]{currentCount} kaynak[/]");
+                                      Thread.Sleep(80);
+                                  }
+                              });
 
-            try { streamTask.GetAwaiter().GetResult(); }
+            try { await streamTask; }
             catch
             {
                 // ignored
@@ -250,7 +246,7 @@ public class EpisodeSourcesView : BaseView
 
             var scanErrors  = scanStats.Errors;
             var errorSuffix = scanErrors > 0 ? $" [red]• {scanErrors} hata[/]" : string.Empty;
-            AnsiConsole.Markup($"\r [green]✓[/] {_cachedSources.Count} kaynak bulundu.{errorSuffix}          \n");
+            AnsiConsole.MarkupLine($"[green]✓[/] {_cachedSources.Count} kaynak bulundu.{errorSuffix}");
 
             if (!userCancelled && _cachedSources.Count > 0)
             {
@@ -264,42 +260,11 @@ public class EpisodeSourcesView : BaseView
                                        ? " (tam eşleşme)"
                                        : string.Empty;
                     AnsiConsole.MarkupLine(
-                        $"[green]OK{exactTag}:[/] [bold white]{bestSource.Hoster ?? "Bilinmeyen"}[/] ({bestSource.Quality ?? "Auto"}) - {bestSource.Type}");
-                    Thread.Sleep(100);
+                        $"[green]✓{exactTag}:[/] {Markup.Escape(bestSource.Hoster ?? "Bilinmeyen")} [grey]({Markup.Escape(bestSource.Quality ?? "Auto")} • {bestSource.Type})[/]");
 
-                    var historyEntry = new WatchHistoryEntry
-                    {
-                        AnimeId       = animeId,
-                        AnimeTitle    = animeTitle,
-                        ProviderName  = provider,
-                        EpisodeId     = episode.Id,
-                        EpisodeTitle  = episode.Title ?? $"Bölüm {episode.Number}",
-                        PosterUrl     = _posterUrl ?? string.Empty,
-                        Season        = episode.Season ?? 1,
-                        EpisodeNumber = episode.Number
-                    };
+                    var historyEntry = _playback.BuildEntry(provider, animeId, animeTitle, episode, _posterUrl);
 
-                    var existingHistory = _historyService.GetWatchHistory()
-                                                         .FirstOrDefault(h => h.AnimeId == animeId
-                                                                              && h.EpisodeId == episode.Id
-                                                                              && h.ProviderName == provider);
-
-                    if (existingHistory != null)
-                    {
-                        historyEntry.LastPositionSeconds  = existingHistory.LastPositionSeconds;
-                        historyEntry.TotalDurationSeconds = existingHistory.TotalDurationSeconds;
-                    }
-
-                    var autoSyncOutcome = _playerService.PlayAsync(bestSource.Url,
-                                                                   historyEntry,
-                                                                   bestSource.Headers,
-                                                                   bestSource.Subtitles,
-                                                                   CancellationToken.None)
-                                                        .GetAwaiter()
-                                                        .GetResult();
-
-                    SyncAmbiguityPrompt.HandleAfterPlayback(_serviceProvider, autoSyncOutcome);
-                    SyncAmbiguityPrompt.ShowPlaybackNotification(autoSyncOutcome);
+                    var autoSyncOutcome = await _playback.PlayAndNotifyAsync(bestSource, historyEntry, false);
 
                     PushPlaybackMenu(navigator,
                                      bestSource,
@@ -319,12 +284,7 @@ public class EpisodeSourcesView : BaseView
 
         AnsiConsole.Clear();
 
-        var cancelChoice = new FuzzyChoice
-        {
-            Display       = "[red]Geri[/]",
-            DisplayActive = "[bold red]Geri[/]",
-            Searchable    = "Geri"
-        };
+        var cancelChoice = TuiHelpers.Back();
 
         var manualStats = new StreamScanStats();
         var manualStream = _cachedSources.Count > 0 || _isFallbackMode
@@ -341,23 +301,19 @@ public class EpisodeSourcesView : BaseView
         var epLabel = isMovie ? "Film" : $"Bölüm {episode.Number}";
 
         var promptResult = FuzzyPrompt.ShowDynamic(
-            $"Kaynaklar: {animeTitle} - {epLabel}",
+            "Kaynaklar",
             manualStream,
             sources =>
             {
                 var choices = FormatSources(sources, config);
-                choices.Insert(0,
-                               new FuzzyChoice
-                               {
-                                   Display       = "[yellow]Yeniden Tara[/]",
-                                   DisplayActive = "[bold yellow]Yeniden Tara[/]",
-                                   Searchable    = "Yeniden Tara"
-                               });
+                choices.Insert(0, TuiHelpers.Rescan());
                 return choices;
             },
             cancelChoice,
             stats: manualStats,
-            initialSelection: _lastSelectedSearchable);
+            initialSelection: _lastSelectedSearchable,
+            headerLines:
+            [$"[grey]{Markup.Escape(TuiHelpers.EllipsizedTitle(animeTitle))} › {Markup.Escape(epLabel)}[/]"]);
 
         var selection = promptResult?.Selection;
 
@@ -388,48 +344,10 @@ public class EpisodeSourcesView : BaseView
             return;
         }
 
-        var selectedHistoryEntry = new WatchHistoryEntry
-        {
-            AnimeId       = animeId,
-            AnimeTitle    = animeTitle,
-            ProviderName  = provider,
-            EpisodeId     = episode.Id,
-            EpisodeTitle  = episode.Title ?? $"Bölüm {episode.Number}",
-            PosterUrl     = _posterUrl ?? string.Empty,
-            Season        = episode.Season ?? 1,
-            EpisodeNumber = episode.Number
-        };
+        var selectedHistoryEntry = _playback.BuildEntry(provider, animeId, animeTitle, episode, _posterUrl);
 
-        var existingManualHistory = _historyService.GetWatchHistory()
-                                                   .FirstOrDefault(h => h.AnimeId == animeId
-                                                                        && h.EpisodeId == episode.Id
-                                                                        && h.ProviderName == provider);
-
-        if (existingManualHistory != null)
-        {
-            selectedHistoryEntry.LastPositionSeconds  = existingManualHistory.LastPositionSeconds;
-            selectedHistoryEntry.TotalDurationSeconds = existingManualHistory.TotalDurationSeconds;
-        }
-
-        AnsiConsole.Status()
-                   .Spinner(Spinner.Known.Dots)
-                   .Start("Hazırlanıyor...",
-                          ctx =>
-                          {
-                              Thread.Sleep(100);
-                          });
-
-        AnsiConsole.MarkupLine("[green]OK:[/] Oynatıcı başlatıldı.");
-        var syncOutcome = _playerService
-                          .PlayAsync(selectedSource.Url,
-                                     selectedHistoryEntry,
-                                     selectedSource.Headers,
-                                     selectedSource.Subtitles)
-                          .GetAwaiter()
-                          .GetResult();
-
-        SyncAmbiguityPrompt.HandleAfterPlayback(_serviceProvider, syncOutcome);
-        SyncAmbiguityPrompt.ShowPlaybackNotification(syncOutcome);
+        AnsiConsole.MarkupLine("[green]✓[/] Oynatıcı başlatıldı.");
+        var syncOutcome = await _playback.PlayAndNotifyAsync(selectedSource, selectedHistoryEntry, false);
 
         PushPlaybackMenu(navigator,
                          selectedSource,

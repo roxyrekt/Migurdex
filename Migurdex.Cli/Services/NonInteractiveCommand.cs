@@ -1,6 +1,7 @@
 using Microsoft.Extensions.DependencyInjection;
 using Migurdex.Shared.Enums;
 using Migurdex.Shared.Models;
+using Spectre.Console;
 using System.Globalization;
 using System.Text.Json;
 
@@ -18,6 +19,18 @@ public static class NonInteractiveCommand
         return arg.Equals("search", StringComparison.OrdinalIgnoreCase)
                || arg.Equals("play", StringComparison.OrdinalIgnoreCase)
                || arg.Equals("continue", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static void PrintLine(string plain, string markup)
+    {
+        if (Console.IsOutputRedirected)
+        {
+            Console.WriteLine(plain);
+        }
+        else
+        {
+            AnsiConsole.MarkupLine(markup);
+        }
     }
 
     public static async Task<int> RunAsync(string[] args, IServiceProvider services)
@@ -78,7 +91,8 @@ public static class NonInteractiveCommand
 
         foreach (var item in result.Data)
         {
-            Console.WriteLine($"{item.ProviderName} | {item.Title} | {item.Id}");
+            PrintLine($"{item.ProviderName} | {item.Title} | {item.Id}",
+                      $"[cyan]{Markup.Escape(item.ProviderName)}[/] | {Markup.Escape(item.Title)} [grey]({Markup.Escape(item.Id)})[/]");
         }
 
         return 0;
@@ -207,7 +221,8 @@ public static class NonInteractiveCommand
             return 1;
         }
 
-        Console.WriteLine($"{last.AnimeTitle} S{last.Season}E{FormatNumber(last.EpisodeNumber)} devam ediliyor...");
+        PrintLine($"{last.AnimeTitle} S{last.Season}E{FormatNumber(last.EpisodeNumber)} devam ediliyor...",
+                  $"{Markup.Escape(last.AnimeTitle)} [grey]S{last.Season}E{FormatNumber(last.EpisodeNumber)}[/] [cyan]devam ediliyor...[/]");
         var opts = new Options
         {
             Debug = debug
@@ -307,13 +322,15 @@ public static class NonInteractiveCommand
             entry.TotalDurationSeconds = existing.TotalDurationSeconds;
         }
 
-        Console.WriteLine(
-            $"{details.Title} S{entry.Season}E{FormatNumber(entry.EpisodeNumber)} oynatılıyor [{best.Hoster ?? "bilinmiyor"} / {best.Quality}]...");
+        PrintLine(
+            $"{details.Title} S{entry.Season}E{FormatNumber(entry.EpisodeNumber)} oynatılıyor [{best.Hoster ?? "bilinmiyor"} / {best.Quality}]...",
+            $"{Markup.Escape(details.Title)} [grey]S{entry.Season}E{FormatNumber(entry.EpisodeNumber)}[/] [cyan]oynatılıyor[/] [grey][{Markup.Escape(best.Hoster ?? "bilinmiyor")} / {Markup.Escape(best.Quality)}][/]...");
 
         var player  = services.GetRequiredService<IMpvPlayerService>();
         var outcome = await player.PlayAsync(best.Url, entry, best.Headers, best.Subtitles);
 
-        Console.WriteLine($"Bitti: {DescribeOutcome(outcome)}");
+        PrintLine($"Bitti: {DescribeOutcome(outcome)}",
+                  $"[green]Bitti:[/] {Markup.Escape(DescribeOutcome(outcome))}");
         return 0;
     }
 

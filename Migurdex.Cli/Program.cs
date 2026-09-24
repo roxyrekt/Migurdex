@@ -14,6 +14,11 @@ public static class Program
 {
     public static async Task<int> Main(string[] args)
     {
+        if (Environment.GetEnvironmentVariable("NO_COLOR") is not null)
+        {
+            AnsiConsole.Profile.Capabilities.ColorSystem = ColorSystem.NoColors;
+        }
+
         CleanStaleBackup();
 
         if (args.Any(a => a.Equals("--version", StringComparison.OrdinalIgnoreCase)
@@ -66,7 +71,7 @@ public static class Program
         var serviceProvider = services.BuildServiceProvider();
 
         AnsiConsole.Clear();
-        AnsiConsole.MarkupLine("[grey]~~[/] [bold cyan]Migurdex başlatılıyor...[/] [grey]~~[/]");
+        AnsiConsole.MarkupLine("[bold cyan]Migurdex[/] [grey]başlatılıyor...[/]");
         AnsiConsole.WriteLine();
 
         var apiService = serviceProvider.GetRequiredService<IApiClientService>();
@@ -103,7 +108,7 @@ public static class Program
         var noUpdateCheck = args.Any(a => a.Equals("--no-update-check", StringComparison.OrdinalIgnoreCase));
         await MaybePromptForUpdateAsync(serviceProvider, noUpdateCheck);
 
-        navigator.Start(mainMenu);
+        await navigator.StartAsync(mainMenu);
 
         AnsiConsole.Clear();
         RestoreCursor();
@@ -136,8 +141,9 @@ public static class Program
 
             var choice = AnsiConsole.Prompt(
                 new SelectionPrompt<string>()
-                    .Title($"[yellow]Yeni sürüm mevcut:[/] v{result.CurrentVersion} → v{result.LatestVersion}"
+                    .Title($"[cyan]Yeni sürüm mevcut:[/] v{result.CurrentVersion} → v{result.LatestVersion}"
                            + (result.IsPrerelease ? " [grey](pre-release)[/]" : ""))
+                    .HighlightStyle(new Style(Color.Cyan1, decoration: Decoration.Bold))
                     .AddChoices("Evet, güncelle", "Hayır", "Bu sürümü atla"));
 
             if (choice == "Evet, güncelle")
@@ -207,6 +213,7 @@ public static class Program
                                                                       sp.GetRequiredService<MigurdexDatabase>()));
         services.AddSingleton<IDiscordRpcService, DiscordRpcService>();
         services.AddSingleton<IMpvPlayerService, MpvPlayerService>();
+        services.AddSingleton<PlaybackOrchestrator>();
 
         services.AddSingleton<HttpClient>();
         services.AddSingleton<IApiClientService, ApiClientService>();
