@@ -16,7 +16,7 @@ Terminalden Türkçe anime aramak ve izlemek için araç. TUI + yerel HTTP API +
 
 *Watch anime from your terminal: search across Turkish providers and play episodes via MPV.*
 
-![Migurdex demo](assets/docs/demo.gif)
+![Migurdex demo](assets/docs/demo_3.gif)
 
 ## Özellikler
 
