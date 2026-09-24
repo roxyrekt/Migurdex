@@ -14,6 +14,30 @@ public static class Program
 {
     public static async Task<int> Main(string[] args)
     {
+        try
+        {
+            if (!Console.IsOutputRedirected)
+            {
+                Console.OutputEncoding = System.Text.Encoding.UTF8;
+            }
+        }
+        catch
+        {
+            // ignored
+        }
+
+        try
+        {
+            if (!Console.IsInputRedirected)
+            {
+                Console.InputEncoding = System.Text.Encoding.UTF8;
+            }
+        }
+        catch
+        {
+            // ignored
+        }
+
         if (Environment.GetEnvironmentVariable("NO_COLOR") is not null)
         {
             AnsiConsole.Profile.Capabilities.ColorSystem = ColorSystem.NoColors;
