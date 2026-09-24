@@ -60,7 +60,14 @@ public partial class SistennExtractor : IExtractor
             var id  = idMatch.Groups[1].Value;
             var uri = new Uri(url);
 
-            var apiUrl = $"{uri.Scheme}://{uri.Host}/api/v1/video?id={id}";
+            var refererHost = string.Empty;
+            if (!string.IsNullOrEmpty(referer) && Uri.TryCreate(referer, UriKind.Absolute, out var pageUri))
+            {
+                refererHost = pageUri.Host;
+            }
+
+            var apiUrl =
+                $"{uri.Scheme}://{uri.Host}/api/v1/video?id={Uri.EscapeDataString(id)}&w=1920&h=1080&r={Uri.EscapeDataString(refererHost)}";
 
             _logger.LogDebug("fetching video info: {ApiUrl}", apiUrl);
 

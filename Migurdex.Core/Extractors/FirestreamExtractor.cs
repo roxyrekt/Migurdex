@@ -26,7 +26,7 @@ public partial class FirestreamExtractor : IExtractor
 
     public bool CanExtract(string url)
     {
-        return url.Contains("firestream.to", StringComparison.OrdinalIgnoreCase);
+        return url.Contains("firestream.", StringComparison.OrdinalIgnoreCase);
     }
 
     public async Task<List<VideoSource>> ExtractAsync(string url,
@@ -88,7 +88,9 @@ public partial class FirestreamExtractor : IExtractor
                 return sources;
             }
 
-            var resolveUrl = $"https://firestream.to/api/videos/{Uri.EscapeDataString(slug)}/resolve";
+            var apiHost = new Uri(embedUrl).Host;
+
+            var resolveUrl = $"https://{apiHost}/api/videos/{Uri.EscapeDataString(slug)}/resolve";
             _logger.LogDebug("requesting signed URLs from: {ResolveUrl}", resolveUrl);
 
             var resolveBody = JsonSerializer.Serialize(new
@@ -103,7 +105,7 @@ public partial class FirestreamExtractor : IExtractor
             resolveRequest.Headers.Add("User-Agent",
                                        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36");
             resolveRequest.Headers.Add("Referer", embedUrl);
-            resolveRequest.Headers.Add("Origin", "https://firestream.to");
+            resolveRequest.Headers.Add("Origin", $"https://{apiHost}");
 
             var resolveResponse = await _httpClient.SendAsync(resolveRequest, cancellationToken);
             if (!resolveResponse.IsSuccessStatusCode)
