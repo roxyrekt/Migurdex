@@ -94,7 +94,7 @@ public class EpisodeSourcesView : BaseView
         }
     }
 
-    private static List<FuzzyChoice> FormatSources(List<VideoSource> rawList, CliConfig config)
+    internal static List<FuzzyChoice> FormatSources(List<VideoSource> rawList, CliConfig config)
     {
         var sorted = SourceSelector.SortVideoSources(rawList, config);
 
@@ -121,6 +121,31 @@ public class EpisodeSourcesView : BaseView
         }
 
         return selectList;
+    }
+
+    internal static string BuildSourceDescription(VideoSource source)
+    {
+        return string.Join(" • ",
+                           new[]
+                           {
+                               source.Group ?? "Bilinmeyen",
+                               source.Hoster ?? "Bilinmeyen",
+                               source.Quality ?? "Auto",
+                               source.Type.ToString()
+                           });
+    }
+
+    internal static List<string> BuildSelectedSourceHeaders(string animeTitle,
+        Episode                                                     episode,
+        VideoSource                                                 source)
+    {
+        // Dinamik anime/bölüm/kaynak metinleri burada escape edilir; [grey] etiketi
+        // dengeli biçimde (tek açılış, tek kapanış) üretilir.
+        return
+        [
+            $"[grey]{Markup.Escape(TuiHelpers.EllipsizedTitle(animeTitle))} › {Markup.Escape(TuiHelpers.FormatEpisodeRef(episode))}[/]",
+            Theme.MutedText(BuildSourceDescription(source))
+        ];
     }
 
     public override string GetRpcState()
@@ -381,14 +406,6 @@ public class EpisodeSourcesView : BaseView
         string                                                            animeTitle,
         Episode                                                           episode)
     {
-        var sourceDescription = string.Join(" • ",
-                                            new[]
-                                            {
-                                                selectedSource.Group ?? "Bilinmeyen",
-                                                selectedSource.Hoster ?? "Bilinmeyen",
-                                                selectedSource.Quality ?? "Auto",
-                                                selectedSource.Type.ToString()
-                                            });
         var actions = new List<FuzzyChoice>
         {
             Theme.PlayChoice("Oynat")
@@ -401,12 +418,7 @@ public class EpisodeSourcesView : BaseView
         actions.Add(TuiHelpers.Back());
         var action = FuzzyPrompt.Show("Kaynak seçildi",
                                       actions,
-                                      headerLines:
-                                      [
-                                          $"[grey]{Markup.Escape(TuiHelpers.EllipsizedTitle(animeTitle))} › "
-                                          + $"[grey]{Markup.Escape(TuiHelpers.FormatEpisodeRef(episode))}[/]",
-                                          $"[grey]{Markup.Escape(sourceDescription)}[/]"
-                                      ]);
+                                      headerLines: BuildSelectedSourceHeaders(animeTitle, episode, selectedSource));
 
         if (action == null || action.Searchable == "Geri")
         {

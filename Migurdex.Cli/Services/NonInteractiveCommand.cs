@@ -326,7 +326,7 @@ public static class NonInteractiveCommand
 
         PrintLine(
             $"{details.Title} S{entry.Season}E{FormatNumber(entry.EpisodeNumber)} oynatılıyor [{best.Hoster ?? "bilinmiyor"} / {best.Quality}]...",
-            $"{Markup.Escape(details.Title)} [grey]S{entry.Season}E{FormatNumber(entry.EpisodeNumber)}[/] [cyan]oynatılıyor[/] [grey][{Markup.Escape(best.Hoster ?? "bilinmiyor")} / {Markup.Escape(best.Quality)}][/]...");
+            $"{Markup.Escape(details.Title)} [grey]S{entry.Season}E{FormatNumber(entry.EpisodeNumber)}[/] [cyan]oynatılıyor[/] [grey][[{Markup.Escape(best.Hoster ?? "bilinmiyor")} / {Markup.Escape(best.Quality)}]][/]...");
 
         var player  = services.GetRequiredService<IMpvPlayerService>();
         var outcome = await player.PlayAsync(best.Url, entry, best.Headers, best.Subtitles);

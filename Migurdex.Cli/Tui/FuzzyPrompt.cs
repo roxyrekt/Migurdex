@@ -5,7 +5,7 @@ namespace Migurdex.Cli.Tui;
 
 public static class FuzzyPrompt
 {
-    private static string FormatQueryWithCursor(string query, int cursorIdx)
+    internal static string FormatQueryWithCursor(string query, int cursorIdx)
     {
         if (string.IsNullOrEmpty(query))
         {
@@ -101,10 +101,11 @@ public static class FuzzyPrompt
         return Theme.HighlightDisplay(choice.Display, query);
     }
 
-    private static string FooterMarkup(int cursorIndex, int count, string? customHelp = null)
+    internal static string FooterMarkup(int cursorIndex, int count, string? customHelp = null)
     {
-        var pos = count > 1 ? $" • {cursorIndex + 1}/{count}" : "";
-        return $"[grey]{customHelp ?? "↑↓ gez • Enter seç • Esc geri • yazarak filtrele"}{pos}[/]";
+        var pos  = count > 1 ? $" • {cursorIndex + 1}/{count}" : "";
+        var help = customHelp ?? "↑↓ gez • Enter seç • Esc geri • yazarak filtrele";
+        return $"[grey]{Markup.Escape(help)}{pos}[/]";
     }
 
     public static FuzzyChoice? Show(
