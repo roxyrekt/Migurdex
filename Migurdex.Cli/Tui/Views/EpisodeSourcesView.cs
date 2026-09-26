@@ -597,10 +597,12 @@ public class EpisodeSourcesView : BaseView
             headers.Add($"[yellow]Uyarı:[/] [grey]{Markup.Escape(warning)}[/]");
         }
 
+        // Tek seçenekli bilgi ekranı: filtre satırı gizli, footer ekrana göre sadeleştirilmiş.
         FuzzyPrompt.Show(title,
                           [TuiHelpers.Back()],
                           headerLines: headers,
-                          footerHelp: "↑↓ gez • Enter seç • Esc geri");
+                          footerHelp: "Enter devam • Esc geri",
+                          searchable: false);
         if (result?.Success == true && result.IsCancelled != true)
         {
             navigator.Pop();

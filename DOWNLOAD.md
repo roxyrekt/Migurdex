@@ -10,7 +10,7 @@ TUI'den (bölüm kaynak ekranında `İndir`) diske kaydeder. `Embed` ve `Unknown
 | Dal | `feature/download` (temel: `main` @ `444a49e`) |
 | HEAD | `e9e01e96a1a62a7578a611a859d911883b3ab5b3` (`e9e01e9` — fix(tui): balance source selection markup) |
 | Temel commit | `c3d307a` — feat: add anime download support |
-| Testler | 72 test metodu / 91 çalışan case, 9 sınıf (bkz. `Test kapsamı`) |
+| Testler | 80 test metodu / 109 çalışan case, 10 sınıf (bkz. `Test kapsamı`) |
 
 ## Genel akış
 
@@ -62,7 +62,8 @@ tamamlandı ancak kullanıcı iptal etti (altyazı aşaması kesildi).
    otomatik taranır ve en iyi kaynak seçilir; `Esc` manuel listeye düşürür).
 5. Eylem menüsünden **İndir**'i seçin (yalnız doğrudan indirilebilir kaynaklarda görünür).
 6. İndirme sırasında durum satırındaki ilerlemeyi izleyin; `Esc` indirmeyi iptal eder.
-7. Sonuç ekranında video ve altyazı dosyalarının tam yolları listelenir.
+7. Sonuç ekranında video ve altyazı dosyalarının tam yolları listelenir; bu ekran filtresizdir
+   (`Ara:` satırı yok), `Enter` devam eder, `Esc` geri döner.
 
 ## Kullanım örnekleri
 
@@ -205,7 +206,11 @@ kullanıcı iptali → `success: true`, `cancelled: true` + `mediaPath`/`subtitl
 8. Sonuç ekranı (`ShowDownloadResultAsync`): video/altyazı yolları ve uyarılar listelenir. Tam
    başarılıda `Geri`/`Enter` kaynak ekranından da çıkarır (`navigator.Pop`). Video bittikten
    sonra altyazı fazında iptal edildiyse başlık `İndirme iptal edildi`, içerik `Video
-   tamamlandı; altyazılar iptal edildi.` olur.
+   tamamlandı; altyazılar iptal edildi.` olur. Sonuç ekranı tek seçenekli bir bilgi ekranıdır:
+   `FuzzyPrompt.Show(..., searchable: false)` ile açıldığından `Ara:` filtre satırı çizilmez,
+   yazma/`Backspace`/`Delete` (ve kelime silme kısayolları) sorguyu değiştirmez; `↑↓` gezinme,
+   `Enter` (devam) ve `Esc` (geri) davranışı aynen çalışır. Footer bu ekrana özgüdür:
+   `Enter devam • Esc geri` (`↑↓ gez` ve `yazarak filtrele` ipuçları gösterilmez).
 
 ### Çıktı dosya/klasör düzeni
 
@@ -420,6 +425,7 @@ satırlarının da açıldığı toplam çalıştırılan test sayısıdır.
 | `ExternalProcessRunnerTests` | 3 | 0 | 0 | 3 | 3 |
 | `ApiClientServiceTests` | 2 | 0 | 0 | 2 | 2 |
 | `TuiMarkupSafetyTests` | 5 | 3 | 18 | 8 | 23 |
+| `FuzzyPromptSearchableTests` | 7 | 1 | 11 | 8 | 18 |
 
 Not: `TuiMarkupSafetyTests` için "8 test" ve "23 test" ifadeleri aynı gerçeğin iki ölçümüdür:
 8 test **metodu** vardır (5 `[Fact]` + 3 `[Theory]`); Theory'ler 18 `[InlineData]` ile
@@ -610,8 +616,10 @@ eşlemeye göre ilgili bölüm revize edilir.
 
 Test sayılarının doğrulanması:
 
-1. `dotnet test Migurdex.Tests\Migurdex.Tests.csproj` çalıştırın; özet raporundaki toplam geçen
-   test sayısı, `Test kapsamı` tablosundaki "Çalışan case" toplamıyla (şu an 91) eşleşmelidir.
+1. `dotnet test Migurdex.Tests\Migurdex.Tests.csproj` çalıştırın; indirme/TUI kapsamındaki
+   sınıfların geçen test sayısı, `Test kapsamı` tablosundaki "Çalışan case" toplamıyla
+   (şu an 109) eşleşmelidir (takım konu dışı sınıfları da içerdiğinden genel toplam daha
+   yüksektir).
 2. `dotnet` olmadan statik çapraz kontrol: her test sınıfında `[Fact]` + `[Theory]` (metod
    sayısı) ve `[Theory]` başına düşen `[InlineData]` satırları (case sayısı) sayılır; örn.
    `Select-String -Path "Migurdex.Tests\Mp4DownloaderTests.cs" -Pattern "\[Fact\]"`.

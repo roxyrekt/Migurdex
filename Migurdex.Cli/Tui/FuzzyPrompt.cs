@@ -24,6 +24,19 @@ public static class FuzzyPrompt
         return $"{Markup.Escape(left)}[black on white]{Markup.Escape(cursorChar.ToString())}[/]{Markup.Escape(right)}";
     }
 
+    /// <summary>
+    ///     `Ara:` filtre satırının markup'ı. `searchable == false` iken satır üretilmez (null).
+    /// </summary>
+    internal static string? SearchRowMarkup(bool searchable, string query, int textCursorIndex)
+    {
+        if (!searchable)
+        {
+            return null;
+        }
+
+        return $"[grey]Ara:[/] {FormatQueryWithCursor(query, textCursorIndex)}";
+    }
+
     private static bool IsWordDeleteKey(ConsoleKeyInfo keyInfo)
     {
         if (keyInfo.Modifiers.HasFlag(ConsoleModifiers.Control))
@@ -70,6 +83,95 @@ public static class FuzzyPrompt
         textCursorIndex = target;
     }
 
+    /// <summary>
+    ///     Prompt tuş işleme. `searchable == false` iken sorgu değiştirilemez: normal karakter,
+    ///     Backspace, Delete ve kelime silme kısayolları yok sayılır; gezinme (↑↓) ve seçim
+    ///     (Enter/Esc) davranışı her iki modda da aynen çalışır.
+    /// </summary>
+    internal static void HandleKey(
+        ConsoleKeyInfo    keyInfo,
+        List<FuzzyChoice> filtered,
+        ref string        query,
+        ref int           cursorIndex,
+        ref int           textCursorIndex,
+        bool              searchable,
+        ref FuzzyChoice?  result,
+        ref bool          isRunning)
+    {
+        if (searchable && IsWordDeleteKey(keyInfo))
+        {
+            DeleteWordBeforeCursor(ref query, ref textCursorIndex);
+            cursorIndex = 0;
+            return;
+        }
+
+        switch (keyInfo.Key)
+        {
+            case ConsoleKey.UpArrow:
+                cursorIndex = filtered.Count > 0
+                                  ? (cursorIndex - 1 + filtered.Count) % filtered.Count
+                                  : 0;
+                break;
+            case ConsoleKey.DownArrow:
+                cursorIndex = filtered.Count > 0
+                                  ? (cursorIndex + 1) % filtered.Count
+                                  : 0;
+                break;
+            case ConsoleKey.LeftArrow:
+                if (searchable)
+                {
+                    textCursorIndex = Math.Max(0, textCursorIndex - 1);
+                }
+
+                break;
+            case ConsoleKey.RightArrow:
+                if (searchable)
+                {
+                    textCursorIndex = Math.Min(query.Length, textCursorIndex + 1);
+                }
+
+                break;
+            case ConsoleKey.Enter:
+                if (filtered.Count > 0)
+                {
+                    result    = filtered[cursorIndex];
+                    isRunning = false;
+                }
+
+                break;
+            case ConsoleKey.Escape:
+                result    = null;
+                isRunning = false;
+                break;
+            case ConsoleKey.Backspace:
+                if (searchable && textCursorIndex > 0)
+                {
+                    query = query[..(textCursorIndex - 1)] + query[textCursorIndex..];
+                    textCursorIndex--;
+                    cursorIndex = 0;
+                }
+
+                break;
+            case ConsoleKey.Delete:
+                if (searchable && textCursorIndex < query.Length)
+                {
+                    query       = query[..textCursorIndex] + query[(textCursorIndex + 1)..];
+                    cursorIndex = 0;
+                }
+
+                break;
+            default:
+                if (searchable && keyInfo.KeyChar != '\0' && !char.IsControl(keyInfo.KeyChar))
+                {
+                    query = query[..textCursorIndex] + keyInfo.KeyChar + query[textCursorIndex..];
+                    textCursorIndex++;
+                    cursorIndex = 0;
+                }
+
+                break;
+        }
+    }
+
     private static int ResolveInitialCursor(List<FuzzyChoice> choicesList, string? initialSelection)
     {
         if (string.IsNullOrEmpty(initialSelection))
@@ -108,6 +210,77 @@ public static class FuzzyPrompt
         return $"[grey]{Markup.Escape(help)}{pos}[/]";
     }
 
+    /// <summary>
+    ///     Prompt ızgarası. `searchable == false` iken `Ara:` satırı ve altındaki boş satır
+    ///     çizilmez; başlık, üst bilgiler, seçenekler ve footer aynen kalır.
+    /// </summary>
+    internal static Grid BuildGrid(
+        string            title,
+        List<string>?     headersList,
+        List<FuzzyChoice> filtered,
+        string            query,
+        int               cursorIndex,
+        int               textCursorIndex,
+        int               pageSize,
+        string?           footerHelp,
+        bool              searchable)
+    {
+        var grid = new Grid();
+        grid.AddColumn();
+
+        var countSuffix = filtered.Count > 0
+                              ? string.IsNullOrWhiteSpace(query)
+                                    ? $"  [grey]{filtered.Count} öğe[/]"
+                                    : $"  [grey]{filtered.Count} sonuç[/]"
+                              : string.Empty;
+        grid.AddRow(new Markup($"[bold cyan]{Markup.Escape(title.TrimEnd(':'))}[/]{countSuffix}"));
+        if (headersList != null)
+        {
+            foreach (var header in headersList)
+            {
+                grid.AddRow(new Markup(header));
+            }
+
+            grid.AddRow(new Text(string.Empty));
+        }
+
+        if (SearchRowMarkup(searchable, query, textCursorIndex) is { } searchRow)
+        {
+            grid.AddRow(new Markup(searchRow));
+            grid.AddRow(new Text(string.Empty));
+        }
+
+        var startIdx = Math.Max(0, cursorIndex - (pageSize / 2));
+        var endIdx   = Math.Min(filtered.Count, startIdx + pageSize);
+        if (endIdx - startIdx < pageSize && startIdx > 0)
+        {
+            startIdx = Math.Max(0, endIdx - pageSize);
+        }
+
+        for (var i = startIdx; i < endIdx; i++)
+        {
+            var choice = filtered[i];
+            if (i == cursorIndex)
+            {
+                grid.AddRow(new Markup($"[bold cyan]›[/] {SelectedRowMarkup(choice, query)}"));
+            }
+            else
+            {
+                grid.AddRow(new Markup($"  {UnselectedRowMarkup(choice, query)}"));
+            }
+        }
+
+        if (filtered.Count == 0)
+        {
+            grid.AddRow(new Markup("  [grey]Sonuç yok.[/]"));
+        }
+
+        grid.AddRow(new Text(string.Empty));
+        grid.AddRow(new Markup(FooterMarkup(cursorIndex, filtered.Count, footerHelp)));
+
+        return grid;
+    }
+
     public static FuzzyChoice? Show(
         string                      title,
         IEnumerable<FuzzyChoice>    choices,
@@ -115,7 +288,8 @@ public static class FuzzyPrompt
         string?                     initialSelection  = null,
         IEnumerable<string>?        headerLines       = null,
         Func<string, FuzzyChoice?>? pinnedRowProvider = null,
-        string?                     footerHelp        = null)
+        string?                     footerHelp        = null,
+        bool                        searchable        = true)
     {
         var choicesList     = choices.ToList();
         var headersList     = headerLines?.Where(h => !string.IsNullOrWhiteSpace(h)).ToList();
@@ -126,132 +300,19 @@ public static class FuzzyPrompt
         FuzzyChoice? result    = null;
         var          isRunning = true;
 
-        Grid BuildGrid(List<FuzzyChoice> filtered)
-        {
-            var grid = new Grid();
-            grid.AddColumn();
-
-            var countSuffix = filtered.Count > 0
-                                  ? string.IsNullOrWhiteSpace(query)
-                                        ? $"  [grey]{filtered.Count} öğe[/]"
-                                        : $"  [grey]{filtered.Count} sonuç[/]"
-                                  : string.Empty;
-            grid.AddRow(new Markup($"[bold cyan]{Markup.Escape(title.TrimEnd(':'))}[/]{countSuffix}"));
-            if (headersList != null)
-            {
-                foreach (var header in headersList)
-                {
-                    grid.AddRow(new Markup(header));
-                }
-
-                grid.AddRow(new Text(string.Empty));
-            }
-
-            grid.AddRow(new Markup($"[grey]Ara:[/] {FormatQueryWithCursor(query, textCursorIndex)}"));
-            grid.AddRow(new Text(string.Empty));
-
-            var startIdx = Math.Max(0, cursorIndex - (pageSize / 2));
-            var endIdx   = Math.Min(filtered.Count, startIdx + pageSize);
-            if (endIdx - startIdx < pageSize && startIdx > 0)
-            {
-                startIdx = Math.Max(0, endIdx - pageSize);
-            }
-
-            for (var i = startIdx; i < endIdx; i++)
-            {
-                var choice = filtered[i];
-                if (i == cursorIndex)
-                {
-                    grid.AddRow(new Markup($"[bold cyan]›[/] {SelectedRowMarkup(choice, query)}"));
-                }
-                else
-                {
-                    grid.AddRow(new Markup($"  {UnselectedRowMarkup(choice, query)}"));
-                }
-            }
-
-            if (filtered.Count == 0)
-            {
-                grid.AddRow(new Markup("  [grey]Sonuç yok.[/]"));
-            }
-
-            grid.AddRow(new Text(string.Empty));
-            grid.AddRow(new Markup(FooterMarkup(cursorIndex, filtered.Count, footerHelp)));
-
-            return grid;
-        }
-
-        void HandleKey(ConsoleKeyInfo keyInfo, List<FuzzyChoice> filtered)
-        {
-            if (IsWordDeleteKey(keyInfo))
-            {
-                DeleteWordBeforeCursor(ref query, ref textCursorIndex);
-                cursorIndex = 0;
-            }
-            else
-            {
-                switch (keyInfo.Key)
-                {
-                    case ConsoleKey.UpArrow:
-                        cursorIndex = filtered.Count > 0
-                                          ? (cursorIndex - 1 + filtered.Count) % filtered.Count
-                                          : 0;
-                        break;
-                    case ConsoleKey.DownArrow:
-                        cursorIndex = filtered.Count > 0
-                                          ? (cursorIndex + 1) % filtered.Count
-                                          : 0;
-                        break;
-                    case ConsoleKey.LeftArrow:
-                        textCursorIndex = Math.Max(0, textCursorIndex - 1);
-                        break;
-                    case ConsoleKey.RightArrow:
-                        textCursorIndex = Math.Min(query.Length, textCursorIndex + 1);
-                        break;
-                    case ConsoleKey.Enter:
-                        if (filtered.Count > 0)
-                        {
-                            result    = filtered[cursorIndex];
-                            isRunning = false;
-                        }
-
-                        break;
-                    case ConsoleKey.Escape:
-                        result    = null;
-                        isRunning = false;
-                        break;
-                    case ConsoleKey.Backspace:
-                        if (textCursorIndex > 0)
-                        {
-                            query = query[..(textCursorIndex - 1)] + query[textCursorIndex..];
-                            textCursorIndex--;
-                            cursorIndex = 0;
-                        }
-
-                        break;
-                    case ConsoleKey.Delete:
-                        if (textCursorIndex < query.Length)
-                        {
-                            query       = query[..textCursorIndex] + query[(textCursorIndex + 1)..];
-                            cursorIndex = 0;
-                        }
-
-                        break;
-                    default:
-                        if (keyInfo.KeyChar != '\0' && !char.IsControl(keyInfo.KeyChar))
-                        {
-                            query = query[..textCursorIndex] + keyInfo.KeyChar + query[textCursorIndex..];
-                            textCursorIndex++;
-                            cursorIndex = 0;
-                        }
-
-                        break;
-                }
-            }
-        }
+        Grid BuildCurrentGrid(List<FuzzyChoice> filtered)
+            => BuildGrid(title,
+                         headersList,
+                         filtered,
+                         query,
+                         cursorIndex,
+                         textCursorIndex,
+                         pageSize,
+                         footerHelp,
+                         searchable);
 
         AnsiConsole.Clear();
-        AnsiConsole.Live(BuildGrid(FuzzyMatcher.Rank(choicesList, query)))
+        AnsiConsole.Live(BuildCurrentGrid(FuzzyMatcher.Rank(choicesList, query)))
                    .Start(ctx =>
                    {
                        var lastQuery      = "\0";
@@ -276,7 +337,7 @@ public static class FuzzyPrompt
                                || cursorIndex != lastCursor
                                || textCursorIndex != lastTextCursor)
                            {
-                               ctx.UpdateTarget(BuildGrid(filtered));
+                               ctx.UpdateTarget(BuildCurrentGrid(filtered));
                                lastQuery      = query;
                                lastCursor     = cursorIndex;
                                lastTextCursor = textCursorIndex;
@@ -284,7 +345,14 @@ public static class FuzzyPrompt
 
                            if (Console.KeyAvailable)
                            {
-                               HandleKey(Console.ReadKey(true), filtered);
+                               HandleKey(Console.ReadKey(true),
+                                         filtered,
+                                         ref query,
+                                         ref cursorIndex,
+                                         ref textCursorIndex,
+                                         searchable,
+                                         ref result,
+                                         ref isRunning);
                            }
                            else
                            {
