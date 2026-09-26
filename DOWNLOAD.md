@@ -8,7 +8,7 @@ TUI'den (bölüm kaynak ekranında `İndir`) diske kaydeder. `Embed` ve `Unknown
 |---|---|
 | Son güncelleme | 26 Eylül 2026 |
 | Dal | `feature/download` (temel: `main` @ `444a49e`) |
-| HEAD | `4cd2ac8bbb012fe3884eba044d999f528dda1f18` (`4cd2ac8` — fix(tui): hide search filter on download result) |
+| Son kod commit’i | `4cd2ac8bbb012fe3884eba044d999f528dda1f18` (`4cd2ac8` — fix(tui): hide search filter on download result) |
 | Temel commit | `c3d307a` — feat: add anime download support |
 | Testler | 80 test metodu / 109 çalışan case, 10 sınıf (bkz. `Test kapsamı`) |
 
