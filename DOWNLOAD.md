@@ -480,6 +480,55 @@ Notlar:
 - Bu koşumda kod değişmedi; `Test kapsamı` tablosundaki metrikler (80 test metodu / 109 çalışan
   case) ve `Yapılan işlemler` kayıtları olduğu gibi korunur.
 
+### Canlı API smoke doğrulaması (26 Eylül 2026)
+
+`feature/download` dalı, temiz bir kopya üzerinde rastgele bir loopback portunda
+(`http://127.0.0.1:37972`) canlı API smoke testi koşuldu. API 2 saniyede hazır hâle geldi:
+`providers=13`, `extractors=38`, `rust=true`.
+
+Toplam **21 istek** gönderildi; **21/21 endpoint HTTP 200 ve geçerli JSON** döndü.
+
+| Uç | Sonuç |
+|---|---|
+| `/health` | 200; 13 sağlayıcı, 38 extractor, Rust hazır |
+| `/api/v1/providers` | 200; 13 sağlayıcı; isim/tür/base URL/capabilities dolu |
+| `/api/v1/extractors` | 200; 38 extractor listesi |
+| `/api/v1/anime/search?q=one piece` | 200; **13/13 sağlayıcı başarılı**, 0 hata, 153 sonuç |
+| Anime detayları — 6 sağlayıcı | 200; AnimeciX 16 bölüm, AniHub 25, SonAnime 1171, TRAnimeci 1, AsyaAnimeleri 8, TrAnimeIzle 0 |
+| Fansub grupları — 4 sağlayıcı | 200; her biri 1 grup döndü |
+| Video kaynakları — 4 sağlayıcı | 200; AnimeciX 3, TRAnimeci 30, AniHub 1, SonAnime 3 kaynak |
+| `/api/v1/metadata/search?q=one piece` | 200; 10 kayıt (AniList + Jikan) |
+| `/api/v1/metadata/anilist/21` | 200; `ONE PIECE`, `source=AniList` |
+| `/api/v1/tracker/lookup?anilistId=21` | 200; `anilistId=21`, `ONE PIECE` |
+
+Yanıt süreleri:
+- `/health`: 29 ms
+- `/api/v1/providers`: 27 ms
+- `/api/v1/extractors`: 6 ms
+- anime arama: 1.681 ms
+- anime detayları: 108–1.126 ms
+- kaynak çözümleme: 487–980 ms
+- metadata arama: 462 ms
+- metadata detay: 186 ms
+- tracker lookup: 354 ms
+
+Log incelemesi:
+- **0 exception**
+- **0 stack trace**
+- **0 NullReferenceException**
+- **0 serialization hatası**
+- **stderr boş**
+
+İki upstream durumu not edildi; ikisi de uygulama hatası değil:
+
+1. `TrAnimeIzle`: sağlayıcı captcha challenge’ı çözülemedi. Upstream isteği engelledi;
+   sağlayıcı boş liste döndürdü ve endpoint yine 200 ile cevap verdi.
+2. `VidmolyExtractor`: embed URL’si HTTP 302 ile `torroclk.com` reklam ağına yönlendi.
+   Extractor bu kaynağı atladı ve diğer hoster’lardan kaynak dönmeye devam etti.
+
+Test sonrası API süreci kapatıldı, port serbest bırakıldı ve geçici test dizini silindi.
+Kaynak ağacında kod değişikliği yapılmadı.
+
 ## TUI markup güvenliği
 
 - Dinamik her metin (anime adı, bölüm, fansub, sunucu, kalite, kullanıcı sorgusu) Spectre.Console

@@ -224,6 +224,12 @@ Son offline doğrulama (26 Eylül 2026): çalışma ağacı temiz; Release derle
 bağımlı `ExtractorSmokeTests` hariç 274/274 test geçti. İndirme özelliğiyle ilgili test sınıfları ayrı grup
 koşularında 102/102 geçti. Ayrıntılı sonuçlar: [`DOWNLOAD.md`](DOWNLOAD.md) → `Test kapsamı`.
 
+Canlı API smoke (26 Eylül 2026): 21 endpoint test edildi; 21/21 HTTP 200 ve geçerli JSON döndü. `/health`
+13 sağlayıcı / 38 extractor / Rust hazır bildirdi; `q=one piece` araması 13/13 sağlayıcıda başarılı oldu ve
+153 sonuç döndü. Anime detayları, gruplar, kaynaklar, metadata ve tracker lookup uçları da doğrulandı.
+API loglarında uygulama hatası yok; yalnızca iki upstream durumu (TrAnimeIzle captcha, Vidmoly reklam
+redirect’i) tespit edildi. Ayrıntılar: [`DOWNLOAD.md`](DOWNLOAD.md) → `Canlı API smoke doğrulaması`.
+
 ## Yol Haritası
 
 - [x] MAL ve AniList senkronu
