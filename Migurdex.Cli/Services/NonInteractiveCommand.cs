@@ -18,7 +18,8 @@ public static class NonInteractiveCommand
     {
         return arg.Equals("search", StringComparison.OrdinalIgnoreCase)
                || arg.Equals("play", StringComparison.OrdinalIgnoreCase)
-               || arg.Equals("continue", StringComparison.OrdinalIgnoreCase);
+               || arg.Equals("continue", StringComparison.OrdinalIgnoreCase)
+               || arg.Equals("download", StringComparison.OrdinalIgnoreCase);
     }
 
     private static void PrintLine(string plain, string markup)
@@ -41,6 +42,7 @@ public static class NonInteractiveCommand
             "search"   => await SearchAsync(args[1..], services),
             "play"     => await PlayAsync(args[1..], services),
             "continue" => await ContinueAsync(args[1..], services),
+            "download" => await DownloadCommand.RunAsync(args[1..], services),
             _          => UsageError($"Bilinmeyen komut: {args[0]}")
         };
     }
@@ -347,41 +349,26 @@ public static class NonInteractiveCommand
             return input;
         }
 
-        var names = providersResult.Data.Select(p => p.Name).ToList();
-        var exact = names.FirstOrDefault(n => n.Equals(input, StringComparison.OrdinalIgnoreCase));
-        if (exact is not null)
+        if (!DownloadSourceResolver.TryResolveProvider(providersResult.Data,
+                                                       input,
+                                                       out var provider,
+                                                       out var error))
         {
-            return exact;
+            Console.Error.WriteLine($"Hata: {error}");
+            return null;
         }
 
-        var matches = names.Where(n => n.Contains(input, StringComparison.OrdinalIgnoreCase)).ToList();
-        if (matches.Count == 1)
+        if (!provider!.Equals(input, StringComparison.OrdinalIgnoreCase))
         {
-            Console.WriteLine($"Sağlayıcı: {matches[0]}");
-            return matches[0];
+            Console.WriteLine($"Sağlayıcı: {provider}");
         }
 
-        if (matches.Count == 0)
-        {
-            Console.Error.WriteLine($"Hata: '{input}' sağlayıcısı bulunamadı ({string.Join(", ", names)}).");
-        }
-        else
-        {
-            Console.Error.WriteLine($"Hata: '{input}' belirsiz ({string.Join(", ", matches)}).");
-        }
-
-        return null;
+        return provider;
     }
 
     private static SearchResult? PickResult(IReadOnlyList<SearchResult> results, string query)
     {
-        if (results.Count == 0)
-        {
-            return null;
-        }
-
-        return results.FirstOrDefault(r => r.Title.Equals(query, StringComparison.OrdinalIgnoreCase))
-               ?? results[0];
+        return DownloadSourceResolver.PickSearchResult(results, query);
     }
 
     private static Episode? PickEpisode(AnimeDetails details,
@@ -563,7 +550,7 @@ public static class NonInteractiveCommand
     private static int UsageError(string message)
     {
         Console.Error.WriteLine($"Hata: {message}");
-        Console.Error.WriteLine("Kullanım: migurdex <search|play|continue> --help");
+        Console.Error.WriteLine("Kullanım: migurdex <search|play|continue|download> --help");
         return 2;
     }
 
@@ -574,11 +561,15 @@ public static class NonInteractiveCommand
         Console.WriteLine(
             "  migurdex play <sorgu> [-e|--episode <n>] [-s|--season <n>] [-p|--provider <ad>] [-g|--group <ad>] [--debug]");
         Console.WriteLine("  migurdex continue [--debug]");
+        Console.WriteLine(
+            "  migurdex download <sorgu> [-e <n>] [-s <n>] [-p <ad>] [-g <ad>] [-o <dizin>] [--format auto|mp4|hls] [--subs|--no-subs] [--force] [--no-resume] [--debug] [--json]");
         Console.WriteLine("  migurdex update [--check] [--channel stable|prerelease] [-y] [--no-restart]");
         Console.WriteLine("  migurdex auth <login|logout|status>");
         Console.WriteLine("  migurdex --version");
         Console.WriteLine(
-            "Bayraklar: -e bölüm (varsayılan: kaldığın yer ya da 1), -s sezon, -p sağlayıcı, -g fansub grubu, --debug mpv açmadan URL yazdırır.");
+            "Bayraklar: -e bölüm, -s sezon, -p sağlayıcı, -g fansub grubu. Play varsayılanı kaldığın yer; download varsayılanı ilk bölüm.");
+        Console.WriteLine(
+            "          --debug oynatmadan/indirmeden çözülen kaynağı yazdırır; --json yalnız makine okunur sonuç verir.");
     }
 
     private sealed class Options

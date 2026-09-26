@@ -25,6 +25,7 @@ Terminalden Türkçe anime aramak ve izlemek için araç. TUI + yerel HTTP API +
   TrAnimeIzle, TRAnimeci, TurkAnime (Arşiv)
 - AniList ve MAL ile bilgi/poster çekme ve izleme durumu eşitleme
 - MPV ile kaldığın yerden devam etme
+- API'den gelen doğrudan MP4/HLS kaynaklarını komut satırından veya TUI'den indirme
 - Geçmiş, favoriler, arama geçmişi
 - Discord RPC (ayarlanabilir)
 - Otomatik kaynak seçimi (sunucu / kalite / tür kuralları, uymazsa manuel liste)
@@ -76,23 +77,27 @@ chmod +x Migurdex-x86_64.AppImage
 ## Gereksinimler
 
 - [MPV](https://mpv.io/) kurulu ve PATH'te olmalı
+- HLS (`.m3u8`) indirmek için [yt-dlp](https://github.com/yt-dlp/yt-dlp) kurulu olmalı; segmentleri birleştirmek/aktarmak için
+  yt-dlp'nin kullanabildiği [ffmpeg](https://ffmpeg.org/) de gerekebilir. MP4 indirme bu araçlara ihtiyaç duymaz.
+- Migurdex yt-dlp veya ffmpeg'i otomatik indirmez/kurmaz.
 - AppImage için Linux'ta `libfuse2`
 - Kaynaktan derlemek için: .NET 10 SDK + Rust / cargo
 
 ## Kullanım
 
-Akış basit: Arama -> Detay -> Kaynak -> Oynat.
+Akış basit: Arama -> Detay -> Bölüm -> Kaynak -> Oynat / İndir.
 
 1. Ana menüden aramaya gir, adı yaz (liste fuzzy daralır).
 2. Sonuçtan seçince açıklama ve bölüm listesi gelir.
 3. Bölümü seçince fansub grupları ve kaynaklar (sunucu / kalite / tür) gelir.
-4. Kaynağı seçince MPV açılır.
+4. Kaynağı seçince `Oynat`, `İndir` veya `Geri` seçilir. Otomatik kaynak seçimi de aynı menüyü açar.
 
-`Esc` bir önceki ekrana döner. Yön tuşları + `Enter` ile kullanılıyor.
+`Esc` bir önceki ekrana döner. Yön tuşları + `Enter` ile kullanılıyor. İndirme sırasında `Esc` indirmeyi iptal eder;
+indirme MPV'yi açmaz ve izleme geçmişi/tracker senkronunu tetiklemez.
 
 ### Komut satırı modu (non-interactive)
 
-Menüye girmeden doğrudan arama/oynatma:
+Menüye girmeden doğrudan arama/oynatma/indirme:
 
 ```bash
 migurdex search "one piece"                  # sağlayıcı | başlık | id listeler
@@ -101,10 +106,24 @@ migurdex play "one piece" -e 12              # 12. bölümü oynat
 migurdex play "naruto" -s 2 -p TurkAnime -g FansubAdı
 migurdex play "bleach" --debug               # mpv açmadan çözülen URL'yi yazdır
 migurdex continue                            # kaldığın yerden devam et
+
+migurdex download "one piece" -e 12
+migurdex download "naruto" -s 2 -p TurkAnime -g FansubAdı -o ~/Videos/Anime
+migurdex download "bleach" -e 1 --format mp4 --no-subs
+migurdex download "bleach" -e 1 --format hls --force --no-resume
+migurdex download "bleach" -e 1 --json       # stdout yalnız JSON, ilerleme stderr'de
 ```
 
-`-e` verilmezse kaldığın bölümden (yoksa 1. bölümden) başlar. Kaynak seçimi ayarlardaki otomatik seçim kurallarıyla
-aynıdır.
+`download` akışı Search -> Details -> Episode -> Group/Source sırasını izler. Yalnız API'nin çözdüğü doğrudan `MP4` ve
+`M3U8/HLS` kaynakları kullanılır; `Embed` ve `Unknown` kaynaklar indirilmez. `-p`/`-g` verildiğinde seçimler doğrulanır.
+Bölüm verilmezse izleme geçmişine bakılmaz; sezon filtreli deterministik ilk bölüm seçilir. `auto`, mevcut kalite/biçim
+tercihleri ve `SourceSelector` kurallarına uyar, en iyi üç uygun adayı sırayla dener. `--force` var olan hedefi değiştirir,
+`--no-resume` kısmi MP4 dosyasından devam etmez. Çıkış kodu `0` başarı, `1` çalışma/sağlayıcı hatası, `2` kullanım
+hatasıdır. `--debug` URL, header veya token yazdırmaz; indirmeyi başlatmadan yalnız güvenli kaynak özetini gösterir.
+
+Varsayılan çıktı kökü platformun Downloads klasöründe `Migurdex` altıdır (`-o` ile değiştirilebilir). Dosyalar
+`<çıktı>/<anime>/SxxEyy - <bölüm>.<uzantı>` düzeninde yazılır. Altyazılar medyanın yanına ayrı `.srt`, `.ass` veya
+`.vtt` sidecar dosyaları olarak kaydedilir. HLS'de gerçek medya uzantısı yt-dlp'nin ürettiği çıktıya göre korunur.
 
 ### Güncelleme
 
@@ -130,6 +149,19 @@ logları, API adresi (varsayılan `http://127.0.0.1:7045`), AniList / MAL bağla
 
 Kaydetmeden çıkarsan (`Esc` / İptal) değişiklikler uygulanmaz.
 
+İndirme varsayılanları `config.json` içinden de değiştirilebilir: `DownloadDirectory`, `YtDlpPath`, `DownloadSubtitles`,
+`DownloadResume` ve `DownloadOverwrite`. Sırasıyla platform Downloads/Migurdex dizini, `yt-dlp`, `true`, `true` ve `false`
+varsayılanları kullanılır. Eski config dosyaları yeni alanlar eklenmeden de güvenle yüklenir. Migurdex bu harici araçları
+otomatik indirmez.
+
+## Güvenlik ve kaynak kullanımı
+
+İndirme yalnız API'nin sağladığı doğrudan medya URL'lerini kullanır; gömülü oynatıcı sayfalarını veya `Unknown` kaynakları
+otomatik olarak indirmez. Yalnız HTTP/HTTPS kaynakları kullanılır ve farklı origin'e yönlendirmede
+`Authorization`/`Cookie` gibi hassas başlıklar düşürülür. Yalnız erişimine ve indirmesine izin verdiğiniz içerikleri
+kaydedin; DRM/paywall korumasını aşmaya çalışan kaynakları indirmeyin. `--debug` çıktısı güvenlik için URL, header ve token
+içermez.
+
 ## Dosyalar
 
 Linux'ta `~/.config/migurdex/` altında tutulur:
@@ -150,7 +182,8 @@ Windows'ta `%APPDATA%\migurdex\` altında aynı yapı var.
 | `Migurdex.Native` | Rust tarafı HTTP istemcisi                             |
 | `Plugins/`        | Sağlayıcılar (`Migurdex.Plugins.*`)                    |
 
-Akış: `TUI -> API -> plugin (+ Rust HTTP) -> kaynak listesi -> MPV`. Native kütüphane (`libmigurdex_native.so` /
+Akış: `TUI/CLI -> API -> plugin (+ Rust HTTP) -> kaynak listesi -> MPV veya indirici`. Native kütüphane
+(`libmigurdex_native.so` /
 `migurdex_native.dll`) API ile birlikte gelir, eksikse API başlamaz.
 
 Bulit-in extractor'lar `Migurdex.Core/Extractors` altında. API tarafında `GET /api/v1/extractors` ve

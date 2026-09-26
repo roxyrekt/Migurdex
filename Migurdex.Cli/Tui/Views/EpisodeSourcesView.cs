@@ -1,5 +1,7 @@
 using Migurdex.Cli.Configuration;
 using Migurdex.Cli.Services;
+using Migurdex.Cli.Services.Downloads;
+using Migurdex.Cli.Tui;
 using Migurdex.Shared.Enums;
 using Migurdex.Shared.Models;
 using Spectre.Console;
@@ -11,6 +13,7 @@ public class EpisodeSourcesView : BaseView
 {
     private readonly IApiClientService     _apiClient;
     private readonly IConfigurationService _configService;
+    private readonly IDownloadService      _downloadService;
     private readonly IHistoryService       _historyService;
     private readonly PlaybackOrchestrator  _playback;
     private readonly IMpvPlayerService     _playerService;
@@ -33,11 +36,30 @@ public class EpisodeSourcesView : BaseView
         IConfigurationService configService,
         PlaybackOrchestrator  playback,
         IServiceProvider      serviceProvider)
+        : this(apiClient,
+               playerService,
+               historyService,
+               configService,
+               serviceProvider.GetService(typeof(IDownloadService)) as IDownloadService ?? new DownloadService(),
+               playback,
+               serviceProvider)
+    {
+    }
+
+    public EpisodeSourcesView(
+        IApiClientService     apiClient,
+        IMpvPlayerService     playerService,
+        IHistoryService       historyService,
+        IConfigurationService configService,
+        IDownloadService      downloadService,
+        PlaybackOrchestrator  playback,
+        IServiceProvider      serviceProvider)
     {
         _apiClient       = apiClient;
         _playerService   = playerService;
         _historyService  = historyService;
         _configService   = configService;
+        _downloadService = downloadService;
         _playback        = playback;
         _serviceProvider = serviceProvider;
     }
@@ -149,8 +171,9 @@ public class EpisodeSourcesView : BaseView
             AnsiConsole.MarkupLine("[cyan]Kaynaklar taranıyor...[/] [grey](Esc: vazgeç)[/]");
 
             var resolvedSources = new List<VideoSource>();
-            var cts             = new CancellationTokenSource();
-            var userCancelled   = false;
+            var cts             = CancellationTokenSource.CreateLinkedTokenSource(
+                TuiApplicationCancellation.Token);
+            var userCancelled = false;
 
             var streamTask = Task.Run(async () =>
                                       {
@@ -239,6 +262,11 @@ public class EpisodeSourcesView : BaseView
                 // ignored
             }
 
+            if (TuiApplicationCancellation.Token.IsCancellationRequested)
+            {
+                return;
+            }
+
             lock (resolvedSources)
             {
                 _cachedSources = [.. resolvedSources];
@@ -262,18 +290,12 @@ public class EpisodeSourcesView : BaseView
                     AnsiConsole.MarkupLine(
                         $"[green]✓{exactTag}:[/] {Markup.Escape(bestSource.Hoster ?? "Bilinmeyen")} [grey]({Markup.Escape(bestSource.Quality ?? "Auto")} • {bestSource.Type})[/]");
 
-                    var historyEntry = _playback.BuildEntry(provider, animeId, animeTitle, episode, _posterUrl);
-
-                    var autoSyncOutcome = await _playback.PlayAndNotifyAsync(bestSource, historyEntry, false);
-
-                    PushPlaybackMenu(navigator,
-                                     bestSource,
-                                     historyEntry,
-                                     provider,
-                                     animeId,
-                                     animeTitle,
-                                     episode,
-                                     autoSyncOutcome);
+                    await HandleSelectedSourceAsync(navigator,
+                                                   bestSource,
+                                                   provider,
+                                                   animeId,
+                                                   animeTitle,
+                                                   episode);
                     return;
                 }
             }
@@ -344,19 +366,304 @@ public class EpisodeSourcesView : BaseView
             return;
         }
 
-        var selectedHistoryEntry = _playback.BuildEntry(provider, animeId, animeTitle, episode, _posterUrl);
+        await HandleSelectedSourceAsync(navigator,
+                                        selectedSource,
+                                        provider,
+                                        animeId,
+                                        animeTitle,
+                                        episode);
+    }
 
+    private async Task HandleSelectedSourceAsync(ITuiNavigator navigator,
+        VideoSource                                                       selectedSource,
+        string                                                            provider,
+        string                                                            animeId,
+        string                                                            animeTitle,
+        Episode                                                           episode)
+    {
+        var sourceDescription = string.Join(" • ",
+                                            new[]
+                                            {
+                                                selectedSource.Group ?? "Bilinmeyen",
+                                                selectedSource.Hoster ?? "Bilinmeyen",
+                                                selectedSource.Quality ?? "Auto",
+                                                selectedSource.Type.ToString()
+                                            });
+        var actions = new List<FuzzyChoice>
+        {
+            Theme.PlayChoice("Oynat")
+        };
+        if (DownloadSourceResolver.IsDirectDownloadable(selectedSource))
+        {
+            actions.Add(Theme.ActionChoice("İndir", Theme.Primary));
+        }
+
+        actions.Add(TuiHelpers.Back());
+        var action = FuzzyPrompt.Show("Kaynak seçildi",
+                                      actions,
+                                      headerLines:
+                                      [
+                                          $"[grey]{Markup.Escape(TuiHelpers.EllipsizedTitle(animeTitle))} › "
+                                          + $"[grey]{Markup.Escape(TuiHelpers.FormatEpisodeRef(episode))}[/]",
+                                          $"[grey]{Markup.Escape(sourceDescription)}[/]"
+                                      ]);
+
+        if (action == null || action.Searchable == "Geri")
+        {
+            return;
+        }
+
+        if (action.Searchable == "İndir")
+        {
+            await DownloadSourceAsync(navigator,
+                                      selectedSource,
+                                      animeTitle,
+                                      episode);
+            return;
+        }
+
+        var historyEntry = _playback.BuildEntry(provider, animeId, animeTitle, episode, _posterUrl);
         AnsiConsole.MarkupLine("[green]✓[/] Oynatıcı başlatıldı.");
-        var syncOutcome = await _playback.PlayAndNotifyAsync(selectedSource, selectedHistoryEntry, false);
-
+        var syncOutcome = await _playback.PlayAndNotifyAsync(selectedSource, historyEntry, false);
         PushPlaybackMenu(navigator,
                          selectedSource,
-                         selectedHistoryEntry,
+                         historyEntry,
                          provider,
                          animeId,
                          animeTitle,
                          episode,
                          syncOutcome);
+    }
+
+    private async Task DownloadSourceAsync(ITuiNavigator navigator,
+        VideoSource                                                       selectedSource,
+        string                                                            animeTitle,
+        Episode                                                           episode)
+    {
+        if (!DownloadSourceResolver.IsDirectDownloadable(selectedSource))
+        {
+            await ShowDownloadResultAsync(navigator,
+                                           DownloadResult.Failed(
+                                               "Bu kaynak doğrudan MP4/HLS indirilebilir değil."));
+            return;
+        }
+
+        var config            = _configService.Config;
+        var progressTracker   = new DownloadProgressTracker();
+        var userCancelled     = false;
+        DownloadResult?       result           = null;
+        string?               unexpectedError = null;
+        Task<DownloadResult>? downloadTask     = null;
+        using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(
+            TuiApplicationCancellation.Token);
+
+        try
+        {
+            downloadTask = _downloadService.DownloadAsync(
+                                                    new DownloadRequest
+                                                    {
+                                                        Source            = selectedSource,
+                                                        OutputDirectory   = config.DownloadDirectory,
+                                                        AnimeTitle        = animeTitle,
+                                                        EpisodeTitle      = episode.Title,
+                                                        Season            = episode.Season ?? 1,
+                                                        EpisodeNumber     = episode.Number,
+                                                        Overwrite         = config.DownloadOverwrite,
+                                                        Resume            = config.DownloadResume,
+                                                        DownloadSubtitles = config.DownloadSubtitles,
+                                                        Progress          = progressTracker
+                                                    },
+                                                    cancellation.Token);
+            AnsiConsole.Status()
+                       .Spinner(Spinner.Known.Dots)
+                       .Start("İndiriliyor...",
+                              context =>
+                              {
+                                  while (!downloadTask.IsCompleted)
+                                  {
+                                      if (Console.KeyAvailable
+                                          && Console.ReadKey(true).Key == ConsoleKey.Escape)
+                                      {
+                                          userCancelled = true;
+                                          cancellation.Cancel();
+                                          break;
+                                      }
+
+                                      var progress = progressTracker.Current;
+                                      context.Status(FormatDownloadProgress(progress));
+                                      Thread.Sleep(80);
+                                  }
+                              });
+
+            result = await downloadTask;
+        }
+        catch (OperationCanceledException) when (userCancelled || cancellation.IsCancellationRequested)
+        {
+            await AbortDownloadAsync(downloadTask, cancellation);
+            result = new DownloadResult
+            {
+                Success     = false,
+                Error       = "İndirme iptal edildi.",
+                IsCancelled = true
+            };
+        }
+        catch (Exception)
+        {
+            await AbortDownloadAsync(downloadTask, cancellation);
+            unexpectedError = "İndirme sırasında beklenmeyen bir hata oluştu.";
+        }
+
+        if (TuiApplicationCancellation.Token.IsCancellationRequested)
+        {
+            return;
+        }
+
+        await ShowDownloadResultAsync(navigator, result, unexpectedError);
+    }
+
+    private static async Task AbortDownloadAsync(
+        Task<DownloadResult>? downloadTask,
+        CancellationTokenSource cancellation)
+    {
+        if (downloadTask is null)
+        {
+            return;
+        }
+
+        try
+        {
+            if (!downloadTask.IsCompleted)
+            {
+                cancellation.Cancel();
+            }
+
+            await downloadTask.ConfigureAwait(false);
+        }
+        catch
+        {
+            // Task bu noktada zaten iptal/başarısız olabilir; asıl sonucu maskeleme.
+        }
+    }
+
+    private static Task ShowDownloadResultAsync(ITuiNavigator navigator,
+        DownloadResult?                                                   result,
+        string?                                                           unexpectedError = null)
+    {
+        var title = result is { IsCancelled: true }
+                        ? "İndirme iptal edildi"
+                        : result?.Success == true
+                            ? "İndirme tamamlandı"
+                            : "İndirme başarısız";
+        var headers = new List<string>();
+        var hasMedia = result?.Success == true
+                       || !string.IsNullOrWhiteSpace(result?.MediaPath);
+        if (hasMedia)
+        {
+            headers.Add(result?.IsCancelled == true
+                            ? "[yellow]Video tamamlandı; altyazılar iptal edildi.[/]"
+                            : "[green]Video indirildi.[/]");
+            if (!string.IsNullOrWhiteSpace(result?.MediaPath))
+            {
+                headers.Add($"[grey]Video:[/] [white]{Markup.Escape(result.MediaPath)}[/]");
+            }
+
+            foreach (var subtitlePath in result?.SubtitlePaths ?? [])
+            {
+                headers.Add($"[grey]Altyazı:[/] [white]{Markup.Escape(subtitlePath)}[/]");
+            }
+        }
+        else
+        {
+            var error = unexpectedError
+                        ?? result?.Error
+                        ?? "Video indirilemedi.";
+            headers.Add($"[red]{Markup.Escape(error)}[/]");
+        }
+
+        foreach (var warning in result?.Warnings ?? [])
+        {
+            headers.Add($"[yellow]Uyarı:[/] [grey]{Markup.Escape(warning)}[/]");
+        }
+
+        FuzzyPrompt.Show(title,
+                          [TuiHelpers.Back()],
+                          headerLines: headers,
+                          footerHelp: "↑↓ gez • Enter seç • Esc geri");
+        if (result?.Success == true && result.IsCancelled != true)
+        {
+            navigator.Pop();
+        }
+
+        return Task.CompletedTask;
+    }
+
+    private static string FormatDownloadProgress(DownloadProgress? progress)
+    {
+        if (progress is null)
+        {
+            return "İndiriliyor...";
+        }
+
+        var stage = progress.Stage switch
+        {
+            DownloadStage.Preparing  => "Hazırlanıyor",
+            DownloadStage.Requesting => "Bağlanıyor",
+            DownloadStage.Downloading => "İndiriliyor",
+            DownloadStage.Finalizing  => "Tamamlanıyor",
+            DownloadStage.Subtitle    => "Altyazı indiriliyor",
+            DownloadStage.Completed   => "Tamamlandı",
+            DownloadStage.Failed      => "Başarısız",
+            DownloadStage.Cancelled   => "İptal edildi",
+            _                         => "İşleniyor"
+        };
+        var bytes = FormatBytes(progress.BytesDownloaded);
+        if (progress.TotalBytes is > 0)
+        {
+            bytes += $" / {FormatBytes(progress.TotalBytes.Value)}";
+        }
+
+        return $"{stage} • {bytes} • Esc: iptal";
+    }
+
+    private static string FormatBytes(long bytes)
+    {
+        string[] units = ["B", "KiB", "MiB", "GiB", "TiB"];
+        double value   = Math.Max(0, bytes);
+        var    unit    = 0;
+        while (value >= 1024 && unit < units.Length - 1)
+        {
+            value /= 1024;
+            unit++;
+        }
+
+        return unit == 0
+                   ? $"{bytes.ToString(CultureInfo.InvariantCulture)} {units[unit]}"
+                   : $"{value.ToString("0.##", CultureInfo.InvariantCulture)} {units[unit]}";
+    }
+
+    private sealed class DownloadProgressTracker : IProgress<DownloadProgress>
+    {
+        private readonly Lock _sync = new();
+        private          DownloadProgress? _current;
+
+        public DownloadProgress? Current
+        {
+            get
+            {
+                lock (_sync)
+                {
+                    return _current;
+                }
+            }
+        }
+
+        public void Report(DownloadProgress value)
+        {
+            lock (_sync)
+            {
+                _current = value;
+            }
+        }
     }
 
     private void PushPlaybackMenu(ITuiNavigator navigator,
