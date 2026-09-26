@@ -57,6 +57,10 @@ public sealed class HlsDownloaderTests
             Assert.Contains("--no-playlist", captured.ArgumentList);
             Assert.Contains("--add-header", captured.ArgumentList);
             Assert.Contains("Referer: https://origin.example/page", captured.ArgumentList);
+            // --print yt-dlp'de --quiet'i ima eder; progress çıktısı --progress ile geri açılır.
+            Assert.Contains("--progress", captured.ArgumentList);
+            Assert.Contains("--print", captured.ArgumentList);
+            Assert.Equal("after_move:filepath", ValueAfter(captured.ArgumentList, "--print"));
             Assert.DoesNotContain(captured.ArgumentList,
                                   value => value.Contains("Authorization", StringComparison.OrdinalIgnoreCase)
                                            || value.Contains("X-Api-Key", StringComparison.OrdinalIgnoreCase));
@@ -66,6 +70,51 @@ public sealed class HlsDownloaderTests
             Assert.DoesNotContain("secret-token", result.OutputPath, StringComparison.OrdinalIgnoreCase);
             Assert.Equal("hls-media", await File.ReadAllTextAsync(result.OutputPath, TestContext.Current.CancellationToken));
             Assert.Empty(Directory.GetDirectories(root, ".migurdex-job-*", SearchOption.TopDirectoryOnly));
+        }
+        finally
+        {
+            Directory.Delete(root, true);
+        }
+    }
+
+    [Fact]
+    public async Task Download_ParsesYtDlpProgressLinesIntoDownloadingStage()
+    {
+        var root = NewTempDir();
+        try
+        {
+            var destination = new DownloadPathBuilder().Build(root, "Anime", "Episode", 1, 1);
+            Directory.CreateDirectory(destination.AnimeDirectory);
+            var runner = new FakeProcessRunner((startInfo, onStandardOutput, _) =>
+            {
+                var jobDirectory = ValueAfter(startInfo.ArgumentList, "--paths");
+                Directory.CreateDirectory(jobDirectory);
+                File.WriteAllText(Path.Combine(jobDirectory, "media.mp4"), "hls-media");
+                onStandardOutput?.Invoke("[download]  42.3% of   ~10.00MiB at  1.00MiB/s ETA 00:07");
+                onStandardOutput?.Invoke("[download] 10.50MiB / 24.00MiB");
+                return Task.FromResult(new ExternalProcessResult(0));
+            });
+            var progress = new RecordingProgress();
+
+            var result = await new YtDlpHlsDownloader(runner, maxAttempts: 1, retryDelay: TimeSpan.Zero)
+                .DownloadAsync(new VideoSource
+                    {
+                        Url = "https://origin.example/master.m3u8",
+                        Type = VideoType.M3U8
+                    },
+                    destination,
+                    progress: progress,
+                    cancellationToken: TestContext.Current.CancellationToken);
+
+            Assert.EndsWith(".mp4", result.OutputPath, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains(progress.Items,
+                            item => item.Stage == DownloadStage.Downloading
+                                    && item.BytesDownloaded == 42
+                                    && item.TotalBytes == 100);
+            Assert.Contains(progress.Items,
+                            item => item.Stage == DownloadStage.Downloading
+                                    && item.BytesDownloaded == 11010048
+                                    && item.TotalBytes == 25165824);
         }
         finally
         {
@@ -334,9 +383,15 @@ public sealed class HlsDownloaderTests
 
     private sealed class FakeProcessRunner : IExternalProcessRunner
     {
-        private readonly Func<ProcessStartInfo, CancellationToken, Task<ExternalProcessResult>> _handler;
+        private readonly Func<ProcessStartInfo, Action<string>?, CancellationToken, Task<ExternalProcessResult>> _handler;
 
         public FakeProcessRunner(Func<ProcessStartInfo, CancellationToken, Task<ExternalProcessResult>> handler)
+            : this((startInfo, _, cancellationToken) => handler(startInfo, cancellationToken))
+        {
+        }
+
+        public FakeProcessRunner(
+            Func<ProcessStartInfo, Action<string>?, CancellationToken, Task<ExternalProcessResult>> handler)
         {
             _handler = handler;
         }
@@ -345,7 +400,25 @@ public sealed class HlsDownloaderTests
             ProcessStartInfo  startInfo,
             CancellationToken cancellationToken = default)
         {
-            return _handler(startInfo, cancellationToken);
+            return _handler(startInfo, null, cancellationToken);
+        }
+
+        public Task<ExternalProcessResult> RunAsync(
+            ProcessStartInfo  startInfo,
+            Action<string>?   onStandardOutput,
+            CancellationToken cancellationToken = default)
+        {
+            return _handler(startInfo, onStandardOutput, cancellationToken);
+        }
+    }
+
+    private sealed class RecordingProgress : IProgress<DownloadProgress>
+    {
+        public List<DownloadProgress> Items { get; } = [];
+
+        public void Report(DownloadProgress value)
+        {
+            Items.Add(value);
         }
     }
 }

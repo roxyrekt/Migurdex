@@ -238,6 +238,10 @@ public sealed class YtDlpHlsDownloader : IHlsDownloader
         startInfo.ArgumentList.Add("--no-playlist");
         startInfo.ArgumentList.Add("--no-part");
         startInfo.ArgumentList.Add("--newline");
+        // yt-dlp'de --print, --quiet davranışını ima eder ve progress çıktısını tamamen kapatır.
+        // --progress, --print after_move:filepath korunurken ilerleme satırlarını geri açar;
+        // ReportProcessProgress bu satırlardan DownloadStage.Downloading üretir.
+        startInfo.ArgumentList.Add("--progress");
         startInfo.ArgumentList.Add("--batch-file");
         startInfo.ArgumentList.Add(inputPath);
         startInfo.ArgumentList.Add("--paths");

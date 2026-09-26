@@ -9,7 +9,7 @@
 - `git diff --check`: temiz
 - `dotnet restore Migurdex.slnx`: başarılı
 - `dotnet build Migurdex.slnx -c Release --no-restore`: 18 proje, 0 uyarı, 0 hata
-- `dotnet test Migurdex.Tests\Migurdex.Tests.csproj -c Release --no-build --filter "FullyQualifiedName!~ExtractorSmokeTests"`: **274/274 geçti**
+- `dotnet test Migurdex.Tests\Migurdex.Tests.csproj -c Release --no-build --filter "FullyQualifiedName!~ExtractorSmokeTests"`: **275/275 geçti**
 
 İndirme/TUI odaklı test grupları ayrıca tek tek koşuldu:
 
@@ -17,13 +17,13 @@
 |---|---:|
 | `Mp4DownloaderTests` | 20/20 |
 | `SubtitleDownloaderTests` | 10/10 |
-| `HlsDownloaderTests` | 7/7 |
+| `HlsDownloaderTests` | 8/8 |
 | `DownloadServiceTests` | 7/7 |
 | `DownloadCommandTests` | 15/15 |
 | `ApiClientServiceTests` | 2/2 |
 | `TuiMarkupSafetyTests` | 23/23 |
 | `FuzzyPromptSearchableTests` | 18/18 |
-| **Grup toplamı** | **102/102** |
+| **Grup toplamı** | **103/103** |
 
 ## 2. Canlı API smoke
 
@@ -86,9 +86,9 @@ Gerçek ConPTY terminalinde, gerçek `naruto` sorgusu ile uçtan uca test edildi
 9. Sonuç ekranı açıldı.
 10. Uygulama `exit=0` ile kapatıldı.
 
-### Bulunan hata
+### Bulunan hata ve düzeltme
 
-HLS indirmesi sırasında ilerleme satırı güncellenmedi ve şu şekilde kaldı:
+HLS indirmesi sırasında ilerleme satırı güncellenmiyordu ve şu şekilde kalıyordu:
 
 ```text
 Bağlanıyor • 0 B • Esc: iptal
@@ -104,9 +104,25 @@ Kök neden:
 
 - Bu bayrak yt-dlp’de `--quiet` davranışını ima ediyor.
 - `--quiet` açık olduğundan progress çıktısı türetilmiyor.
-- Sonuç olarak TUI progress satırı hiç güncellenmiyor.
+- Sonuç olarak TUI progress satırı hiç güncellenmiyordu.
 
-**Düzeltme:** yt-dlp argüman listesine `--progress` eklenmesi gerekiyor. Bu düzeltme şu anda ayrı bir çalışma oturumunda uygulanıyor.
+**Düzeltme tamamlandı:**
+
+- yt-dlp argüman listesine `--progress` eklendi.
+- `--print after_move:filepath` yerinde kaldı.
+- `HlsDownloaderTests` yeni testle genişletildi.
+- Yüzde ve `MiB/x MiB` progress kalıplarının `Downloading` aşamasına dönüştüğü doğrulandı.
+- Düzeltme sonrası TUI beklenen şekilde şunu gösteriyor:
+
+```text
+İndiriliyor • <indirilen> / <toplam> • Esc: iptal
+```
+
+İlgili test sonucu:
+
+- Genel offline takım: **275/275**
+- `HlsDownloaderTests`: **8/8**
+- İndirme/TUI odaklı sınıf filtreleri: **110/110**
 
 ## 4. CLI canlı smoke
 
@@ -176,7 +192,8 @@ Sonuç:
 - API, CLI ve TUI akışları canlı olarak doğrulandı.
 - Offline test süiti tamamen geçti.
 - Gerçek indirme başarıyla tamamlandı.
-- İki gerçek test bulgusu not edildi:
-  1. **HLS progress güncellenmiyor** — düzeltme devam ediyor.
-  2. **Ortam bulgusu:** sistem dotnet’inde ASP.NET Core runtime yoktu; geçici SDK kurulunca aşıldı. Bu bir kod hatası değil.
+- Tek gerçek uygulama hatası bulundu ve düzeltildi:
+  1. **HLS progress güncellenmiyordu** — `--progress` bayrağı eklenerek düzeltildi ve testlerle doğrulandı.
+- Ortam bulgusu olarak not edildi:
+  1. Sistem dotnet’inde ASP.NET Core runtime yoktu; geçici SDK kurulunca aşıldı. Bu bir kod hatası değil.
 - Uygulama tarafında kalıcı bir çökme veya veri bozulması bulunmadı.

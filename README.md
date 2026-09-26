@@ -79,6 +79,8 @@ chmod +x Migurdex-x86_64.AppImage
 - [MPV](https://mpv.io/) kurulu ve PATH'te olmalı
 - HLS (`.m3u8`) indirmek için [yt-dlp](https://github.com/yt-dlp/yt-dlp) kurulu olmalı; segmentleri birleştirmek/aktarmak için
   yt-dlp'nin kullanabildiği [ffmpeg](https://ffmpeg.org/) de gerekebilir. MP4 indirme bu araçlara ihtiyaç duymaz.
+- HLS indirme ilerlemesi yt-dlp'nin ürettiği progress satırlarından okunur; Migurdex yt-dlp'ye daima `--progress` verir
+  (yt-dlp'de `--print` bayrağı bu çıktıyı kapattığından).
 - Migurdex yt-dlp veya ffmpeg'i otomatik indirmez/kurmaz.
 - AppImage için Linux'ta `libfuse2`
 - Kaynaktan derlemek için: .NET 10 SDK + Rust / cargo

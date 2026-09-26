@@ -6,11 +6,11 @@ TUI'den (bölüm kaynak ekranında `İndir`) diske kaydeder. `Embed` ve `Unknown
 
 | Alan | Değer |
 |---|---|
-| Son güncelleme | 26 Eylül 2026 |
+| Son güncelleme | 27 Eylül 2026 |
 | Dal | `feature/download` (temel: `main` @ `444a49e`) |
 | Son kod commit’i | `4cd2ac8bbb012fe3884eba044d999f528dda1f18` (`4cd2ac8` — fix(tui): hide search filter on download result) |
 | Temel commit | `c3d307a` — feat: add anime download support |
-| Testler | 80 test metodu / 109 çalışan case, 10 sınıf (bkz. `Test kapsamı`); offline doğrulama: 274/274 geçti (26.09.2026) |
+| Testler | 81 test metodu / 110 çalışan case, 10 sınıf (bkz. `Test kapsamı`); offline doğrulama: 275/275 geçti (27.09.2026) |
 
 ## Genel akış
 
@@ -347,12 +347,23 @@ Testler (`Migurdex.Tests`): `Mp4DownloaderTests`, `SubtitleDownloaderTests`, `Hl
 - yt-dlp argümanları:
 
   ```
-  --no-config --no-playlist --no-part --newline
+  --no-config --no-playlist --no-part --newline --progress
   --batch-file <job/.migurdex-input.txt>   # URL enjeksiyonuna kapalı geçiş
   --paths <job> --output media.%(ext)s
   --print after_move:filepath
   --add-header <ad>: <değer>                # yalnız allowlist header'lar
   ```
+
+- **`--progress` neden gerekli:** yt-dlp'de herhangi bir `--print` kullanımı `--quiet` davranışını
+  ima eder; `--print after_move:filepath` tek başına verildiğinde yt-dlp ilerleme satırı üretmez.
+  Canlı TUI smoke testinde (27 Eylül 2026) bu gerçek hata bulundu: HLS indirmesi başarıyla
+  tamamlanıyor ancak durum satırı `Bağlanıyor • 0 B • Esc: iptal` değerinde kalıyordu —
+  yt-dlp'den progress satırı gelmediği için `ReportProcessProgress` hiç tetiklenmiyor ve aşama
+  `Requesting`'ten `Downloading`'e geçemiyordu. Aynı argüman listesine `--progress` eklenmesi
+  progress çıktısını geri açtı; `--print after_move:filepath` (çıktı yolunun stdout'dan
+  öğrenilmesi) yerinde kalır, `--newline` sayesinde her güncelleme ayrı satır olarak akar.
+  `HlsDownloaderTests` hem `--progress` + `--print after_move:filepath` birlikteliğini hem de
+  progress satırlarının `Downloading` aşamasına çevrildiğini doğrular.
 
 - Her indirme geçici `.migurdex-job-<guid>` dizininde çalışır, bitince silinir.
 - Yeniden deneme: varsayılan 3 deneme (1-5 aralığına sabitlenir), denemeler arası 1 saniye
@@ -360,7 +371,9 @@ Testler (`Migurdex.Tests`): `Mp4DownloaderTests`, `SubtitleDownloaderTests`, `Hl
 - Çıktı dosyası yt-dlp'nin `--print after_move:filepath` satırından veya job dizininden bulunur;
   yalnız medya uzantıları kabul edilir (`.mp4`, `.mkv`, `.webm`, `.ts`, ...). Gerçek medya
   uzantısı yt-dlp çıktısına göre korunur; HTML/JSON/altyazı görünümlü dosyalar reddedilir.
-- İlerleme, yt-dlp'nin stdout satırlarındaki yüzde (`%`) ve `MiB/x MiB` kalıplarından ayrıştırılır.
+- İlerleme, yt-dlp'nin stdout satırlarındaki yüzde (`%`) ve `MiB/x MiB` kalıplarından ayrıştırılır
+  (`ReportProcessProgress` → `Downloading` aşaması); bu satırların üretilmesi yt-dlp'ye verilen
+  `--progress` bayrağına bağlıdır (bkz. yukarıdaki not).
 
 ## Altyazı indirme
 
@@ -419,7 +432,7 @@ satırlarının da açıldığı toplam çalıştırılan test sayısıdır.
 |---|---:|---:|---:|---:|---:|
 | `Mp4DownloaderTests` | 20 | 0 | 0 | 20 | 20 |
 | `SubtitleDownloaderTests` | 8 | 1 | 2 | 9 | 10 |
-| `HlsDownloaderTests` | 7 | 0 | 0 | 7 | 7 |
+| `HlsDownloaderTests` | 8 | 0 | 0 | 8 | 8 |
 | `DownloadServiceTests` | 7 | 0 | 0 | 7 | 7 |
 | `DownloadCommandTests` | 11 | 1 | 4 | 12 | 15 |
 | `DownloadPathBuilderTests` | 4 | 0 | 0 | 4 | 4 |
@@ -479,6 +492,42 @@ Notlar:
   0 hata ile tamamlanan derleme çıktısıyla birebir eşleşir.
 - Bu koşumda kod değişmedi; `Test kapsamı` tablosundaki metrikler (80 test metodu / 109 çalışan
   case) ve `Yapılan işlemler` kayıtları olduğu gibi korunur.
+
+### `--progress` düzeltmesi ve doğrulama (27 Eylül 2026)
+
+Canlı TUI smoke testi gerçek bir hata buldu: HLS indirmesi başarıyla tamamlanmasına rağmen TUI
+durum satırı `Bağlanıyor • 0 B • Esc: iptal` değerinde kalıyordu. Kök neden:
+`YtDlpHlsDownloader.BuildStartInfo` yt-dlp'a `--print after_move:filepath` veriyor; yt-dlp'de bu
+bayrak `--quiet` davranışını ima ettiğinden progress çıktısı türetilmiyor, `ReportProcessProgress`
+hiç tetiklenmiyor ve aşama `Requesting` (`Bağlanıyor`) aşamasından ilerlemiyordu. Aynı argüman
+listesine `--progress` eklenince progress satırları gelmeye başladı.
+
+Düzeltme: yt-dlp argüman listesine `--progress` eklendi; `--print after_move:filepath` yerinde
+kaldı. Böylece hem çıktı yolu stdout'dan öğrenilmeye devam ediliyor hem de ilerleme satırları
+`--newline` ile satır satır akarak `Downloading` aşamasını besliyor.
+
+Kapsam:
+
+- `Migurdex.Cli\Services\Downloads\YtDlpHlsDownloader.cs` — `BuildStartInfo` içine `--progress` ve
+  neden gerekli olduğunu açıklayan yorum eklendi.
+- `Migurdex.Tests\HlsDownloaderTests.cs` — mevcut argüman testine `--progress` varlığı ve
+  `--print` + `after_move:filepath` birlikteliği doğrulamaları eklendi; yüzde (`42.3%`) ve bayt
+  (`10.50MiB / 24.00MiB`) kalıplı progress satırlarının `Downloading` aşamasına çevrildiğini
+  doğrulayan yeni test `Download_ParsesYtDlpProgressLinesIntoDownloadingStage` yazıldı;
+  `FakeProcessRunner` stdout satır callback'ini yakalayacak şekilde genişletildi.
+- `DOWNLOAD.md`, `README.md` — HLS ilerlemesinin `--progress`'e bağlı olduğu ve smoke bulgusu
+  belgelendi.
+
+Doğrulama (portatif .NET SDK 10.0.401, `feature/download`, `ExtractorSmokeTests` hariç):
+
+| Komut | Sonuç |
+|---|---|
+| `dotnet build Migurdex.slnx -c Release` | 18 proje, 0 uyarı, 0 hata |
+| `dotnet test Migurdex.Tests\Migurdex.Tests.csproj -c Release --no-build --filter "FullyQualifiedName!~ExtractorSmokeTests"` | **275/275 geçti** |
+| Aynı koşu + `FullyQualifiedName~HlsDownloaderTests` filtresi | **8/8 geçti** |
+| İndirme/TUI odaklı sınıf filtreleri (Downloader/Service/Command/PathBuilder/ProcessRunner/ApiClient/TuiMarkup/FuzzyPrompt) | **110/110 geçti** |
+
+Değişiklik bu doküman güncellemesiyle birlikte çalışma ağacında hazır bırakıldı; commit yapılmadı.
 
 ### Canlı API smoke doğrulaması (26 Eylül 2026)
 
@@ -548,7 +597,8 @@ Kaynak ağacında kod değişikliği yapılmadı.
   Kurulu değilse indirme `yt-dlp bulunamadı veya çalıştırılamadı. yt-dlp kurun ve PATH'te
   bulunduğundan emin olun.` hatasıyla başarısız olur; segment birleştirme için `ffmpeg` gerekir.
 - Harici araç sürümleri değiştikçe ilerleme satırı ayrıştırması (`%` ve `MiB/x MiB` kalıpları) ve
-  `--print after_move:filepath` davranışı etkilenebilir; yt-dlp güncellemelerinden sonra
+  `--print after_move:filepath` davranışı etkilenebilir; ilerleme çıktısı ayrıca yt-dlp'nin
+  `--progress` bayrağını desteklemeye devam etmesine bağlıdır. yt-dlp güncellemelerinden sonra
   `HlsDownloaderTests` koşulmalıdır.
 - HLS'te devam etme (resume) yoktur; ağ kesilirse indirme geçici iş diziniyle birlikte baştan
   alınır.
@@ -717,7 +767,7 @@ Test sayılarının doğrulanması:
 
 1. `dotnet test Migurdex.Tests\Migurdex.Tests.csproj` çalıştırın; indirme/TUI kapsamındaki
    sınıfların geçen test sayısı, `Test kapsamı` tablosundaki "Çalışan case" toplamıyla
-   (şu an 109) eşleşmelidir (takım konu dışı sınıfları da içerdiğinden genel toplam daha
+   (şu an 110) eşleşmelidir (takım konu dışı sınıfları da içerdiğinden genel toplam daha
    yüksektir).
 2. `dotnet` olmadan statik çapraz kontrol: her test sınıfında `[Fact]` + `[Theory]` (metod
    sayısı) ve `[Theory]` başına düşen `[InlineData]` satırları (case sayısı) sayılır; örn.
