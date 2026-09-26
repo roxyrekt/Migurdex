@@ -703,6 +703,16 @@ kayıdıdır.
     `dotnet restore` çalıştırıldı, çözüm Release modunda 0 uyarı / 0 hata ile derlendi ve
     offline test takımı **275/275** geçti.
 
+### Upstream v1.10.0 notları
+
+- Upstream, altyazı oynatma davranışını düzeltti: `MpvPlayerService` artık altyazı URL’lerini
+  mpv’ye doğrudan vermek yerine geçici dosyalara indiriyor.
+- Bizim `SubtitleDownloader` ile upstream’in altyazı indirme mantığı arasında fonksiyonel
+  benzerlik var; ileride ortak yardımcıya çıkarılabilir.
+- Upstream yeni `Deokwave` sağlayıcısını ekledi; sağlayıcı sayısı 13’ten 14’e çıktı.
+- `DownloadSourceResolver` sağlayıcı listesini dinamik okuduğu için Deokwave için ek kod
+  değişikliği gerekmez.
+
 ### Kullanılan .NET SDK ve test komutları
 
 - SDK: .NET SDK **10.0.401** (10.0.4xx bandı). Kanıt: `%USERPROFILE%\.dotnet` altındaki
