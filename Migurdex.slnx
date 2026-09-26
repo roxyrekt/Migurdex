@@ -14,6 +14,7 @@
         <Project Path="Plugins/Migurdex.Plugins.Anizium/Migurdex.Plugins.Anizium.csproj"/>
         <Project Path="Plugins/Migurdex.Plugins.Anizm/Migurdex.Plugins.Anizm.csproj"/>
         <Project Path="Plugins/Migurdex.Plugins.AsyaAnimeleri/Migurdex.Plugins.AsyaAnimeleri.csproj"/>
+        <Project Path="Plugins/Migurdex.Plugins.Deokwave/Migurdex.Plugins.Deokwave.csproj"/>
         <Project Path="Plugins/Migurdex.Plugins.OpenAnime/Migurdex.Plugins.OpenAnime.csproj"/>
         <Project Path="Plugins/Migurdex.Plugins.SonAnime/Migurdex.Plugins.SonAnime.csproj"/>
         <Project Path="Plugins/Migurdex.Plugins.TrAnimeci/Migurdex.Plugins.TrAnimeci.csproj"/>

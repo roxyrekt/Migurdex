@@ -21,7 +21,7 @@ Terminalden Türkçe anime aramak ve izlemek için araç. TUI + yerel HTTP API +
 ## Özellikler
 
 - Fuzzy arama (`opc` -> One Piece gibi)
-- 13 Türkçe sağlayıcı: Acheriya, AniHub, AnimeciX, Animexe, AnimPow, Anizium, Anizm, AsyaAnimeleri, OpenAnime, SonAnime,
+- 14 Türkçe sağlayıcı: Acheriya, AniHub, AnimeciX, Animexe, AnimPow, Anizium, Anizm, AsyaAnimeleri, Deokwave, OpenAnime, SonAnime,
   TrAnimeIzle, TRAnimeci, TurkAnime (Arşiv)
 - AniList ve MAL ile bilgi/poster çekme ve izleme durumu eşitleme
 - MPV ile kaldığın yerden devam etme
