@@ -15,6 +15,7 @@ public class MpvPlayerService : IMpvPlayerService
 {
     private readonly IConfigurationService _configService;
     private readonly IHistoryService       _historyService;
+    private readonly HttpClient            _httpClient;
     private readonly IDiscordRpcService    _rpcService;
     private readonly WatchSyncService      _syncService;
 
@@ -22,12 +23,14 @@ public class MpvPlayerService : IMpvPlayerService
         IConfigurationService configService,
         IHistoryService       historyService,
         IDiscordRpcService    rpcService,
-        WatchSyncService      syncService)
+        WatchSyncService      syncService,
+        HttpClient            httpClient)
     {
         _configService  = configService;
         _historyService = historyService;
         _rpcService     = rpcService;
         _syncService    = syncService;
+        _httpClient     = httpClient;
     }
 
     public async Task<SyncOutcome> PlayAsync(
@@ -69,52 +72,53 @@ public class MpvPlayerService : IMpvPlayerService
             argList.Add($"--http-header-fields={string.Join(",", headerList)}");
         }
 
-        var tempFiles = new List<string>();
+        var     tempFiles  = new List<string>();
+        string? tempSubDir = null;
         if (subtitles is { Count: > 0 })
         {
-            foreach (var sub in subtitles)
+            var usableSubs = subtitles
+                             .Select((sub, idx) => (sub, idx))
+                             .Where(t => !string.IsNullOrWhiteSpace(t.sub.Url))
+                             .ToList();
+
+            if (usableSubs.Count > 0)
             {
-                if (string.IsNullOrEmpty(sub.Url))
-                {
-                    continue;
-                }
+                tempSubDir = Path.Combine(Path.GetTempPath(), $"migurdex-subs-{Guid.NewGuid():N}");
+                Directory.CreateDirectory(tempSubDir);
 
-                var subPath = sub.Url;
+                var usedNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                var planned = usableSubs.Select(t =>
+                                        {
+                                            var extension = ResolveSubtitleExtension(t.sub);
+                                            var baseName  = BuildSubtitleBaseName(t.sub, t.idx);
+                                            var fileName  = GetUniqueFileName(usedNames, baseName, extension);
+                                            return (t.sub, t.idx, filePath: Path.Combine(tempSubDir, fileName));
+                                        })
+                                        .ToList();
 
-                if (sub.Url.StartsWith("data:", StringComparison.OrdinalIgnoreCase))
+                var tasks = planned.Select(p =>
+                                               p.sub.Url.StartsWith("data:", StringComparison.OrdinalIgnoreCase)
+                                                   ? TryWriteDataUriSubtitleAsync(
+                                                       p.sub.Url,
+                                                       p.filePath,
+                                                       cancellationToken)
+                                                   : TryDownloadSubtitleAsync(p.sub, p.filePath, cancellationToken))
+                                   .ToArray();
+
+                var results = await Task.WhenAll(tasks);
+                for (var k = 0; k < planned.Count; k++)
                 {
-                    try
+                    var localPath = results[k];
+                    if (localPath is not null)
                     {
-                        var commaIndex = sub.Url.IndexOf(',');
-                        if (commaIndex != -1)
-                        {
-                            var base64Part = sub.Url[(commaIndex + 1)..];
-                            var bytes      = Convert.FromBase64String(base64Part);
-
-                            var extension = ".ass";
-                            if (sub.Url.Contains("text/plain") || sub.Url.Contains("application/x-subrip"))
-                            {
-                                extension = ".srt";
-                            }
-                            else if (sub.Url.Contains("text/vtt"))
-                            {
-                                extension = ".vtt";
-                            }
-
-                            var tempSubFile =
-                                Path.Combine(Path.GetTempPath(), $"migurdex-sub-{Guid.NewGuid():N}{extension}");
-                            await File.WriteAllBytesAsync(tempSubFile, bytes, cancellationToken);
-                            tempFiles.Add(tempSubFile);
-                            subPath = tempSubFile;
-                        }
+                        tempFiles.Add(localPath);
+                        argList.Add($"--sub-file={localPath}");
                     }
-                    catch
+                    else if (!planned[k].sub.Url.StartsWith("data:", StringComparison.OrdinalIgnoreCase))
                     {
-                        continue;
+                        argList.Add($"--sub-file={planned[k].sub.Url}");
                     }
                 }
-
-                argList.Add($"--sub-file={subPath}");
             }
         }
 
@@ -214,6 +218,15 @@ public class MpvPlayerService : IMpvPlayerService
             catch
             {
                 /* ignored */
+            }
+        }
+
+        if (!string.IsNullOrWhiteSpace(tempSubDir) && Directory.Exists(tempSubDir))
+        {
+            try { Directory.Delete(tempSubDir, true); }
+            catch
+            {
+                // ignored
             }
         }
 
@@ -402,6 +415,255 @@ public class MpvPlayerService : IMpvPlayerService
         }
 
         return syncOutcome;
+    }
+
+    private static string ResolveSubtitleExtension(Subtitle sub)
+    {
+        if (!string.IsNullOrWhiteSpace(sub.Format))
+        {
+            var fmt = sub.Format.Trim().TrimStart('.').ToLowerInvariant();
+            return fmt switch
+            {
+                "ass" or "ssa" => ".ass",
+                "srt"          => ".srt",
+                "vtt"          => ".vtt",
+                _              => "." + fmt
+            };
+        }
+
+        if (sub.Url.StartsWith("data:", StringComparison.OrdinalIgnoreCase))
+        {
+            if (sub.Url.Contains("text/vtt", StringComparison.OrdinalIgnoreCase))
+            {
+                return ".vtt";
+            }
+
+            if (sub.Url.Contains("x-subrip", StringComparison.OrdinalIgnoreCase)
+                || sub.Url.Contains("text/plain", StringComparison.OrdinalIgnoreCase)
+                || sub.Url.Contains("srt", StringComparison.OrdinalIgnoreCase))
+            {
+                return ".srt";
+            }
+
+            return ".ass";
+        }
+
+        try
+        {
+            var urlWithoutQuery = sub.Url.Split('?', '#')[0];
+            var ext             = Path.GetExtension(urlWithoutQuery).ToLowerInvariant();
+            if (ext is ".ass" or ".ssa" or ".srt" or ".vtt")
+            {
+                return ext == ".ssa" ? ".ass" : ext;
+            }
+        }
+        catch
+        {
+            // ignored
+        }
+
+        return ".srt";
+    }
+
+    private static string BuildSubtitleBaseName(Subtitle sub, int index)
+    {
+        var raw = !string.IsNullOrWhiteSpace(sub.Label)
+                      ? sub.Label
+                      : !string.IsNullOrWhiteSpace(sub.Language)
+                          ? sub.Language
+                          : "altyazi";
+
+        if (!string.IsNullOrWhiteSpace(sub.Label)
+            && !string.IsNullOrWhiteSpace(sub.Language)
+            && !sub.Label.Contains(sub.Language, StringComparison.OrdinalIgnoreCase))
+        {
+            raw = $"{raw}-{sub.Language}";
+        }
+
+        var sanitized = SanitizeFileName(raw);
+        if (string.IsNullOrWhiteSpace(sanitized))
+        {
+            sanitized = "altyazi";
+        }
+
+        return index == 0 ? $"migurdex-{sanitized}" : $"migurdex-{sanitized}-{index + 1}";
+    }
+
+    private static string GetUniqueFileName(HashSet<string> usedNames, string baseName, string extension)
+    {
+        var candidate = baseName + extension;
+        var counter   = 2;
+        while (!usedNames.Add(candidate))
+        {
+            candidate = $"{baseName}-{counter}{extension}";
+            counter++;
+        }
+
+        return candidate;
+    }
+
+    private static string SanitizeFileName(string name)
+    {
+        var invalid = Path.GetInvalidFileNameChars();
+        var sb      = new StringBuilder(name.Length);
+        foreach (var c in name.Trim())
+        {
+            if (Array.IndexOf(invalid, c) >= 0
+                || c == Path.DirectorySeparatorChar
+                || c == Path.AltDirectorySeparatorChar)
+            {
+                sb.Append('-');
+            }
+            else if (char.IsWhiteSpace(c))
+            {
+                sb.Append('-');
+            }
+            else
+            {
+                sb.Append(c);
+            }
+        }
+
+        var result = sb.ToString().Trim('-');
+        while (result.Contains("--", StringComparison.Ordinal))
+        {
+            result = result.Replace("--", "-", StringComparison.Ordinal);
+        }
+
+        return result.Length > 60 ? result[..60].Trim('-') : result;
+    }
+
+    private static async Task<string?> TryWriteDataUriSubtitleAsync(string dataUri,
+        string                                                             destPath,
+        CancellationToken                                                  ct)
+    {
+        try
+        {
+            var commaIndex = dataUri.IndexOf(',');
+            if (commaIndex == -1)
+            {
+                return null;
+            }
+
+            var    header  = dataUri[..commaIndex];
+            var    payload = dataUri[(commaIndex + 1)..];
+            byte[] bytes;
+            if (header.Contains(";base64", StringComparison.OrdinalIgnoreCase))
+            {
+                bytes = Convert.FromBase64String(payload.Trim());
+            }
+            else
+            {
+                bytes = Encoding.UTF8.GetBytes(Uri.UnescapeDataString(payload));
+            }
+
+            await File.WriteAllBytesAsync(destPath, bytes, ct);
+            return destPath;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private async Task<string?> TryDownloadSubtitleAsync(Subtitle sub, string destPath, CancellationToken ct)
+    {
+        const int maxSubtitleBytes = 5 * 1024 * 1024;
+        try
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Get, sub.Url);
+            if (sub.Headers is { Count: > 0 })
+            {
+                foreach (var kvp in sub.Headers)
+                {
+                    if (string.IsNullOrWhiteSpace(kvp.Key) || string.IsNullOrWhiteSpace(kvp.Value))
+                    {
+                        continue;
+                    }
+
+                    request.Headers.TryAddWithoutValidation(kvp.Key.Trim(), kvp.Value.Trim());
+                }
+            }
+
+            using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            cts.CancelAfter(TimeSpan.FromSeconds(15));
+            using var response =
+                await _httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cts.Token);
+            response.EnsureSuccessStatusCode();
+
+            var contentLength = response.Content.Headers.ContentLength;
+            if (contentLength is > maxSubtitleBytes)
+            {
+                return null;
+            }
+
+            var bytes = await response.Content.ReadAsByteArrayAsync(cts.Token);
+            if (bytes.Length is 0 or > maxSubtitleBytes)
+            {
+                return null;
+            }
+
+            if (!IsLikelySubtitleContent(bytes))
+            {
+                return null;
+            }
+
+            var finalPath = RefinePathByContentType(destPath, response.Content.Headers.ContentType?.MediaType);
+            await File.WriteAllBytesAsync(finalPath, bytes, ct);
+            return finalPath;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static string RefinePathByContentType(string destPath, string? mediaType)
+    {
+        if (string.IsNullOrWhiteSpace(mediaType) || !destPath.EndsWith(".srt", StringComparison.OrdinalIgnoreCase))
+        {
+            return destPath;
+        }
+
+        string? better = null;
+        if (mediaType.Contains("vtt", StringComparison.OrdinalIgnoreCase))
+        {
+            better = ".vtt";
+        }
+        else if (mediaType.Contains("ssa", StringComparison.OrdinalIgnoreCase)
+                 || mediaType.Contains("ass", StringComparison.OrdinalIgnoreCase))
+        {
+            better = ".ass";
+        }
+
+        return better is null ? destPath : Path.ChangeExtension(destPath, better);
+    }
+
+    private static bool IsLikelySubtitleContent(byte[] bytes)
+    {
+        var    probeLen = Math.Min(bytes.Length, 2048);
+        string probe;
+        try
+        {
+            probe = Encoding.UTF8.GetString(bytes, 0, probeLen);
+        }
+        catch
+        {
+            return false;
+        }
+
+        var trimmed = probe.TrimStart('﻿', ' ', '\t', '\r', '\n');
+        if (trimmed.StartsWith("<html", StringComparison.OrdinalIgnoreCase)
+            || trimmed.StartsWith("<!doctype html", StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        return trimmed.Contains("WEBVTT", StringComparison.OrdinalIgnoreCase)
+               || trimmed.Contains("-->", StringComparison.Ordinal)
+               || trimmed.Contains("[Script Info]", StringComparison.OrdinalIgnoreCase)
+               || trimmed.Contains("[V4+ Styles]", StringComparison.Ordinal)
+               || trimmed.Contains("Dialogue:", StringComparison.OrdinalIgnoreCase);
     }
 
     private static string? FindPlayerExecutable(string playerExe)
