@@ -222,15 +222,18 @@ Testler:
 dotnet test
 ```
 
-Son offline doğrulama (26 Eylül 2026): çalışma ağacı temiz; Release derlemesi 18 proje / 0 uyarı / 0 hata; ağ
-bağımlı `ExtractorSmokeTests` hariç 274/274 test geçti. İndirme özelliğiyle ilgili test sınıfları ayrı grup
-koşularında 102/102 geçti. Ayrıntılı sonuçlar: [`DOWNLOAD.md`](DOWNLOAD.md) → `Test kapsamı`.
+Son offline doğrulama (27 Eylül 2026, `v1.10.0` üzerine rebase sonrası): çalışma ağacı temiz; Release derlemesi 18+ proje / 0 uyarı / 0 hata; ağ
+bağımlı `ExtractorSmokeTests` hariç **275/275** test geçti. İndirme özelliğiyle ilgili test sınıfları ayrı grup
+koşularında **103/103** geçti. Ayrıntılı sonuçlar: [`DOWNLOAD.md`](DOWNLOAD.md) → `Test kapsamı` ve [`TEST_RESULTS.md`](TEST_RESULTS.md).
 
 Canlı API smoke (26 Eylül 2026): 21 endpoint test edildi; 21/21 HTTP 200 ve geçerli JSON döndü. `/health`
 13 sağlayıcı / 38 extractor / Rust hazır bildirdi; `q=one piece` araması 13/13 sağlayıcıda başarılı oldu ve
 153 sonuç döndü. Anime detayları, gruplar, kaynaklar, metadata ve tracker lookup uçları da doğrulandı.
 API loglarında uygulama hatası yok; yalnızca iki upstream durumu (TrAnimeIzle captcha, Vidmoly reklam
 redirect’i) tespit edildi. Ayrıntılar: [`DOWNLOAD.md`](DOWNLOAD.md) → `Canlı API smoke doğrulaması`.
+
+v1.10.0 geçişi: upstream sağlayıcı sayısı 14’e çıktı (Deokwave eklendi), altyazı oynatma davranışı düzeltildi ve
+`feature/download` dalı `v1.10.0` üzerine temiz rebase edildi; çakışma çıkmadı.
 
 ## Yol Haritası
 

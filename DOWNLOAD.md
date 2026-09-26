@@ -7,8 +7,8 @@ TUI'den (bölüm kaynak ekranında `İndir`) diske kaydeder. `Embed` ve `Unknown
 | Alan | Değer |
 |---|---|
 | Son güncelleme | 27 Eylül 2026 |
-| Dal | `feature/download` (temel: `main` @ `444a49e`) |
-| Son kod commit’i | `4cd2ac8bbb012fe3884eba044d999f528dda1f18` (`4cd2ac8` — fix(tui): hide search filter on download result) |
+| Dal | `feature/download` (temel: `v1.10.0` @ `4035f9a`) |
+| Son kod commit’i | `5014025` (`fix(downloader): report live yt-dlp HLS progress`) |
 | Temel commit | `c3d307a` — feat: add anime download support |
 | Testler | 81 test metodu / 110 çalışan case, 10 sınıf (bkz. `Test kapsamı`); offline doğrulama: 275/275 geçti (27.09.2026) |
 
@@ -697,6 +697,11 @@ kayıdıdır.
 10. **install-candidate kopyası**: `dist` içeriği `..\migu\install-candidate\` klasörüne
     kopyalandı (`migurdex.exe`, `api\`, `migurdex-win-x64.zip`). Adaydaki API 26.09.2026
     10:21'de açılıp 13 eklentinin tamamını yükledi (`api\logs\Migurdex-20260926.log`).
+11. **v1.10.0 rebase**: Upstream `v1.10.0` (`4035f9a`) getirildi; `feature/download` bu sürüm
+    üzerine rebase edildi. Rebase öncesi `backup/download-pre-v110` yedek dalı alındı.
+    Upstream ile dosya çakışması çıkmadı. Rebase sonrası `Deokwave` plugin'i için
+    `dotnet restore` çalıştırıldı, çözüm Release modunda 0 uyarı / 0 hata ile derlendi ve
+    offline test takımı **275/275** geçti.
 
 ### Kullanılan .NET SDK ve test komutları
 
@@ -716,19 +721,30 @@ kayıdıdır.
 
 ### HEAD ve commit listesi
 
-- Dal: `feature/download` (temel: `main` @ `444a49e`).
-- HEAD: `4cd2ac8bbb012fe3884eba044d999f528dda1f18` — `fix(tui): hide search filter on download result`
-  (2026-09-26 13:23:27 +0300).
-- `main..feature/download` (4 commit): `c3d307a` → `e9e01e9` → `73535cb` → `4cd2ac8`.
-- Bu doküman (`DOWNLOAD.md`) `73535cb` ile dal üzerinde commit'lendi; `4cd2ac8` ile güncellendi.
+- Dal: `feature/download` (temel: `v1.10.0` @ `4035f9a`).
+- HEAD: `5014025` — `fix(downloader): report live yt-dlp HLS progress`
+  (2026-09-27, v1.10.0 üzerine rebase sonrası).
+- `v1.10.0..feature/download` (10 commit):
+  `321fe38` → `bd59ca4` → `81335bc` → `3a3cfc5` → `c8a7d75` →
+  `8ef695e` → `85f356a` → `febe716` → `1f82f2d` → `5014025`.
+- Upstream v1.10.0, iki yeni commit içerir:
+  `8094425` (`fix(cli): altyazi ismi + link yerine indir`) ve
+  `4035f9a` (`feat(providers): add Deokwave`).
 
 ## Değişiklik geçmişi
 
 | Commit | Tarih | Konu | Kapsam |
 |---|---|---|---|
-| `c3d307a` | 2026-09-26 03:17 +0300 | `feat: add anime download support` | İndirme çekirdeği, CLI/TUI/API entegrasyonu, config alanları, testler — 32 dosya (+8038/−114) |
-| `e9e01e9` | 2026-09-26 09:51 +0300 | `fix(tui): balance source selection markup` | TUI markup dengeleme, `FuzzyPrompt` kaçışlama, `TuiMarkupSafetyTests` — 5 dosya (+188/−20) |
-| `4cd2ac8` | 2026-09-26 13:23 +0300 | `fix(tui): hide search filter on download result` | İndirme sonuç ekranında tek seçenekli prompt'un gereksiz `Ara:` filtre satırı kaldırıldı; `searchable: false` desteği ve `FuzzyPromptSearchableTests` eklendi — 4 dosya (+457/−132) |
+| `321fe38` | 2026-09-26 03:17 +0300 | `feat: add anime download support` | İndirme çekirdeği, CLI/TUI/API entegrasyonu, config alanları, testler — 32 dosya (+8038/−114) |
+| `bd59ca4` | 2026-09-26 09:51 +0300 | `fix(tui): balance source selection markup` | TUI markup dengeleme, `FuzzyPrompt` kaçışlama, `TuiMarkupSafetyTests` — 5 dosya (+188/−20) |
+| `81335bc` | 2026-09-26 12:33 +0300 | `docs: document download feature and operations` | `DOWNLOAD.md` eklendi ve geniş kapsamlı teknik dokümantasyon yazıldı — 1 dosya (+629) |
+| `3a3cfc5` | 2026-09-26 13:23 +0300 | `fix(tui): hide search filter on download result` | İndirme sonuç ekranında tek seçenekli prompt'un gereksiz `Ara:` filtre satırı kaldırıldı; `searchable: false` desteği ve `FuzzyPromptSearchableTests` eklendi — 4 dosya (+457/−132) |
+| `c8a7d75` | 2026-09-26 13:52 +0300 | `docs: update download history for result prompt fix` | `DOWNLOAD.md` tarihçesi güncellendi — 1 dosya (+10/−8) |
+| `8ef695e` | 2026-09-26 13:54 +0300 | `docs: clarify latest code commit in download guide` | `DOWNLOAD.md` meta tablosundaki commit bilgisi netleştirildi — 1 dosya (+1/−1) |
+| `85f356a` | 2026-09-26 20:12 +0300 | `docs: record offline validation results` | `DOWNLOAD.md` ve `README.md` içine offline test sonuçları işlendi — 2 dosya (+53/−1) |
+| `febe716` | 2026-09-26 20:57 +0300 | `docs: record live API smoke results` | `DOWNLOAD.md` ve `README.md` içine canlı API smoke sonuçları işlendi — 2 dosya (+55) |
+| `1f82f2d` | 2026-09-27 01:05 +0300 | `docs: add consolidated test results report` | `TEST_RESULTS.md` eklendi ve tüm canlı/offline doğrulamalar tek dosyada toplandı — 1 dosya (+182) |
+| `5014025` | 2026-09-27 01:27 +0300 | `fix(downloader): report live yt-dlp HLS progress` | yt-dlp argüman listesine `--progress` eklendi, HLS progress parsing testleri genişletildi, dokümanlar güncellendi — 5 dosya (+165/−19) |
 
 Gelecekteki commit'ler için satır formatı:
 

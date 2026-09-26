@@ -1,7 +1,7 @@
 # Migurdex Test ve Doğrulama Raporu
 
 > Bu dosya, `feature/download` dalındaki tüm doğrulama çalışmalarının merkezi kaydıdır.
-> Son güncelleme: 27 Eylül 2026 · Dal: `feature/download`
+> Son güncelleme: 27 Eylül 2026 · Dal: `feature/download` · Temel: `v1.10.0` (`4035f9a`)
 
 ## 1. Offline doğrulama
 
@@ -197,3 +197,59 @@ Sonuç:
 - Ortam bulgusu olarak not edildi:
   1. Sistem dotnet’inde ASP.NET Core runtime yoktu; geçici SDK kurulunca aşıldı. Bu bir kod hatası değil.
 - Uygulama tarafında kalıcı bir çökme veya veri bozulması bulunmadı.
+
+## 6. v1.10.0 geçişi
+
+Upstream **v1.10.0** yayınlandıktan sonra `feature/download` dalı bu sürüm üzerine rebase edildi.
+
+### Upstream değişiklikleri
+
+- `8094425` — `fix(cli): altyazi ismi + link yerine indir`
+- `4035f9a` — `feat(providers): add Deokwave`
+- Sağlayıcı sayısı **13 → 14** oldu.
+- `README.md` güncellendi ve Deokwave listeye eklendi.
+- Breaking change yok.
+
+### Rebase sonucu
+
+- Yedek dal: `backup/download-pre-v110`
+- Rebase hedefi: `v1.10.0` (`4035f9a`)
+- Çakışma: **yok**
+- Deokwave plugin’i ilk derlemede restore edilmemişti:
+  - `dotnet restore Migurdex.slnx` çalıştırıldı
+  - Build sonrası **0 uyarı / 0 hata**
+- Test sonucu:
+
+```text
+dotnet test Migurdex.Tests/Migurdex.Tests.csproj -c Release --no-build `
+  --filter "FullyQualifiedName!~ExtractorSmokeTests"
+
+Sonuç: 275/275 geçti
+```
+
+### Mevcut dal durumu
+
+```text
+v1.10.0..feature/download = 10 commit
+```
+
+Commit listesi:
+
+```text
+321fe38 feat: add anime download support
+bd59ca4 fix(tui): balance source selection markup
+81335bc docs: document download feature and operations
+3a3cfc5 fix(tui): hide search filter on download result
+c8a7d75 docs: update download history for result prompt fix
+8ef695e docs: clarify latest code commit in download guide
+85f356a docs: record offline validation results
+febe716 docs: record live API smoke results
+1f82f2d docs: add consolidated test results report
+5014025 fix(downloader): report live yt-dlp HLS progress
+```
+
+### Notlar
+
+- Upstream’deki altyazı indirme davranışı ile bizim `SubtitleDownloader` arasında fonksiyonel benzerlik var.
+- İleri sürümde ortak yardımcıya çıkarma refactor’u yapılabilir.
+- Deokwave sağlayıcısı dinamik provider listesine otomatik eklenir; indirme akışında ek kod değişikliği gerekmez.
