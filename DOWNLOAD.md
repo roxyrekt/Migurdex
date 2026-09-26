@@ -10,7 +10,7 @@ TUI'den (bölüm kaynak ekranında `İndir`) diske kaydeder. `Embed` ve `Unknown
 | Dal | `feature/download` (temel: `main` @ `444a49e`) |
 | Son kod commit’i | `4cd2ac8bbb012fe3884eba044d999f528dda1f18` (`4cd2ac8` — fix(tui): hide search filter on download result) |
 | Temel commit | `c3d307a` — feat: add anime download support |
-| Testler | 80 test metodu / 109 çalışan case, 10 sınıf (bkz. `Test kapsamı`) |
+| Testler | 80 test metodu / 109 çalışan case, 10 sınıf (bkz. `Test kapsamı`); offline doğrulama: 274/274 geçti (26.09.2026) |
 
 ## Genel akış
 
@@ -431,6 +431,54 @@ satırlarının da açıldığı toplam çalıştırılan test sayısıdır.
 Not: `TuiMarkupSafetyTests` için "8 test" ve "23 test" ifadeleri aynı gerçeğin iki ölçümüdür:
 8 test **metodu** vardır (5 `[Fact]` + 3 `[Theory]`); Theory'ler 18 `[InlineData]` ile
 genişlediğinden xUnit toplam **23 test çalıştırır**.
+
+### Doğrulama sonuçları (offline, 26 Eylül 2026)
+
+26 Eylül 2026'da `feature/download` dalında, temiz çalışma ağacı üzerinde (son kod commit:
+`4cd2ac8`) kod değişikliği yapılmadan tamamen offline bir doğrulama koşusu çalıştırıldı. Ağ
+erişimi gerektiren `ExtractorSmokeTests` filtreyle dışlandı; kalan tüm testler Release
+derlemesi üzerinde koşuldu.
+
+Ön kontroller ve derleme:
+
+| Adım | Komut | Sonuç |
+|---|---|---|
+| Çalışma ağacı | `git status --short --branch` | Temiz (işlenmemiş değişiklik yok) |
+| Boşluk denetimi | `git diff --check` | Temiz |
+| Bağımlılık | `dotnet restore Migurdex.slnx` | Başarılı |
+| Derleme | `dotnet build Migurdex.slnx -c Release --no-restore` | 18 proje, 0 uyarı, 0 hata |
+
+Tam takım koşusu (`ExtractorSmokeTests` hariç):
+
+| Komut | Sonuç |
+|---|---|
+| `dotnet test Migurdex.Tests\Migurdex.Tests.csproj -c Release --no-build --filter "FullyQualifiedName!~ExtractorSmokeTests"` | **274/274 geçti** |
+
+İndirme/TUI odaklı sınıflar ayrıca grup filtreleriyle tek tek de koşuldu:
+
+| Test sınıfı | Geçen / toplam |
+|---|---:|
+| `Mp4DownloaderTests` | 20/20 |
+| `SubtitleDownloaderTests` | 10/10 |
+| `HlsDownloaderTests` | 7/7 |
+| `DownloadServiceTests` | 7/7 |
+| `DownloadCommandTests` | 15/15 |
+| `ApiClientServiceTests` | 2/2 |
+| `TuiMarkupSafetyTests` | 23/23 |
+| `FuzzyPromptSearchableTests` | 18/18 |
+| **Grup toplamı** | **102/102** |
+
+Notlar:
+
+- 274'lük genel toplam, `ExtractorSmokeTests` dışındaki tüm test sınıflarını kapsar: yukarıdaki
+  10 indirme test sınıfının tamamı (`DownloadPathBuilderTests` → 4, `ExternalProcessRunnerTests`
+  → 3 dahil; 109 çalışan case) ve indirme kapsamı dışındaki sınıflar (OAuth, izleme senkronu,
+  veritabanı, sezon/film, güncelleme vb.).
+- 102'lik grup toplamı yalnızca ayrı filtrelerle koşulan 8 sınıfa aittir; 102 + 4 + 3 = 109.
+- Testler var olan Release derlemesi üzerinde `--no-build` ile koşulduğundan sonuçlar, 0 uyarı /
+  0 hata ile tamamlanan derleme çıktısıyla birebir eşleşir.
+- Bu koşumda kod değişmedi; `Test kapsamı` tablosundaki metrikler (80 test metodu / 109 çalışan
+  case) ve `Yapılan işlemler` kayıtları olduğu gibi korunur.
 
 ## TUI markup güvenliği
 

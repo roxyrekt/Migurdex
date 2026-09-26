@@ -220,6 +220,10 @@ Testler:
 dotnet test
 ```
 
+Son offline doğrulama (26 Eylül 2026): çalışma ağacı temiz; Release derlemesi 18 proje / 0 uyarı / 0 hata; ağ
+bağımlı `ExtractorSmokeTests` hariç 274/274 test geçti. İndirme özelliğiyle ilgili test sınıfları ayrı grup
+koşularında 102/102 geçti. Ayrıntılı sonuçlar: [`DOWNLOAD.md`](DOWNLOAD.md) → `Test kapsamı`.
+
 ## Yol Haritası
 
 - [x] MAL ve AniList senkronu
