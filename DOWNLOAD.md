@@ -8,7 +8,7 @@ TUI'den (bölüm kaynak ekranında `İndir`) diske kaydeder. `Embed` ve `Unknown
 |---|---|
 | Son güncelleme | 26 Eylül 2026 |
 | Dal | `feature/download` (temel: `main` @ `444a49e`) |
-| HEAD | `e9e01e96a1a62a7578a611a859d911883b3ab5b3` (`e9e01e9` — fix(tui): balance source selection markup) |
+| HEAD | `4cd2ac8bbb012fe3884eba044d999f528dda1f18` (`4cd2ac8` — fix(tui): hide search filter on download result) |
 | Temel commit | `c3d307a` — feat: add anime download support |
 | Testler | 80 test metodu / 109 çalışan case, 10 sınıf (bkz. `Test kapsamı`) |
 
@@ -312,7 +312,8 @@ yazmak için `--force` veya `config.json` → `DownloadOverwrite: true` gerekir.
 
 Testler (`Migurdex.Tests`): `Mp4DownloaderTests`, `SubtitleDownloaderTests`, `HlsDownloaderTests`,
 `DownloadServiceTests`, `DownloadCommandTests`, `DownloadPathBuilderTests`,
-`ExternalProcessRunnerTests`, `ApiClientServiceTests`, `TuiMarkupSafetyTests`.
+`ExternalProcessRunnerTests`, `ApiClientServiceTests`, `TuiMarkupSafetyTests`,
+`FuzzyPromptSearchableTests`.
 
 ## MP4 indirme ve resume
 
@@ -569,10 +570,10 @@ kayıdıdır.
 ### HEAD ve commit listesi
 
 - Dal: `feature/download` (temel: `main` @ `444a49e`).
-- HEAD: `e9e01e96a1a62a7578a611a859d911883b3ab5b3` — `fix(tui): balance source selection markup`
-  (2026-09-26 09:51:54 +0300).
-- `main..feature/download` (2 commit): `c3d307a` → `e9e01e9`.
-- Bu doküman (`DOWNLOAD.md`) dal üzerinde henüz commit'lenmemiştir.
+- HEAD: `4cd2ac8bbb012fe3884eba044d999f528dda1f18` — `fix(tui): hide search filter on download result`
+  (2026-09-26 13:23:27 +0300).
+- `main..feature/download` (4 commit): `c3d307a` → `e9e01e9` → `73535cb` → `4cd2ac8`.
+- Bu doküman (`DOWNLOAD.md`) `73535cb` ile dal üzerinde commit'lendi; `4cd2ac8` ile güncellendi.
 
 ## Değişiklik geçmişi
 
@@ -580,6 +581,7 @@ kayıdıdır.
 |---|---|---|---|
 | `c3d307a` | 2026-09-26 03:17 +0300 | `feat: add anime download support` | İndirme çekirdeği, CLI/TUI/API entegrasyonu, config alanları, testler — 32 dosya (+8038/−114) |
 | `e9e01e9` | 2026-09-26 09:51 +0300 | `fix(tui): balance source selection markup` | TUI markup dengeleme, `FuzzyPrompt` kaçışlama, `TuiMarkupSafetyTests` — 5 dosya (+188/−20) |
+| `4cd2ac8` | 2026-09-26 13:23 +0300 | `fix(tui): hide search filter on download result` | İndirme sonuç ekranında tek seçenekli prompt'un gereksiz `Ara:` filtre satırı kaldırıldı; `searchable: false` desteği ve `FuzzyPromptSearchableTests` eklendi — 4 dosya (+457/−132) |
 
 Gelecekteki commit'ler için satır formatı:
 
@@ -633,5 +635,5 @@ Commit ve tarih güncelleme kuralı:
   değişiklikle güncellenir.
 - Tarihler commit'in author tarihinden (+0300) alınır; commit mesajları yukarıdaki conventional
   formatın dışına çıkmaz.
-- Bu doküman, feature dalının parçası olarak (`docs:` commit'i ile) sürülmelidir; şu an dalda
-  commit'lenmemiş `untracked` dosyadır.
+- Bu doküman, feature dalının parçası olarak (`docs:` commit'i ile) sürülmelidir; dal üzerinde
+  `73535cb` ile commit'lenmiştir.
