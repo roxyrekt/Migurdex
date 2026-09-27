@@ -654,6 +654,18 @@ Kaynak ağacında kod değişikliği yapılmadı.
   içerir; Rust toolchain olmayan makinede paket üretilemez. Risk tamamen kaynak çözümü ve paket
   üretimi tarafındadır; MP4/altyazı indirme kodu bu kütüphaneleri kullanmaz.
 
+### Sağlayıcı upstream erişimi (Deokwave)
+
+- `deokwave.com` tüm uç noktalarında Cloudflare `"Just a moment..."` JS challenge ile HTTP 403
+  döndürüyor; Deokwave araması boş liste dönüyor ve indirme akışı kaynak çözümlemesine
+  ulaşamadan arama adımında temiz `exit 1` JSON hatasıyla duruyor (27.09.2026 canlı smoke,
+  bkz. `TEST_RESULTS.md` → bölüm 8).
+- Bu sınırlama indirme özelliğinin geneline değil, yalnızca Deokwave sağlayıcısına özgüdür:
+  kontrol grubu `TurkAnime` ile aynı akış sorunsuz tamamlanıyor. Uygulama hatası değildir;
+  upstream erişimi düzelirse sağlayıcı kod değişikliği gerektirmeden çalışır.
+- Yan bulgu: sağlayıcı 403'ü sessizce boş listeye çeviriyor; sağlayıcı tarafı hataları görünür
+  kılacak bir loglayıcı ileride eklenebilir.
+
 ## Yapılan işlemler
 
 Bu bölüm, indirme özelliğinin `feature/download` dalında nasıl hazırlandığının çalışma
@@ -769,13 +781,13 @@ kayıdıdır.
 - Dal: `feature/download` (temel: `v1.10.0` @ `4035f9a`).
 - Son kod commit'i: `5014025` — `fix(downloader): report live yt-dlp HLS progress`
   (2026-09-27, v1.10.0 üzerine rebase sonrası).
-- HEAD (bu kayıt yazılırken): `21d687c` — `docs: document upstream v1.10.0 integration notes`
-  (2026-09-27 02:14 +0300). Madde 12'yi ve paket doğrulamasını işleyen
-  `docs: record v1.10.0 packaged build` commit'i bu listeden sonraki satırdır.
-- `v1.10.0..feature/download` (12 commit):
+- HEAD (bu kayıt yazılırken): `615cf64` — `docs: record v1.10.0 packaged build`
+  (2026-09-27 03:37 +0300). Deokwave smoke sonucunu işleyen
+  `docs: record Deokwave smoke result` commit'i bu listeden sonraki satırdır.
+- `v1.10.0..feature/download` (13 commit):
   `321fe38` → `bd59ca4` → `81335bc` → `3a3cfc5` → `c8a7d75` →
   `8ef695e` → `85f356a` → `febe716` → `1f82f2d` → `5014025` →
-  `7763b2d` → `21d687c`.
+  `7763b2d` → `21d687c` → `615cf64`.
 - Upstream v1.10.0, iki yeni commit içerir:
   `8094425` (`fix(cli): altyazi ismi + link yerine indir`) ve
   `4035f9a` (`feat(providers): add Deokwave`).
@@ -796,6 +808,7 @@ kayıdıdır.
 | `5014025` | 2026-09-27 01:27 +0300 | `fix(downloader): report live yt-dlp HLS progress` | yt-dlp argüman listesine `--progress` eklendi, HLS progress parsing testleri genişletildi, dokümanlar güncellendi — 5 dosya (+165/−19) |
 | `7763b2d` | 2026-09-27 02:10 +0300 | `docs: record v1.10.0 rebase and latest verification` | v1.10.0 rebase kaydı işlendi; `DOWNLOAD.md` meta/HEAD/değişiklik geçmişi, `README.md` doğrulama özeti, `TEST_RESULTS.md` v1.10.0 bölümü — 3 dosya (+89/−14) |
 | `21d687c` | 2026-09-27 02:14 +0300 | `docs: document upstream v1.10.0 integration notes` | `DOWNLOAD.md` içine `Upstream v1.10.0 notları` bölümü eklendi — 1 dosya (+10) |
+| `615cf64` | 2026-09-27 03:37 +0300 | `docs: record v1.10.0 packaged build` | v1.10.0 paket üretimi + SHA-256 doğrulaması işlendi; `DOWNLOAD.md` madde 12/meta/HEAD + `TEST_RESULTS.md` bölüm 7 + `README.md` paket özeti — 3 dosya (+118/−14) |
 
 Gelecekteki commit'ler için satır formatı:
 

@@ -311,3 +311,49 @@ Not: `v0.0.0` yerel build için beklenen değerdir — sürüm damgası
 upstream yayın CI'sinde `-p:Version` ile basılır.
 
 Paket kullanıma hazır: `C:\Users\naton\OneDrive\Desktop\migu\install-candidate\migurdex.exe`.
+
+## 8. Deokwave sağlayıcı smoke testi
+
+27 Eylül 2026'da v1.10.0 paketi (bölüm 7'deki `install-candidate`) üzerinde, upstream'in
+v1.10.0 ile eklediği `Deokwave` sağlayıcısına odaklı canlı smoke testi koşuldu. Amaç:
+plugin'in paket içinde yüklü olduğunu, sağlayıcı çözümlemesinin ve indirme akışının hata
+yollarının beklendiği gibi çalıştığını doğrulamak.
+
+### Kontrol listesi
+
+| Kontrol | Sonuç |
+|---|---|
+| `Deokwave` plugin pakette yüklü mü? | Evet — API her açılışta başarıyla yüklüyor |
+| `-p Deokwave` sağlayıcı çözümlemesi | Çalışıyor |
+| `one piece` araması | Boş liste |
+| `naruto` araması | Boş liste |
+| İndirme akışı | Arama adımında duruyor; `exit 1` + temiz JSON hatası |
+| Gerçek indirme | Yapılamadı — akış kaynak çözümlemesine ulaşamıyor |
+| Diskte yeni/kısmi dosya | Yok |
+| Kullanıcı veritabanı | Değişmedi |
+| `--debug` sızıntı denetimi | 0 eşleşme (URL, header, token) |
+
+### Kök neden
+
+`deokwave.com` **tüm uç noktalarında** Cloudflare `"Just a moment..."` JS challenge ile
+**HTTP 403** döndürüyor. Sağlayıcı challenge'ı aşamadığından aramalar boş liste döndürüyor;
+indirme akışı kaynak çözümlemesine hiç ulaşamıyor. **Bu bir uygulama hatası değildir** —
+bulgu tamamen upstream tarafındaki erişim kısıtına aittir.
+
+### Kontrol grubu
+
+Aynı akış `TurkAnime` ile sorunsuz tamamlandı (bkz. bölüm 4: 37 kaynak, `GoogleDrive`,
+1080p, MP4, hata yok). Böylece indirme özelliğinin kendisinin sağlam olduğu, bulgunun
+yalnızca Deokwave upstream erişimine özgü olduğu doğrulandı.
+
+### Yan bulgu
+
+Deokwave, HTTP 403'ü sessizce boş listeye çeviriyor; sağlayıcı tarafındaki başarısızlık
+kullanıcıya görünmüyor. İyileştirme fikri: sağlayıcı hatalarını görünür kılan bir loglayıcı
+ileride eklenebilir. Bu koşumda kod değişikliği yapılmadı.
+
+### Sonuç
+
+- Paket, plugin yükleme, sağlayıcı çözümleme ve hata yolları beklendiği gibi çalışıyor.
+- Sınırlama yalnızca Deokwave upstream'ine özgüdür; upstream challenge'ı kaldırırsa
+  sağlayıcı kod değişikliği gerektirmeden çalışır hâle gelir.
