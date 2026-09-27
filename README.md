@@ -235,6 +235,11 @@ redirect’i) tespit edildi. Ayrıntılar: [`DOWNLOAD.md`](DOWNLOAD.md) → `Can
 v1.10.0 geçişi: upstream sağlayıcı sayısı 14’e çıktı (Deokwave eklendi), altyazı oynatma davranışı düzeltildi ve
 `feature/download` dalı `v1.10.0` üzerine temiz rebase edildi; çakışma çıkmadı.
 
+v1.10.0 paketi üretildi ve doğrulandı (27 Eylül 2026): `migurdex-win-x64.zip` (61.605.017 bayt) 14 sağlayıcı /
+38 extractor içeriyor; `install-candidate` kopyasının SHA-256 özetleri dist ile birebir aynı ve smoke kontrolleri
+(`--version`, `download --help`) `EXIT=0` ile geçti. Ayrıntılar: [`TEST_RESULTS.md`](TEST_RESULTS.md) →
+`v1.10.0 paket doğrulaması`.
+
 ## Yol Haritası
 
 - [x] MAL ve AniList senkronu

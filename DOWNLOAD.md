@@ -9,7 +9,8 @@ TUI'den (bölüm kaynak ekranında `İndir`) diske kaydeder. `Embed` ve `Unknown
 | Son güncelleme | 27 Eylül 2026 |
 | Dal | `feature/download` (temel: `v1.10.0` @ `4035f9a`) |
 | Son kod commit’i | `5014025` (`fix(downloader): report live yt-dlp HLS progress`) |
-| Temel commit | `c3d307a` — feat: add anime download support |
+| Paket | v1.10.0 tabanlı win-x64 paketi üretildi ve hash düzeyinde doğrulandı (27.09.2026; 14 sağlayıcı / 38 extractor) — bkz. `Yapılan işlemler` → madde 12 |
+| Temel commit | `321fe38` — feat: add anime download support (rebase öncesi `c3d307a`) |
 | Testler | 81 test metodu / 110 çalışan case, 10 sınıf (bkz. `Test kapsamı`); offline doğrulama: 275/275 geçti (27.09.2026) |
 
 ## Genel akış
@@ -690,18 +691,52 @@ kayıdıdır.
 8. **Test**: 9 indirme test sınıfı yazıldı; `dotnet test` ile 72 metod / 91 çalışan case
    doğrulandı (metrikler statik `[Fact]`/`[Theory]`/`[InlineData]` sayımıyla da tutarlı; bkz.
    `Test kapsamı`).
-9. **Derleme ve paket üretimi**: `.\build.ps1 -Publish` ile Release paketi üretildi —
-   `dist\migurdex.exe` (win-x64, self-contained, single-file, trimmed), `dist\api\`
-   (self-contained API + 13 provider eklentisi + `migurdex_native.dll` + `e_sqlite3.dll`),
-   `dist\migurdex-win-x64.zip` (26.09.2026 09:53–09:54).
-10. **install-candidate kopyası**: `dist` içeriği `..\migu\install-candidate\` klasörüne
-    kopyalandı (`migurdex.exe`, `api\`, `migurdex-win-x64.zip`). Adaydaki API 26.09.2026
-    10:21'de açılıp 13 eklentinin tamamını yükledi (`api\logs\Migurdex-20260926.log`).
+9. **Derleme ve paket üretimi** *(v1.10.0 öncesi paket)*: `.\build.ps1 -Publish` ile Release
+   paketi üretildi — `dist\migurdex.exe` (win-x64, self-contained, single-file, trimmed),
+   `dist\api\` (self-contained API + 13 provider eklentisi + `migurdex_native.dll` +
+   `e_sqlite3.dll`), `dist\migurdex-win-x64.zip` (26.09.2026 09:53–09:54). Bu paket v1.10.0
+   rebase'i öncesine aittir ve 13 sağlayıcı taşır; güncel paket madde 12'dedir.
+10. **install-candidate kopyası** *(v1.10.0 öncesi durumu)*: `dist` içeriği
+    `..\migu\install-candidate\` klasörüne kopyalandı (`migurdex.exe`, `api\`,
+    `migurdex-win-x64.zip`). Adaydaki API 26.09.2026 10:21'de açılıp 13 eklentinin tamamını
+    yükledi (`api\logs\Migurdex-20260926.log`). Bu kopya, madde 12'deki v1.10.0 paketiyle
+    yenilendi.
 11. **v1.10.0 rebase**: Upstream `v1.10.0` (`4035f9a`) getirildi; `feature/download` bu sürüm
     üzerine rebase edildi. Rebase öncesi `backup/download-pre-v110` yedek dalı alındı.
     Upstream ile dosya çakışması çıkmadı. Rebase sonrası `Deokwave` plugin'i için
     `dotnet restore` çalıştırıldı, çözüm Release modunda 0 uyarı / 0 hata ile derlendi ve
     offline test takımı **275/275** geçti.
+12. **v1.10.0 paket üretimi ve install-candidate güncellemesi** (27.09.2026): Rebase sonrası
+    taban (temel `v1.10.0` @ `4035f9a`, son kod commit'i `5014025`) portatif .NET SDK
+    **10.0.401** ile `.\build.ps1 -Publish` kullanılarak yeniden paketlendi. Rust derlemesi
+    `cargo build --release` ile başarılı (süre 2 dk 53 sn); `api\migurdex_native.dll`
+    27.09.2026 03:00:14 damgalı. Paket **14 sağlayıcı** (Deokwave dahil) ve **38 extractor**
+    içeriyor.
+
+    | Paket içeriği | Boyut (bayt) |
+    |---|---:|
+    | `migurdex.exe` | 23.466.537 |
+    | `api\Migurdex.Api.exe` | 108.374.872 |
+    | `api\migurdex_native.dll` | 8.661.504 |
+    | `api\Plugins\*` — 14 sağlayıcı plugin DLL'i (Deokwave dahil) | — |
+    | `migurdex-win-x64.zip` | 61.605.017 |
+
+    | Dosya | SHA-256 |
+    |---|---|
+    | `migurdex.exe` | `DE9EA5634B16E07BC3B16B8C8C7EE07CB311FE489AF78E09AAD3E608C86E3E79` |
+    | `api\migurdex_native.dll` | `91BA419E97AD5BC0F0CA1ADF9768CF60FDFAC72234AADE28AC02DB46C1B44627` |
+    | `migurdex-win-x64.zip` | `BC17A9FFA03D0B9BE5AA9004C6E6E94DB35C469442BA1515B3090FB6C96DB5AA` |
+
+    - `..\migu\install-candidate\` klasörü bu paketle güncellendi; `migurdex.exe`,
+      `api\migurdex_native.dll` ve `migurdex-win-x64.zip` SHA-256 özetleri `dist` kopyalarıyla
+      birebir aynı doğrulandı.
+    - Smoke: `migurdex.exe --version` → `migurdex v0.0.0`, `exit 0`; `migurdex.exe download
+      --help` → tam yardım metni, `exit 0`. (`v0.0.0` yerel build için beklenen değerdir:
+      sürüm damgası `Directory.Build.props` → `VersionPrefix` 0.0.0'dan gelir; etiketli sürüm
+      numarası yalnız upstream yayın CI'sinde `-p:Version` ile basılır.) API süreci
+      başlatılmadı; doğrulama dosya listesi ve hash karşılaştırmasıyla yapıldı.
+    - Paket kullanıma hazır:
+      `C:\Users\naton\OneDrive\Desktop\migu\install-candidate\migurdex.exe`.
 
 ### Upstream v1.10.0 notları
 
@@ -732,11 +767,15 @@ kayıdıdır.
 ### HEAD ve commit listesi
 
 - Dal: `feature/download` (temel: `v1.10.0` @ `4035f9a`).
-- HEAD: `5014025` — `fix(downloader): report live yt-dlp HLS progress`
+- Son kod commit'i: `5014025` — `fix(downloader): report live yt-dlp HLS progress`
   (2026-09-27, v1.10.0 üzerine rebase sonrası).
-- `v1.10.0..feature/download` (10 commit):
+- HEAD (bu kayıt yazılırken): `21d687c` — `docs: document upstream v1.10.0 integration notes`
+  (2026-09-27 02:14 +0300). Madde 12'yi ve paket doğrulamasını işleyen
+  `docs: record v1.10.0 packaged build` commit'i bu listeden sonraki satırdır.
+- `v1.10.0..feature/download` (12 commit):
   `321fe38` → `bd59ca4` → `81335bc` → `3a3cfc5` → `c8a7d75` →
-  `8ef695e` → `85f356a` → `febe716` → `1f82f2d` → `5014025`.
+  `8ef695e` → `85f356a` → `febe716` → `1f82f2d` → `5014025` →
+  `7763b2d` → `21d687c`.
 - Upstream v1.10.0, iki yeni commit içerir:
   `8094425` (`fix(cli): altyazi ismi + link yerine indir`) ve
   `4035f9a` (`feat(providers): add Deokwave`).
@@ -755,6 +794,8 @@ kayıdıdır.
 | `febe716` | 2026-09-26 20:57 +0300 | `docs: record live API smoke results` | `DOWNLOAD.md` ve `README.md` içine canlı API smoke sonuçları işlendi — 2 dosya (+55) |
 | `1f82f2d` | 2026-09-27 01:05 +0300 | `docs: add consolidated test results report` | `TEST_RESULTS.md` eklendi ve tüm canlı/offline doğrulamalar tek dosyada toplandı — 1 dosya (+182) |
 | `5014025` | 2026-09-27 01:27 +0300 | `fix(downloader): report live yt-dlp HLS progress` | yt-dlp argüman listesine `--progress` eklendi, HLS progress parsing testleri genişletildi, dokümanlar güncellendi — 5 dosya (+165/−19) |
+| `7763b2d` | 2026-09-27 02:10 +0300 | `docs: record v1.10.0 rebase and latest verification` | v1.10.0 rebase kaydı işlendi; `DOWNLOAD.md` meta/HEAD/değişiklik geçmişi, `README.md` doğrulama özeti, `TEST_RESULTS.md` v1.10.0 bölümü — 3 dosya (+89/−14) |
+| `21d687c` | 2026-09-27 02:14 +0300 | `docs: document upstream v1.10.0 integration notes` | `DOWNLOAD.md` içine `Upstream v1.10.0 notları` bölümü eklendi — 1 dosya (+10) |
 
 Gelecekteki commit'ler için satır formatı:
 
@@ -808,5 +849,5 @@ Commit ve tarih güncelleme kuralı:
   değişiklikle güncellenir.
 - Tarihler commit'in author tarihinden (+0300) alınır; commit mesajları yukarıdaki conventional
   formatın dışına çıkmaz.
-- Bu doküman, feature dalının parçası olarak (`docs:` commit'i ile) sürülmelidir; dal üzerinde
-  `73535cb` ile commit'lenmiştir.
+- Bu doküman, feature dalının parçası olarak `docs:` commit'leriyle sürülür; ilk kaydın rebase
+  öncesi karması `73535cb`, rebase sonrası eşleniği `81335bc`'tir.

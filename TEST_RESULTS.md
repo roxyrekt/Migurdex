@@ -197,6 +197,7 @@ Sonuç:
 - Ortam bulgusu olarak not edildi:
   1. Sistem dotnet’inde ASP.NET Core runtime yoktu; geçici SDK kurulunca aşıldı. Bu bir kod hatası değil.
 - Uygulama tarafında kalıcı bir çökme veya veri bozulması bulunmadı.
+- v1.10.0 tabanlı paket üretildi, hash düzeyinde doğrulandı ve kullanıma hazır (bkz. bölüm 7).
 
 ## 6. v1.10.0 geçişi
 
@@ -230,7 +231,7 @@ Sonuç: 275/275 geçti
 ### Mevcut dal durumu
 
 ```text
-v1.10.0..feature/download = 10 commit
+v1.10.0..feature/download = 12 commit
 ```
 
 Commit listesi:
@@ -246,10 +247,67 @@ c8a7d75 docs: update download history for result prompt fix
 febe716 docs: record live API smoke results
 1f82f2d docs: add consolidated test results report
 5014025 fix(downloader): report live yt-dlp HLS progress
+7763b2d docs: record v1.10.0 rebase and latest verification
+21d687c docs: document upstream v1.10.0 integration notes
 ```
+
+Son kod commit'i `5014025`; sonraki iki commit dokümantasyon kaydıdır. Bölüm 7'deki paket
+doğrulaması da `docs: record v1.10.0 packaged build` commit'i ile işlenmiştir.
 
 ### Notlar
 
 - Upstream’deki altyazı indirme davranışı ile bizim `SubtitleDownloader` arasında fonksiyonel benzerlik var.
 - İleri sürümde ortak yardımcıya çıkarma refactor’u yapılabilir.
 - Deokwave sağlayıcısı dinamik provider listesine otomatik eklenir; indirme akışında ek kod değişikliği gerekmez.
+
+## 7. v1.10.0 paket doğrulaması
+
+Rebase sonrası kod tabanı (temel `v1.10.0` @ `4035f9a`, son kod commit'i `5014025`)
+yeniden paketlendi ve doğrulandı (27 Eylül 2026).
+
+### Üretim
+
+| Adım | Sonuç |
+|---|---|
+| Build | `.\build.ps1 -Publish`, portatif .NET SDK 10.0.401 |
+| Rust derlemesi | `cargo build --release` başarılı — 2 dk 53 sn |
+| `api\migurdex_native.dll` damgası | 27.09.2026 03:00:14 |
+| Sağlayıcı / extractor | **14** sağlayıcı (Deokwave dahil) / **38** extractor |
+
+### Paket içeriği ve boyutlar
+
+| Dosya | Boyut (bayt) |
+|---|---:|
+| `migurdex.exe` | 23.466.537 |
+| `api\Migurdex.Api.exe` | 108.374.872 |
+| `api\migurdex_native.dll` | 8.661.504 |
+| `api\Plugins\*` | 14 sağlayıcı plugin DLL'i (Deokwave dahil) |
+| `migurdex-win-x64.zip` | 61.605.017 |
+
+### SHA-256 özetleri
+
+| Dosya | SHA-256 |
+|---|---|
+| `migurdex.exe` | `DE9EA5634B16E07BC3B16B8C8C7EE07CB311FE489AF78E09AAD3E608C86E3E79` |
+| `api\migurdex_native.dll` | `91BA419E97AD5BC0F0CA1ADF9768CF60FDFAC72234AADE28AC02DB46C1B44627` |
+| `migurdex-win-x64.zip` | `BC17A9FFA03D0B9BE5AA9004C6E6E94DB35C469442BA1515B3090FB6C96DB5AA` |
+
+### install-candidate eşleşmesi
+
+`..\migu\install-candidate\` klasörü yeni paketle güncellendi. `migurdex.exe`,
+`api\migurdex_native.dll` ve `migurdex-win-x64.zip` SHA-256 özetleri `dist` kopyalarıyla
+birebir aynı.
+
+### Smoke sonuçları
+
+| Kontrol | Sonuç |
+|---|---|
+| `migurdex.exe --version` | `migurdex v0.0.0`, `EXIT=0` |
+| `migurdex.exe download --help` | Tam yardım metni, `EXIT=0` |
+| API süreci | Başlatılmadı; doğrulama dosya listesi + hash karşılaştırmasıyla yapıldı |
+
+Not: `v0.0.0` yerel build için beklenen değerdir — sürüm damgası
+`Directory.Build.props` → `VersionPrefix` 0.0.0'dan gelir; etiketli sürüm numarası
+upstream yayın CI'sinde `-p:Version` ile basılır.
+
+Paket kullanıma hazır: `C:\Users\naton\OneDrive\Desktop\migu\install-candidate\migurdex.exe`.
