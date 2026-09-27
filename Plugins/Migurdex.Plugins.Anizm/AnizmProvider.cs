@@ -353,9 +353,15 @@ public partial class AnizmProvider : IAnimeProvider
             var matches = FansubNameRegex().Matches(html);
             foreach (Match m in matches)
             {
-                if (!groups.Contains(m.Groups[1].Value.Trim()))
+                var name = m.Groups[1].Value.Trim();
+                if (string.IsNullOrEmpty(name))
                 {
-                    groups.Add(m.Groups[1].Value.Trim());
+                    name = "Bağımsız";
+                }
+
+                if (!groups.Contains(name))
+                {
+                    groups.Add(name);
                 }
             }
 
@@ -385,6 +391,11 @@ public partial class AnizmProvider : IAnimeProvider
             {
                 var url  = m.Groups[1].Value;
                 var name = m.Groups[2].Value.Trim();
+                if (string.IsNullOrEmpty(name))
+                {
+                    name = "Bağımsız";
+                }
+
                 if (string.IsNullOrEmpty(group) || name.Equals(group, StringComparison.OrdinalIgnoreCase))
                 {
                     translatorMap[url] = name;
@@ -507,10 +518,10 @@ public partial class AnizmProvider : IAnimeProvider
         }
     }
 
-    [GeneratedRegex(@"data-fansub-name=""([^""]+)""")]
+    [GeneratedRegex(@"data-fansub-name=""([^""]*)""")]
     private static partial Regex FansubNameRegex();
 
-    [GeneratedRegex(@"translator=""([^""]+)"".*?data-fansub-name=""([^""]+)""")]
+    [GeneratedRegex(@"translator=""([^""]+)"".*?data-fansub-name=""([^""]*)""")]
     private static partial Regex TranslatorRegex();
 
     [GeneratedRegex(@"video=""([^""]+)""")]
