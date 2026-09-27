@@ -9,7 +9,7 @@ TUI'den (bölüm kaynak ekranında `İndir`) diske kaydeder. `Embed` ve `Unknown
 | Son güncelleme | 27 Eylül 2026 |
 | Dal | `feature/download` (temel: `v1.10.0` @ `4035f9a`) |
 | Son kod commit’i | `5014025` (`fix(downloader): report live yt-dlp HLS progress`) |
-| Paket | v1.10.0 tabanlı win-x64 paketi üretildi ve hash düzeyinde doğrulandı (27.09.2026; 14 sağlayıcı / 38 extractor) — bkz. `Yapılan işlemler` → madde 12 |
+| Paket | v1.10.0 tabanlı win-x64 paketi üretildi, hash düzeyinde doğrulandı ve kök kuruluma yüklendi (27.09.2026; 14 sağlayıcı / 38 extractor) — bkz. `Yapılan işlemler` → maddeler 12–13 |
 | Temel commit | `321fe38` — feat: add anime download support (rebase öncesi `c3d307a`) |
 | Testler | 81 test metodu / 110 çalışan case, 10 sınıf (bkz. `Test kapsamı`); offline doğrulama: 275/275 geçti (27.09.2026) |
 
@@ -749,6 +749,32 @@ kayıdıdır.
       başlatılmadı; doğrulama dosya listesi ve hash karşılaştırmasıyla yapıldı.
     - Paket kullanıma hazır:
       `C:\Users\naton\OneDrive\Desktop\migu\install-candidate\migurdex.exe`.
+13. **Kök kurulum yükseltmesi** (27.09.2026): Madde 12'de üretilip doğrulanan v1.10.0 tabanlı
+    paket, yerel kök kurulumuna (`C:\Users\naton\OneDrive\Desktop\migu`) yüklendi. Eski kök
+    kurulum önce `..\migu\backup-v1.9.2\` klasörüne yedeklendi; ardından `install-candidate`
+    içeriğinden `migurdex.exe`, `api\` ve `migurdex-win-x64.zip` köke kopyalandı. Kaynak
+    ağacında (`source\`) bu işlem sırasında kod değişikliği yapılmadı.
+
+    | Doğrulama | Sonuç |
+    |---|---|
+    | `migurdex.exe --version` | `migurdex v0.0.0` — çalışıyor (sürüm metadata build'de gömülmedi; bkz. madde 12 notu) |
+    | `migurdex.exe download --help` | Çalışıyor; tam yardım metni |
+    | `api\Plugins\` | 14 sağlayıcı plugin DLL'i (`Migurdex.Plugins.*`, Deokwave dahil) |
+    | `api\migurdex_native.dll` | 8.661.504 bayt — madde 12 paketiyle aynı |
+
+    | Dosya | SHA-256 |
+    |---|---|
+    | Eski `migurdex.exe` (v1.9.2 kök kurulumu; yedeği `backup-v1.9.2\` içinde) | `3879BE18B84EB23D069FB3BF51767571E58536EDAF4F1B283B3A67A19C26D712` |
+    | Yeni `migurdex.exe` | `DE9EA5634B16E07BC3B16B8C8C7EE07CB311FE489AF78E09AAD3E608C86E3E79` |
+    | Yeni `migurdex-win-x64.zip` | `BC17A9FFA03D0B9BE5AA9004C6E6E94DB35C469442BA1515B3090FB6C96DB5AA` |
+    | Yeni `api\migurdex_native.dll` | `91BA419E97AD5BC0F0CA1ADF9768CF60FDFAC72234AADE28AC02DB46C1B44627` |
+
+    - Yeni dosyaların özetleri madde 12'deki `dist`/`install-candidate` özetleriyle birebir
+      aynı; köke inen ikilinin paketten saptırılmadığı hash düzeyinde doğrulandı.
+    - Kök klasörün yeni durumu: yeni `migurdex.exe`, `api\`, `migurdex-win-x64.zip`; ayrıca
+      `backup-v1.9.2\`, `install-candidate\` ve `source\` klasörleri.
+    - Geri alma yolu: `backup-v1.9.2\` içindeki dosyaları köke geri kopyalamak.
+    - Ayrıntılı kayıt: `TEST_RESULTS.md` → bölüm 9.
 
 ### Upstream v1.10.0 notları
 
@@ -781,13 +807,13 @@ kayıdıdır.
 - Dal: `feature/download` (temel: `v1.10.0` @ `4035f9a`).
 - Son kod commit'i: `5014025` — `fix(downloader): report live yt-dlp HLS progress`
   (2026-09-27, v1.10.0 üzerine rebase sonrası).
-- HEAD (bu kayıt yazılırken): `615cf64` — `docs: record v1.10.0 packaged build`
-  (2026-09-27 03:37 +0300). Deokwave smoke sonucunu işleyen
-  `docs: record Deokwave smoke result` commit'i bu listeden sonraki satırdır.
-- `v1.10.0..feature/download` (13 commit):
+- HEAD (bu kayıt yazılırken): `dd09194` — `docs: record Deokwave smoke result`
+  (2026-09-27 05:38 +0300). Kök kurulum yükseltmesini işleyen
+  `docs: record root installation upgrade` commit'i bu listeden sonraki satırdır.
+- `v1.10.0..feature/download` (14 commit):
   `321fe38` → `bd59ca4` → `81335bc` → `3a3cfc5` → `c8a7d75` →
   `8ef695e` → `85f356a` → `febe716` → `1f82f2d` → `5014025` →
-  `7763b2d` → `21d687c` → `615cf64`.
+  `7763b2d` → `21d687c` → `615cf64` → `dd09194`.
 - Upstream v1.10.0, iki yeni commit içerir:
   `8094425` (`fix(cli): altyazi ismi + link yerine indir`) ve
   `4035f9a` (`feat(providers): add Deokwave`).
@@ -809,6 +835,7 @@ kayıdıdır.
 | `7763b2d` | 2026-09-27 02:10 +0300 | `docs: record v1.10.0 rebase and latest verification` | v1.10.0 rebase kaydı işlendi; `DOWNLOAD.md` meta/HEAD/değişiklik geçmişi, `README.md` doğrulama özeti, `TEST_RESULTS.md` v1.10.0 bölümü — 3 dosya (+89/−14) |
 | `21d687c` | 2026-09-27 02:14 +0300 | `docs: document upstream v1.10.0 integration notes` | `DOWNLOAD.md` içine `Upstream v1.10.0 notları` bölümü eklendi — 1 dosya (+10) |
 | `615cf64` | 2026-09-27 03:37 +0300 | `docs: record v1.10.0 packaged build` | v1.10.0 paket üretimi + SHA-256 doğrulaması işlendi; `DOWNLOAD.md` madde 12/meta/HEAD + `TEST_RESULTS.md` bölüm 7 + `README.md` paket özeti — 3 dosya (+118/−14) |
+| `dd09194` | 2026-09-27 05:38 +0300 | `docs: record Deokwave smoke result` | Deokwave upstream 403 bulgusu işlendi; `DOWNLOAD.md` bilinen sınırlar/HEAD/değişiklik geçmişi + `TEST_RESULTS.md` bölüm 8 — 2 dosya (+64/−5) |
 
 Gelecekteki commit'ler için satır formatı:
 

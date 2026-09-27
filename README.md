@@ -74,6 +74,11 @@ chmod +x Migurdex-x86_64.AppImage
 ./Migurdex-x86_64.AppImage
 ```
 
+> **Yerel sürüm notu (27 Eylül 2026):** Bu depodan üretilen v1.10.0 tabanlı paket (indirme
+> özelliğiyle) yerel kök kurulumuna yüklendi; eski v1.9.2 kurulumu `backup-v1.9.2` altına
+> yedeklendi. Doğrulamalar ve geri alma yolu: [`TEST_RESULTS.md`](TEST_RESULTS.md) →
+> `Kök kurulum yükseltmesi`.
+
 ## Gereksinimler
 
 - [MPV](https://mpv.io/) kurulu ve PATH'te olmalı

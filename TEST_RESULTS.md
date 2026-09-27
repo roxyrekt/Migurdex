@@ -357,3 +357,53 @@ ileride eklenebilir. Bu koşumda kod değişikliği yapılmadı.
 - Paket, plugin yükleme, sağlayıcı çözümleme ve hata yolları beklendiği gibi çalışıyor.
 - Sınırlama yalnızca Deokwave upstream'ine özgüdür; upstream challenge'ı kaldırırsa
   sağlayıcı kod değişikliği gerektirmeden çalışır hâle gelir.
+
+## 9. Kök kurulum yükseltmesi
+
+27 Eylül 2026'da yerel kök kurulum (`C:\Users\naton\OneDrive\Desktop\migu`) v1.9.2'den
+v1.10.0 tabanlı pakete (indirme özelliğiyle; bölüm 7'de üretilen `install-candidate`
+içeriği) yükseltildi. İşlem yalnızca dosya yedekleme/kopyalama ve doğrulamadan ibarettir;
+kaynak ağacında kod değişikliği yapılmadı.
+
+### Adımlar
+
+1. Eski kök kurulum `..\migu\backup-v1.9.2\` klasörüne yedeklendi.
+2. `install-candidate` içeriği köke kopyalandı: `migurdex.exe`, `api\`,
+   `migurdex-win-x64.zip`.
+
+### Yükseltme sonrası doğrulamalar
+
+| Kontrol | Sonuç |
+|---|---|
+| `migurdex.exe --version` | `migurdex v0.0.0` — çalışıyor (sürüm metadata build'de gömülmedi; bkz. bölüm 7 notu) |
+| `migurdex.exe download --help` | Çalışıyor; tam yardım metni |
+| `api\Plugins\` | 14 sağlayıcı plugin DLL'i (`Migurdex.Plugins.*`, Deokwave dahil); klasördeki 18 dosyadan kalan 4'ü AngleSharp, DI/Logging abstractions ve `Migurdex.Shared` gibi altyapı DLL'leri |
+| `api\migurdex_native.dll` | 8.661.504 bayt — bölüm 7 paketiyle aynı boyut |
+
+### SHA-256 özetleri
+
+| Dosya | SHA-256 |
+|---|---|
+| Eski `migurdex.exe` (v1.9.2 kök kurulumu; yedeği `backup-v1.9.2\` içinde) | `3879BE18B84EB23D069FB3BF51767571E58536EDAF4F1B283B3A67A19C26D712` |
+| Yeni `migurdex.exe` | `DE9EA5634B16E07BC3B16B8C8C7EE07CB311FE489AF78E09AAD3E608C86E3E79` |
+| Yeni `migurdex-win-x64.zip` | `BC17A9FFA03D0B9BE5AA9004C6E6E94DB35C469442BA1515B3090FB6C96DB5AA` |
+| Yeni `api\migurdex_native.dll` | `91BA419E97AD5BC0F0CA1ADF9768CF60FDFAC72234AADE28AC02DB46C1B44627` |
+
+Yeni dosyaların özetleri bölüm 7'deki `dist`/`install-candidate` özetleriyle birebir aynı;
+köke inen ikilinin paketten saptırılmadığı hash düzeyinde doğrulandı.
+
+### Kök klasörün yeni durumu
+
+```text
+C:\Users\naton\OneDrive\Desktop\migu\
+├─ migurdex.exe            # yeni — v1.10.0 tabanlı paket
+├─ api\                    # yeni — 14 sağlayıcı plugin'i + migurdex_native.dll
+├─ migurdex-win-x64.zip    # yeni paket arşivi
+├─ backup-v1.9.2\          # eski kök kurulumun yedeği
+├─ install-candidate\      # köke kopyalanan paket adayı
+└─ source\                 # bu depo (feature/download)
+```
+
+### Geri alma
+
+Geri alma yolu: `backup-v1.9.2\` klasöründeki dosyaları köke geri kopyalamak.
