@@ -158,7 +158,7 @@ Bulit-in extractor'lar `Migurdex.Core/Extractors` altında. API tarafında `GET 
 
 TurkAnime sağlayıcısı, kapanan sitenin arşivinin temizlenip doğrulanmış halini kullanır (ölü kayıtlar atıldı, başlıklar
 onarıldı, AniList/MAL eşleştirmeleri eklendi; canlı Turso veritabanı üzerinden sorgulanır). Ham SQLite dosyası:
-[mdexturkanime/turkanime-db](https://huggingface.co/datasets/mdexturkanime/turkanime-db/blob/main/turkanime-v1.db).
+[roxyrekt/turkanime-db](https://huggingface.co/datasets/roxyrekt/turkanime-db/blob/main/turkanime-v1.db).
 
 ## Derleme
 
