@@ -5,7 +5,8 @@
 > Son güncelleme: 29 Eylül 2026  
 > Dal: `feature/download`  
 > Temel: `v1.10.0` (`4035f9a`)  
-> Son teknik hedef: `https://github.com/Nutaliaxd/Migurdex` üzerine PR
+> Son teknik hedef: `https://github.com/Nutaliaxd/Migurdex` üzerine PR  
+> PR: https://github.com/Nutaliaxd/Migurdex/pull/1
 
 ---
 
