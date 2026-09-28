@@ -165,7 +165,9 @@ public static class UpdateCommand
         switch (type)
         {
             case InstallType.AppImage:
-                AnsiConsole.MarkupLine("[yellow]AppImage kendini güncelleyemez. Yeni dosyayı indirip değiştirin:[/]");
+                AnsiConsole.MarkupLine("[yellow]AppImage içi güncelleme desteklenmiyor. Şunlardan birini yapın:[/]");
+                AnsiConsole.WriteLine("  1) AppImageUpdate ile güncelle (zsync destekli)");
+                AnsiConsole.WriteLine("  2) Yeni .AppImage dosyasını indirip eskisiyle değiştirin:");
                 break;
             case InstallType.Source:
                 AnsiConsole.MarkupLine("[yellow]Kaynak kurulum tespit edildi, paket güncellenemez. Şunu yapın:[/]");

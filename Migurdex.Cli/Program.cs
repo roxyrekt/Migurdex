@@ -16,10 +16,7 @@ public static class Program
     {
         try
         {
-            if (!Console.IsOutputRedirected)
-            {
-                Console.OutputEncoding = System.Text.Encoding.UTF8;
-            }
+            Console.OutputEncoding = System.Text.Encoding.UTF8;
         }
         catch
         {
@@ -28,10 +25,7 @@ public static class Program
 
         try
         {
-            if (!Console.IsInputRedirected)
-            {
-                Console.InputEncoding = System.Text.Encoding.UTF8;
-            }
+            Console.InputEncoding = System.Text.Encoding.UTF8;
         }
         catch
         {
@@ -121,7 +115,14 @@ public static class Program
             AnsiConsole.MarkupLine(
                 "[grey]İstemciyi açıp ayarlardan API adresini değiştirebilirsiniz.[/]");
             AnsiConsole.MarkupLine("[grey]Devam etmek için bir tuşa basın...[/]");
-            Console.ReadKey(true);
+            if (!Console.IsInputRedirected)
+            {
+                try { Console.ReadKey(true); }
+                catch
+                {
+                    // ignored
+                }
+            }
         }
 
         var navigator = serviceProvider.GetRequiredService<ITuiNavigator>();

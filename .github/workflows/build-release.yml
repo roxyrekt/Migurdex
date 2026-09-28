@@ -28,12 +28,12 @@ jobs:
             fail-fast: false
             matrix:
                 include:
-                    -   os: ubuntu-latest
+                    -   os: ubuntu-22.04
                         runtime: linux-x64
                         native_lib: libmigurdex_native.so
                         cli_exe: migurdex
                         arch: x86_64
-                    -   os: ubuntu-24.04-arm
+                    -   os: ubuntu-22.04-arm
                         runtime: linux-arm64
                         native_lib: libmigurdex_native.so
                         cli_exe: migurdex
@@ -142,9 +142,14 @@ jobs:
                     cp -r dist/api Migurdex.AppDir/
                     cp assets/packaging/migurdex.desktop assets/packaging/migurdex.png Migurdex.AppDir/
                     cp assets/packaging/migurdex.png Migurdex.AppDir/.DirIcon
-                    ln -s migurdex Migurdex.AppDir/AppRun
-                    chmod +x Migurdex.AppDir/migurdex
-                    ARCH=${{ matrix.arch }} ./appimagetool.AppImage --appimage-extract-and-run Migurdex.AppDir migurdex-${{ matrix.arch }}.AppImage
+                    cp assets/packaging/AppRun Migurdex.AppDir/AppRun
+                    chmod +x Migurdex.AppDir/AppRun Migurdex.AppDir/migurdex Migurdex.AppDir/api/Migurdex.Api
+                    ARCH=${{ matrix.arch }} ./appimagetool.AppImage --appimage-extract-and-run -u "gh-releases-zsync|roxyrekt|Migurdex|latest|migurdex-${{ matrix.arch }}.AppImage.zsync" Migurdex.AppDir migurdex-${{ matrix.arch }}.AppImage
+
+            -   name: Verify AppImage update info
+                if: matrix.os != 'windows-latest'
+                run: |
+                    ./migurdex-${{ matrix.arch }}.AppImage --appimage-updateinformation | grep -q "gh-releases-zsync|roxyrekt|Migurdex"
 
             -   name: Generate checksums
                 shell: bash
@@ -160,7 +165,7 @@ jobs:
                 uses: actions/upload-artifact@v7
                 with:
                     name: migurdex-appimage-${{ matrix.arch }}
-                    path: migurdex-${{ matrix.arch }}.AppImage
+                    path: migurdex-${{ matrix.arch }}.AppImage*
 
             -   name: Upload Artifact
                 uses: actions/upload-artifact@v7
@@ -189,7 +194,7 @@ jobs:
             -   name: Flatten Artifacts
                 run: |
                     mkdir release-files
-                    find artifacts -type f \( -name "*.tar.gz" -o -name "*.zip" -o -name "*.AppImage" -o -name "*.txt" \) -exec cp {} release-files/ \;
+                    find artifacts -type f \( -name "*.tar.gz" -o -name "*.zip" -o -name "*.AppImage" -o -name "*.zsync" -o -name "*.txt" \) -exec cp {} release-files/ \;
 
             -   name: Create GitHub Release
                 uses: softprops/action-gh-release@v3

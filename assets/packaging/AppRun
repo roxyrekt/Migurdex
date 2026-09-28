@@ -1,0 +1,13 @@
+#!/bin/sh
+HERE="$(dirname "$(readlink -f "$0")")"
+
+if [ -z "$LANG" ] || [ "$LANG" = "C" ] || [ "$LANG" = "POSIX" ]; then
+    export LANG=C.UTF-8
+fi
+if [ -z "$LC_ALL" ] || [ "$LC_ALL" = "C" ] || [ "$LC_ALL" = "POSIX" ]; then
+    if [ -n "$LC_ALL" ]; then
+        export LC_ALL=C.UTF-8
+    fi
+fi
+
+exec "$HERE/migurdex" "$@"
