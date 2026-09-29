@@ -82,7 +82,11 @@ public class PlaybackMenuView : BaseView
             || _historyEntry is null)
         {
             AnsiConsole.MarkupLine("[red]Hata: Gerekli parametreler eksik.[/]");
-            Console.ReadKey(true);
+            if (!TuiConsole.WaitForKey())
+            {
+                return;
+            }
+
             navigator.Pop();
             return;
         }

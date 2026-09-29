@@ -24,9 +24,6 @@ public static class FuzzyPrompt
         return $"{Markup.Escape(left)}[black on white]{Markup.Escape(cursorChar.ToString())}[/]{Markup.Escape(right)}";
     }
 
-    /// <summary>
-    ///     `Ara:` filtre satırının markup'ı. `searchable == false` iken satır üretilmez (null).
-    /// </summary>
     internal static string? SearchRowMarkup(bool searchable, string query, int textCursorIndex)
     {
         if (!searchable)
@@ -83,11 +80,6 @@ public static class FuzzyPrompt
         textCursorIndex = target;
     }
 
-    /// <summary>
-    ///     Prompt tuş işleme. `searchable == false` iken sorgu değiştirilemez: normal karakter,
-    ///     Backspace, Delete ve kelime silme kısayolları yok sayılır; gezinme (↑↓) ve seçim
-    ///     (Enter/Esc) davranışı her iki modda da aynen çalışır.
-    /// </summary>
     internal static void HandleKey(
         ConsoleKeyInfo    keyInfo,
         List<FuzzyChoice> filtered,
@@ -210,10 +202,6 @@ public static class FuzzyPrompt
         return $"[grey]{Markup.Escape(help)}{pos}[/]";
     }
 
-    /// <summary>
-    ///     Prompt ızgarası. `searchable == false` iken `Ara:` satırı ve altındaki boş satır
-    ///     çizilmez; başlık, üst bilgiler, seçenekler ve footer aynen kalır.
-    /// </summary>
     internal static Grid BuildGrid(
         string            title,
         List<string>?     headersList,
@@ -321,6 +309,13 @@ public static class FuzzyPrompt
 
                        while (isRunning)
                        {
+                           if (TuiApplicationCancellation.Token.IsCancellationRequested)
+                           {
+                               result    = null;
+                               isRunning = false;
+                               break;
+                           }
+
                            var filtered = FuzzyMatcher.Rank(choicesList, query);
                            if (!string.IsNullOrWhiteSpace(query)
                                && pinnedRowProvider?.Invoke(query.Trim()) is { } pinned)
@@ -379,6 +374,7 @@ public static class FuzzyPrompt
         var headersList = headerLines?.Where(h => !string.IsNullOrWhiteSpace(h)).ToList();
         var isScanning  = true;
         var cts         = new CancellationTokenSource();
+        using var modal = TuiApplicationCancellation.BeginModal(cts);
 
         var backgroundTask = Task.Run(async () =>
                                       {
@@ -426,6 +422,14 @@ public static class FuzzyPrompt
                    {
                        while (isRunning)
                        {
+                           if (TuiApplicationCancellation.Token.IsCancellationRequested)
+                           {
+                               result    = null;
+                               isRunning = false;
+                               cts.Cancel();
+                               break;
+                           }
+
                            List<T> currentRaw;
                            lock (rawItems)
                            {

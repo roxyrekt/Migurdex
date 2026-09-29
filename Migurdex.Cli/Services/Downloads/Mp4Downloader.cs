@@ -13,6 +13,10 @@ public sealed class Mp4Downloader : IMp4Downloader
     private const int BufferSize = 128 * 1024;
     private const long ProgressIntervalMilliseconds = 150;
     private const int MaxResumeAttempts = 2;
+    private const long ParallelThresholdBytes = 8L * 1024 * 1024;
+    private const long ParallelBytesPerConnection = 16L * 1024 * 1024;
+    private const int ParallelMinSegments = 2;
+    private const int ParallelMaxSegments = 4;
 
     private static readonly Regex ContentRangeRegex = new(
         @"^bytes\s+(\d+)-(\d+)/(\d+|\*)\s*$",
@@ -116,9 +120,29 @@ public sealed class Mp4Downloader : IMp4Downloader
         var disposeClient    = _fixedClient is null;
         var lastKnownBytes   = 0L;
         long? lastKnownTotal = null;
+        var parallelAttempted = false;
 
         try
         {
+            if (resume)
+            {
+                var resumedParallel = await TryResumeParallelAsync(client,
+                                                                   sourceUri,
+                                                                   requestHeaders,
+                                                                   partPath,
+                                                                   metadataPath,
+                                                                   sourceFingerprint,
+                                                                   finalPath,
+                                                                   overwrite,
+                                                                   progress,
+                                                                   cancellationToken)
+                                            .ConfigureAwait(false);
+                if (resumedParallel is not null)
+                {
+                    return resumedParallel;
+                }
+            }
+
             for (var requestAttempt = 0; requestAttempt < MaxResumeAttempts; requestAttempt++)
             {
                 cancellationToken.ThrowIfCancellationRequested();
@@ -202,6 +226,36 @@ public sealed class Mp4Downloader : IMp4Downloader
                     // 200 + text/plain|json|xml|görsel gövde sunucu hata çıktısıdır;
                     // medya dosyası olarak yazılmamalıdır.
                     throw new DownloadException("Video kaynağı medya dışı bir içerik döndürdü.");
+                }
+
+                if (!parallelAttempted
+                    && resumeState is null
+                    && requestAttempt == 0
+                    && response.StatusCode == HttpStatusCode.OK
+                    && TryGetParallelTotal(response, out var parallelTotal))
+                {
+                    parallelAttempted = true;
+                    response.Dispose();
+                    var parallelResult = await TryParallelFreshAsync(client,
+                                                                     sourceUri,
+                                                                     requestHeaders,
+                                                                     partPath,
+                                                                     metadataPath,
+                                                                     sourceFingerprint,
+                                                                     finalPath,
+                                                                     overwrite,
+                                                                     parallelTotal,
+                                                                     GetETag(response),
+                                                                     GetLastModified(response),
+                                                                     progress,
+                                                                     cancellationToken)
+                                               .ConfigureAwait(false);
+                    if (parallelResult is not null)
+                    {
+                        return parallelResult;
+                    }
+
+                    continue;
                 }
 
                 var append           = response.StatusCode == HttpStatusCode.PartialContent;
@@ -450,6 +504,7 @@ public sealed class Mp4Downloader : IMp4Downloader
     private static void ResetPartial(string partPath, string metadataPath)
     {
         DeleteIfExists(partPath);
+        DeleteParallelSegments(partPath);
         Mp4ResumeMetadata.Delete(metadataPath);
     }
 
@@ -470,6 +525,637 @@ public sealed class Mp4Downloader : IMp4Downloader
         {
             throw new DownloadException("Eski video parçasına erişilemedi.");
         }
+    }
+
+    private static string GetSegmentPath(string partPath, int index)
+    {
+        return partPath + ".seg" + index.ToString(CultureInfo.InvariantCulture);
+    }
+
+    private static void DeleteParallelSegments(string partPath)
+    {
+        for (var i = 0; i < ParallelMaxSegments; i++)
+        {
+            try
+            {
+                var segment = GetSegmentPath(partPath, i);
+                if (File.Exists(segment))
+                {
+                    File.Delete(segment);
+                }
+            }
+            catch
+            {
+                // Temizlik en iyi eforladır; indirme sonucunu maskeleme.
+            }
+        }
+    }
+
+    private static void DeleteParallelArtifacts(string partPath, string metadataPath)
+    {
+        DeleteParallelSegments(partPath);
+        Mp4ResumeMetadata.Delete(metadataPath);
+    }
+
+    private static int ComputeSegmentCount(long total)
+    {
+        if (total < ParallelThresholdBytes)
+        {
+            return 0;
+        }
+
+        var count = (int)(total / ParallelBytesPerConnection);
+        return (int)Math.Clamp(count, ParallelMinSegments, ParallelMaxSegments);
+    }
+
+    private static bool TryGetParallelTotal(HttpResponseMessage response, out long total)
+    {
+        total = 0;
+        var contentLength = response.Content.Headers.ContentLength;
+        if (!contentLength.HasValue || contentLength.Value < ParallelThresholdBytes)
+        {
+            return false;
+        }
+
+        foreach (var value in response.Headers.AcceptRanges)
+        {
+            if (value.Equals("none", StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+        }
+
+        total = contentLength.Value;
+        return total > 0;
+    }
+
+    private async Task<MediaDownloadResult?> TryResumeParallelAsync(
+        HttpClient                     client,
+        Uri                            sourceUri,
+        Dictionary<string, string>     baseHeaders,
+        string                         partPath,
+        string                         metadataPath,
+        string                         sourceFingerprint,
+        string                         finalPath,
+        bool                           overwrite,
+        IProgress<DownloadProgress>?   progress,
+        CancellationToken              cancellationToken)
+    {
+        Mp4ResumeMetadata? manifest = null;
+        try
+        {
+            if (!Mp4ResumeMetadata.TryRead(metadataPath, sourceFingerprint, out manifest)
+                || manifest is null
+                || manifest.SegmentCount is not >= ParallelMinSegments
+                || manifest.SegmentCount > ParallelMaxSegments
+                || manifest.TotalBytes is not { } manifestTotal
+                || manifestTotal < ParallelThresholdBytes)
+            {
+                return null;
+            }
+
+            if (File.Exists(partPath))
+            {
+                try
+                {
+                    if (new FileInfo(partPath).Length > 0)
+                    {
+                        DeleteParallelSegments(partPath);
+                        return null;
+                    }
+                }
+                catch (IOException)
+                {
+                    return null;
+                }
+                catch (UnauthorizedAccessException)
+                {
+                    throw new DownloadException("Video parçasına erişilemedi.");
+                }
+            }
+
+            var segmentCount = manifest.SegmentCount.Value;
+            var hasAnySegment = false;
+            for (var i = 0; i < segmentCount; i++)
+            {
+                if (File.Exists(GetSegmentPath(partPath, i)))
+                {
+                    hasAnySegment = true;
+                    break;
+                }
+            }
+
+            if (!hasAnySegment)
+            {
+                return null;
+            }
+
+            return await ExecuteParallelAsync(client,
+                                              sourceUri,
+                                              baseHeaders,
+                                              partPath,
+                                              metadataPath,
+                                              sourceFingerprint,
+                                              finalPath,
+                                              overwrite,
+                                              manifestTotal,
+                                              null,
+                                              null,
+                                              manifest,
+                                              progress,
+                                              cancellationToken)
+                             .ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (DownloadException)
+        {
+            throw;
+        }
+        catch (IOException)
+        {
+            throw new DownloadException("Video dosyası yazılamadı.");
+        }
+        catch (UnauthorizedAccessException)
+        {
+            throw new DownloadException("Video dosyasına erişilemedi.");
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private async Task<MediaDownloadResult?> TryParallelFreshAsync(
+        HttpClient                     client,
+        Uri                            sourceUri,
+        Dictionary<string, string>     baseHeaders,
+        string                         partPath,
+        string                         metadataPath,
+        string                         sourceFingerprint,
+        string                         finalPath,
+        bool                           overwrite,
+        long                           total,
+        string?                        etag,
+        string?                        lastModified,
+        IProgress<DownloadProgress>?   progress,
+        CancellationToken              cancellationToken)
+    {
+        try
+        {
+            return await ExecuteParallelAsync(client,
+                                              sourceUri,
+                                              baseHeaders,
+                                              partPath,
+                                              metadataPath,
+                                              sourceFingerprint,
+                                              finalPath,
+                                              overwrite,
+                                              total,
+                                              etag,
+                                              lastModified,
+                                              null,
+                                              progress,
+                                              cancellationToken)
+                             .ConfigureAwait(false);
+        }
+        catch (ParallelFallbackException)
+        {
+            DeleteParallelArtifacts(partPath, metadataPath);
+            return null;
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (DownloadException)
+        {
+            throw;
+        }
+        catch (HttpRequestException)
+        {
+            throw new DownloadException("Video HTTP isteği başarısız oldu.");
+        }
+        catch (IOException)
+        {
+            throw new DownloadException("Video dosyası yazılamadı.");
+        }
+        catch (UnauthorizedAccessException)
+        {
+            throw new DownloadException("Video dosyasına erişilemedi.");
+        }
+        catch
+        {
+            DeleteParallelArtifacts(partPath, metadataPath);
+            return null;
+        }
+    }
+
+    private async Task<MediaDownloadResult?> ExecuteParallelAsync(
+        HttpClient                     client,
+        Uri                            sourceUri,
+        Dictionary<string, string>     baseHeaders,
+        string                         partPath,
+        string                         metadataPath,
+        string                         sourceFingerprint,
+        string                         finalPath,
+        bool                           overwrite,
+        long                           total,
+        string?                        probeEtag,
+        string?                        probeLastModified,
+        Mp4ResumeMetadata?             resumeManifest,
+        IProgress<DownloadProgress>?   progress,
+        CancellationToken              cancellationToken)
+    {
+        var segmentCount = ComputeSegmentCount(total);
+        if (segmentCount < ParallelMinSegments)
+        {
+            return null;
+        }
+
+        Mp4ResumeMetadata manifest;
+        if (resumeManifest is not null
+            && resumeManifest.SegmentCount == segmentCount
+            && resumeManifest.TotalBytes == total)
+        {
+            manifest = resumeManifest;
+        }
+        else if (resumeManifest is not null)
+        {
+            DeleteParallelArtifacts(partPath, metadataPath);
+            manifest = Mp4ResumeMetadata.Create(sourceFingerprint, probeEtag, probeLastModified, total, segmentCount);
+            await Mp4ResumeMetadata.WriteAsync(metadataPath, manifest, cancellationToken).ConfigureAwait(false);
+        }
+        else
+        {
+            manifest = Mp4ResumeMetadata.Create(sourceFingerprint, probeEtag, probeLastModified, total, segmentCount);
+            await Mp4ResumeMetadata.WriteAsync(metadataPath, manifest, cancellationToken).ConfigureAwait(false);
+        }
+
+        var segmentLengthBase = total / segmentCount;
+        var ranges = new (long Start, long End)[segmentCount];
+        for (var i = 0; i < segmentCount; i++)
+        {
+            var start = i * segmentLengthBase;
+            var end = i == segmentCount - 1 ? total - 1 : (i + 1) * segmentLengthBase - 1;
+            ranges[i] = (start, end);
+        }
+
+        if (resumeManifest is null)
+        {
+            DeleteParallelSegments(partPath);
+        }
+
+        var existingLengths = new long[segmentCount];
+        for (var i = 0; i < segmentCount; i++)
+        {
+            try
+            {
+                var segmentPath = GetSegmentPath(partPath, i);
+                if (File.Exists(segmentPath))
+                {
+                    var length = new FileInfo(segmentPath).Length;
+                    var expectedLength = ranges[i].End - ranges[i].Start + 1;
+                    if (length < 0 || length > expectedLength)
+                    {
+                        try { File.Delete(segmentPath); } catch { }
+                        length = 0;
+                    }
+
+                    existingLengths[i] = length;
+                }
+            }
+            catch (IOException)
+            {
+                throw new DownloadException("Video parçasına erişilemedi.");
+            }
+            catch (UnauthorizedAccessException)
+            {
+                throw new DownloadException("Video parçasına erişilemedi.");
+            }
+        }
+
+        long initialDownloaded = 0;
+        for (var i = 0; i < segmentCount; i++)
+        {
+            initialDownloaded += existingLengths[i];
+        }
+
+        var sharedTotal = new long[1];
+        sharedTotal[0] = initialDownloaded;
+
+        Report(progress, DownloadStage.Requesting, sharedTotal[0], total);
+        var progressLock = new Lock();
+        var lastReportTime = Stopwatch.GetTimestamp();
+        void ReportAggregated()
+        {
+            var current = Interlocked.Read(ref sharedTotal[0]);
+            bool shouldReport;
+            lock (progressLock)
+            {
+                shouldReport = ShouldReport(lastReportTime, current, total);
+                if (shouldReport)
+                {
+                    lastReportTime = Stopwatch.GetTimestamp();
+                }
+            }
+
+            if (shouldReport)
+            {
+                Report(progress, DownloadStage.Downloading, current, total);
+            }
+        }
+
+        void AddBytes(long count)
+        {
+            Interlocked.Add(ref sharedTotal[0], count);
+        }
+
+        using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        var segmentToken = linkedCts.Token;
+        var tasks = new Task[segmentCount];
+        for (var i = 0; i < segmentCount; i++)
+        {
+            var index = i;
+            tasks[index] = Task.Run(async () =>
+            {
+                try
+                {
+                    await DownloadOneSegmentAsync(client,
+                                                  sourceUri,
+                                                  baseHeaders,
+                                                  partPath,
+                                                  index,
+                                                  ranges[index].Start,
+                                                  ranges[index].End,
+                                                  total,
+                                                  manifest,
+                                                  AddBytes,
+                                                  ReportAggregated,
+                                                  existingLengths[index],
+                                                  segmentToken)
+                                  .ConfigureAwait(false);
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException)
+                {
+                    try { await linkedCts.CancelAsync(); } catch { }
+                    throw;
+                }
+            }, segmentToken);
+        }
+
+        try
+        {
+            await Task.WhenAll(tasks).ConfigureAwait(false);
+        }
+        catch
+        {
+            var fatal = tasks.SelectMany(t => t.Exception?.InnerExceptions ?? [])
+                             .OfType<DownloadException>()
+                             .FirstOrDefault();
+            if (fatal is not null)
+            {
+                throw fatal;
+            }
+
+            var fallback = tasks.SelectMany(t => t.Exception?.InnerExceptions ?? [])
+                                .OfType<ParallelFallbackException>()
+                                .FirstOrDefault();
+            if (fallback is not null)
+            {
+                DeleteParallelArtifacts(partPath, metadataPath);
+                return null;
+            }
+
+            if (cancellationToken.IsCancellationRequested)
+            {
+                Report(progress, DownloadStage.Cancelled, Interlocked.Read(ref sharedTotal[0]), total);
+                throw;
+            }
+
+            throw;
+        }
+
+        cancellationToken.ThrowIfCancellationRequested();
+
+        for (var i = 0; i < segmentCount; i++)
+        {
+            var expectedLength = ranges[i].End - ranges[i].Start + 1;
+            long actualLength;
+            try
+            {
+                actualLength = new FileInfo(GetSegmentPath(partPath, i)).Length;
+            }
+            catch (IOException)
+            {
+                throw new DownloadException("Video dosyası yazılamadı.");
+            }
+            catch (UnauthorizedAccessException)
+            {
+                throw new DownloadException("Video dosyasına erişilemedi.");
+            }
+
+            if (actualLength != expectedLength)
+            {
+                throw new DownloadException("Video indirilemedi; gövde beklenen aralıkta değil.");
+            }
+        }
+
+        Report(progress, DownloadStage.Finalizing, total, total);
+        await MergeSegmentsAsync(partPath, segmentCount, cancellationToken).ConfigureAwait(false);
+        MoveCompletedPart(partPath, finalPath, overwrite, cancellationToken);
+        DeleteParallelSegments(partPath);
+        Mp4ResumeMetadata.Delete(metadataPath);
+        Report(progress, DownloadStage.Completed, total, total);
+
+        return new MediaDownloadResult(finalPath, total, total, resumeManifest is not null);
+    }
+
+    private async Task DownloadOneSegmentAsync(
+        HttpClient                     client,
+        Uri                            sourceUri,
+        Dictionary<string, string>     baseHeaders,
+        string                         partPath,
+        int                            index,
+        long                           rangeStart,
+        long                           rangeEnd,
+        long                           total,
+        Mp4ResumeMetadata              manifest,
+        Action<long>                   addBytes,
+        Action                         reportAggregated,
+        long                           existingLength,
+        CancellationToken              cancellationToken)
+    {
+        var segmentLength = rangeEnd - rangeStart + 1;
+        if (existingLength == segmentLength)
+        {
+            return;
+        }
+
+        var requestStart = rangeStart + existingLength;
+        var headers = DownloadHttp.CopyHeaders(baseHeaders);
+        headers["Range"] = "bytes="
+                           + requestStart.ToString(CultureInfo.InvariantCulture)
+                           + "-"
+                           + rangeEnd.ToString(CultureInfo.InvariantCulture);
+
+        using var response = await DownloadHttp.SendWithRedirectsAsync(client,
+                                                                       sourceUri,
+                                                                       headers,
+                                                                       cancellationToken)
+                                     .ConfigureAwait(false);
+        if (DownloadHttp.IsHtml(response))
+        {
+            throw new DownloadException("Video kaynağı HTML içerik döndürdü.");
+        }
+
+        if (response.StatusCode == HttpStatusCode.OK)
+        {
+            throw new ParallelFallbackException();
+        }
+
+        if (response.StatusCode != HttpStatusCode.PartialContent)
+        {
+            if (response.StatusCode == HttpStatusCode.RequestedRangeNotSatisfiable)
+            {
+                throw new ParallelFallbackException();
+            }
+
+            throw new DownloadException("Video sunucusu indirilebilir bir yanıt vermedi.");
+        }
+
+        if (DownloadHttp.IsNonMediaContent(response))
+        {
+            throw new DownloadException("Video kaynağı medya dışı bir içerik döndürdü.");
+        }
+
+        if (!TryParseContentRange(GetContentRange(response), out var actualStart, out var actualEnd, out var actualTotal)
+            || actualStart != requestStart
+            || actualEnd != rangeEnd
+            || (actualTotal.HasValue && actualTotal.Value != total)
+            || !actualTotal.HasValue)
+        {
+            throw new ParallelFallbackException();
+        }
+
+        if (!manifest.MatchesResponse(GetETag(response), GetLastModified(response)))
+        {
+            throw new ParallelFallbackException();
+        }
+
+        var contentLength = response.Content.Headers.ContentLength;
+        var expectedRemaining = rangeEnd - requestStart + 1;
+        if (contentLength.HasValue && contentLength.Value != expectedRemaining)
+        {
+            throw new ParallelFallbackException();
+        }
+
+        var segmentPath = GetSegmentPath(partPath, index);
+        try
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(segmentPath) ?? ".");
+        }
+        catch (IOException)
+        {
+            throw new DownloadException("Video dosyası yazılamadı.");
+        }
+        catch (UnauthorizedAccessException)
+        {
+            throw new DownloadException("Video dosyasına erişilemedi.");
+        }
+
+        await using var body = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
+        await using var file = new FileStream(segmentPath,
+                                              existingLength > 0 ? FileMode.Append : FileMode.Create,
+                                              FileAccess.Write,
+                                              FileShare.Read,
+                                              BufferSize,
+                                              FileOptions.Asynchronous | FileOptions.SequentialScan);
+        if (existingLength > 0 && file.Length != existingLength)
+        {
+            throw new DownloadException("Video parçası indirme sırasında değişti.");
+        }
+
+        var buffer = new byte[BufferSize];
+        var remaining = expectedRemaining;
+        while (remaining > 0)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var readLength = (int)Math.Min(buffer.Length, remaining);
+            var read = await body.ReadAsync(buffer.AsMemory(0, readLength), cancellationToken).ConfigureAwait(false);
+            if (read == 0)
+            {
+                break;
+            }
+
+            await file.WriteAsync(buffer.AsMemory(0, read), cancellationToken).ConfigureAwait(false);
+            remaining -= read;
+            addBytes(read);
+            reportAggregated();
+        }
+
+        await file.FlushAsync(cancellationToken).ConfigureAwait(false);
+        if (remaining != 0)
+        {
+            throw new DownloadException("Video indirilemedi; gövde beklenen aralıkta değil.");
+        }
+
+        var extraProbe = new byte[1];
+        var extra = await body.ReadAsync(extraProbe.AsMemory(), cancellationToken).ConfigureAwait(false);
+        if (extra != 0)
+        {
+            throw new DownloadException("Video sunucusu aralık uzunluğu tutarsız.");
+        }
+    }
+
+    private static async Task MergeSegmentsAsync(string partPath, int segmentCount, CancellationToken cancellationToken)
+    {
+        try
+        {
+            await using var output = new FileStream(partPath,
+                                                    FileMode.Create,
+                                                    FileAccess.Write,
+                                                    FileShare.None,
+                                                    BufferSize,
+                                                    FileOptions.Asynchronous | FileOptions.SequentialScan);
+            var buffer = new byte[BufferSize];
+            for (var i = 0; i < segmentCount; i++)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                var segmentPath = GetSegmentPath(partPath, i);
+                await using var input = new FileStream(segmentPath,
+                                                       FileMode.Open,
+                                                       FileAccess.Read,
+                                                       FileShare.Read,
+                                                       BufferSize,
+                                                       FileOptions.Asynchronous | FileOptions.SequentialScan);
+                int read;
+                while ((read = await input.ReadAsync(buffer.AsMemory(), cancellationToken).ConfigureAwait(false)) != 0)
+                {
+                    await output.WriteAsync(buffer.AsMemory(0, read), cancellationToken).ConfigureAwait(false);
+                }
+            }
+
+            await output.FlushAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (IOException)
+        {
+            throw new DownloadException("Video dosyası yazılamadı.");
+        }
+        catch (UnauthorizedAccessException)
+        {
+            throw new DownloadException("Video dosyasına erişilemedi.");
+        }
+    }
+
+    private sealed class ParallelFallbackException : Exception
+    {
     }
 
     private static string? GetContentRange(HttpResponseMessage response)

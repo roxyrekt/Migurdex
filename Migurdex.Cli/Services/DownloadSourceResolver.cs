@@ -30,17 +30,6 @@ public static class DownloadSourceResolver
                || uri.Scheme.Equals(Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase);
     }
 
-    /// <summary>
-    ///     Doğrudan indirilebilir kaynak bulunamadığında gösterilecek mesajı üretir. API'den gelen
-    ///     hata sayısı sıfırdan büyükse gerçek sebep extractor çözümlemesidir ve mesaj bunu belirtir.
-    /// </summary>
-    public static string BuildNoDirectSourceMessage(int reportedErrors)
-    {
-        return reportedErrors > 0
-                   ? $"API'den indirilebilir doğrudan MP4/HLS kaynağı bulunamadı; {reportedErrors} kaynak çözümlemesi başarısız oldu."
-                   : "API'den indirilebilir doğrudan MP4/HLS kaynağı bulunamadı.";
-    }
-
     public static List<VideoSource> SelectCandidates(IEnumerable<VideoSource> sources,
         DownloadSourceFormat                                             format,
         CliConfig                                                       config)
@@ -83,83 +72,5 @@ public static class DownloadSourceResolver
         }
 
         return candidates;
-    }
-
-    public static SearchResult? PickSearchResult(IReadOnlyList<SearchResult> results, string query)
-    {
-        if (results.Count == 0)
-        {
-            return null;
-        }
-
-        return results.FirstOrDefault(result => string.Equals(result.Title,
-                                                               query,
-                                                               StringComparison.OrdinalIgnoreCase))
-               ?? results[0];
-    }
-
-    public static Episode? PickEpisode(AnimeDetails details, int? season, double? episodeNumber)
-    {
-        ArgumentNullException.ThrowIfNull(details);
-
-        var candidates = details.Episodes.AsEnumerable();
-        if (season.HasValue)
-        {
-            candidates = candidates.Where(episode => (episode.Season ?? 1) == season.Value);
-        }
-
-        var ordered = candidates.OrderBy(episode => episode.Season ?? 1)
-                               .ThenBy(episode => episode.Number)
-                               .ThenBy(episode => episode.Id, StringComparer.Ordinal)
-                               .ToList();
-        if (ordered.Count == 0)
-        {
-            return null;
-        }
-
-        if (!episodeNumber.HasValue)
-        {
-            return ordered[0];
-        }
-
-        return ordered.FirstOrDefault(episode => episode.Number.Equals(episodeNumber.Value));
-    }
-
-    public static bool TryResolveProvider(IReadOnlyList<ProviderInfo> providers,
-        string                                         input,
-        out string?                                    provider,
-        out string?                                    error)
-    {
-        ArgumentNullException.ThrowIfNull(providers);
-        var names = providers.Select(item => item.Name)
-                             .Where(item => !string.IsNullOrWhiteSpace(item))
-                             .ToList();
-        provider = names.FirstOrDefault(name => name.Equals(input, StringComparison.OrdinalIgnoreCase));
-        if (!string.IsNullOrWhiteSpace(provider))
-        {
-            error = null;
-            return true;
-        }
-
-        var matches = names.Where(name => name.Contains(input, StringComparison.OrdinalIgnoreCase)).ToList();
-        if (matches.Count == 1)
-        {
-            provider = matches[0];
-            error = null;
-            return true;
-        }
-
-        provider = null;
-        error = matches.Count == 0
-                   ? $"'{input}' sağlayıcısı bulunamadı ({string.Join(", ", names)})."
-                   : $"'{input}' belirsiz ({string.Join(", ", matches)}).";
-        return false;
-    }
-
-    public static bool TryResolveGroup(IReadOnlyList<string> groups, string input, out string? group)
-    {
-        ArgumentNullException.ThrowIfNull(groups);
-        group = groups.FirstOrDefault(item => string.Equals(item, input, StringComparison.OrdinalIgnoreCase));
-        return !string.IsNullOrWhiteSpace(group);
     }
 }

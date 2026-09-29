@@ -87,16 +87,21 @@ public static class Program
         var cancelSignalCount = 0;
         ConsoleCancelEventHandler tuiCancelHandler = (_, eventArgs) =>
         {
+            eventArgs.Cancel = true;
+            if (TuiApplicationCancellation.IsModalActive && TuiApplicationCancellation.CancelModal())
+            {
+                RestoreCursor();
+                return;
+            }
+
             if (Interlocked.Increment(ref cancelSignalCount) == 1)
             {
-                eventArgs.Cancel = true;
                 TuiApplicationCancellation.RequestCancellation();
                 activeNavigator?.Exit();
                 RestoreCursor();
             }
             else
             {
-                // İkinci Ctrl+C doğal süreç sonlandırmasına bırakılır; Environment.Exit kullanılmaz.
                 eventArgs.Cancel = false;
             }
         };

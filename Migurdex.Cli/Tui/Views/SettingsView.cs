@@ -71,6 +71,47 @@ public class SettingsView : BaseView
             new()
             {
                 IsSection = true,
+                Label     = "İndirme"
+            },
+            new()
+            {
+                Id          = "AutoDownload",
+                Label       = "Otomatik İndir",
+                ValueGetter = c => c.AutoDownloadBestSource ? "Açık" : "Kapalı"
+            },
+            new()
+            {
+                Id          = "DownloadTimeout",
+                Label       = "İndirme Bekleme",
+                ValueGetter = c => $"{c.DownloadAutoSelectTimeoutSeconds:F1} sn"
+            },
+            new()
+            {
+                Id          = "DownloadSubtitles",
+                Label       = "Altyazı İndir",
+                ValueGetter = c => c.DownloadSubtitles ? "Açık" : "Kapalı"
+            },
+            new()
+            {
+                Id          = "DownloadResume",
+                Label       = "Kaldığı Yerden",
+                ValueGetter = c => c.DownloadResume ? "Açık" : "Kapalı"
+            },
+            new()
+            {
+                Id          = "DownloadOverwrite",
+                Label       = "Üzerine Yaz",
+                ValueGetter = c => c.DownloadOverwrite ? "Açık" : "Kapalı"
+            },
+            new()
+            {
+                Id          = "DownloadDirectory",
+                Label       = "İndirme Dizini",
+                ValueGetter = c => c.DownloadDirectory
+            },
+            new()
+            {
+                IsSection = true,
                 Label     = "Gizlilik"
             },
             new()
@@ -233,7 +274,7 @@ public class SettingsView : BaseView
             return grid;
         }
 
-        while (settingsRunning)
+        while (settingsRunning && !TuiConsole.IsAppExitRequested)
         {
             AnsiConsole.Clear();
             Theme.WriteHeader("Ayarlar");
@@ -246,7 +287,7 @@ public class SettingsView : BaseView
                              .StartAsync(async ctx =>
                              {
                                  var last = string.Empty;
-                                 while (settingsRunning && pendingSelection is null && !pendingEscape)
+                                 while (settingsRunning && pendingSelection is null && !pendingEscape && !TuiConsole.IsAppExitRequested)
                                  {
                                      var config = _configService.Config;
                                      var fp     = cursorIndex + "|" + SnapshotConfig();
@@ -365,6 +406,12 @@ public class SettingsView : BaseView
                                                                  cancellationToken: cts.Token);
             while (!waitTask.IsCompleted)
             {
+                if (TuiConsole.IsAppExitRequested)
+                {
+                    cts.Cancel();
+                    return null;
+                }
+
                 if (Console.KeyAvailable && Console.ReadKey(true).Key == ConsoleKey.Escape)
                 {
                     cts.Cancel();
@@ -590,6 +637,43 @@ public class SettingsView : BaseView
             case "PlayerLogs":
                 config.ShowPlayerLogs = !config.ShowPlayerLogs;
                 break;
+            case "AutoDownload":
+                config.AutoDownloadBestSource = !config.AutoDownloadBestSource;
+                break;
+            case "DownloadTimeout":
+                config.DownloadAutoSelectTimeoutSeconds =
+                    Theme.Ask("İndirme bekleme süresi (sn):", config.DownloadAutoSelectTimeoutSeconds);
+
+                if (config.DownloadAutoSelectTimeoutSeconds < 0.2)
+                {
+                    config.DownloadAutoSelectTimeoutSeconds = 0.2;
+                }
+
+                if (config.DownloadAutoSelectTimeoutSeconds > 120.0)
+                {
+                    config.DownloadAutoSelectTimeoutSeconds = 120.0;
+                }
+
+                break;
+            case "DownloadSubtitles":
+                config.DownloadSubtitles = !config.DownloadSubtitles;
+                break;
+            case "DownloadResume":
+                config.DownloadResume = !config.DownloadResume;
+                break;
+            case "DownloadOverwrite":
+                config.DownloadOverwrite = !config.DownloadOverwrite;
+                break;
+            case "DownloadDirectory":
+                var downloadDir = (Theme.Ask("İndirme dizini:", config.DownloadDirectory) ?? string.Empty).Trim();
+                if (string.IsNullOrEmpty(downloadDir))
+                {
+                    Toast.Show("[red]Dizin boş olamaz. Değişiklik yapılmadı.[/]");
+                    break;
+                }
+
+                config.DownloadDirectory = downloadDir;
+                break;
             case "UpdateCheck":
                 config.UpdateCheckEnabled = !config.UpdateCheckEnabled;
                 break;
@@ -684,7 +768,7 @@ public class SettingsView : BaseView
                 AnsiConsole.MarkupLine($"[grey]{Markup.Escape(providersResult.Error)}[/]");
             }
 
-            Console.ReadKey(true);
+            TuiConsole.WaitForKey();
             return;
         }
 
@@ -736,7 +820,7 @@ public class SettingsView : BaseView
                    .Start(ctx =>
                    {
                        var last = string.Empty;
-                       while (active)
+                       while (active && !TuiConsole.IsAppExitRequested)
                        {
                            var fp = Fingerprint();
                            if (!fp.Equals(last, StringComparison.Ordinal))
@@ -795,7 +879,7 @@ public class SettingsView : BaseView
     private async Task ConfigureSortingPrioritiesAsync(CliConfig config)
     {
         var active = true;
-        while (active)
+        while (active && !TuiConsole.IsAppExitRequested)
         {
             AnsiConsole.Clear();
             Theme.WriteHeader("Sıralama öncelikleri");
@@ -1102,7 +1186,7 @@ public class SettingsView : BaseView
                    .Start(ctx =>
                    {
                        var last = string.Empty;
-                       while (running)
+                       while (running && !TuiConsole.IsAppExitRequested)
                        {
                            var fp = Fingerprint();
                            if (!fp.Equals(last, StringComparison.Ordinal))
@@ -1173,7 +1257,8 @@ public class SettingsView : BaseView
         var bold = isSelected ? "bold " : "";
         var color = id switch
         {
-            "AutoPlay" or "Rpc" or "Incognito" or "PlayerLogs" or "UpdateCheck" =>
+            "AutoPlay" or "Rpc" or "Incognito" or "PlayerLogs" or "UpdateCheck"
+                or "AutoDownload" or "DownloadSubtitles" or "DownloadResume" or "DownloadOverwrite" =>
                 value == "Açık" ? "green" : "grey",
             "UpdateChannel" => value == "Pre-release" ? "yellow" : "green",
             "AniList" or "MyAnimeList" => value.Contains("Süresi dolmuş")
