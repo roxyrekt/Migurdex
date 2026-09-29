@@ -11,19 +11,22 @@ internal sealed class Mp4ResumeMetadata
     public string? ETagDigest { get; init; }
     public string? LastModifiedDigest { get; init; }
     public long? TotalBytes { get; init; }
+    public int? SegmentCount { get; init; }
 
     public static Mp4ResumeMetadata Create(
         string sourceFingerprint,
         string? etag,
         string? lastModified,
-        long?      totalBytes)
+        long?      totalBytes,
+        int?       segmentCount = null)
     {
         return new Mp4ResumeMetadata
         {
             SourceFingerprint  = sourceFingerprint,
             ETagDigest         = NullIfEmpty(DownloadHttp.CreateOpaqueDigest(etag)),
             LastModifiedDigest = NullIfEmpty(DownloadHttp.CreateOpaqueDigest(lastModified)),
-            TotalBytes         = totalBytes
+            TotalBytes         = totalBytes,
+            SegmentCount       = segmentCount
         };
     }
 
