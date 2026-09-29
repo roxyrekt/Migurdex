@@ -201,7 +201,9 @@ tüm HTTP istekleri başarısız olur; süreç başlangıçta native yükleme ha
 
 `AddOpenApi()` + `MapOpenApi()` ile otomatik üretilen OpenAPI 3.1.1 belgesi. Şu anda
 **yalnızca yol ve parametre şeması** üretilir; yanıt gövdesi şemaları (`components/schemas`)
-modeller için tanımlanmadığı için `{}` döner. Kullanılabilir parametre listesi:
+modeller için tanımlanmadığı için `{}` döner. Bu belgenin varlığı ve şema üretiminin ne zaman
+gerekli hâle geleceği [Bilinen sınırlar](#19-bilinen-sınırlar) → *19.1* → **#5** maddesindedir.
+Kullanılabilir parametre listesi:
 
 ```
 GET     /health
@@ -1037,6 +1039,11 @@ Enum'lar JSON'da **sayı** olarak görünür.
 
 API üç farklı hata gövdesi biçimi kullanır. İstemci yazarken üçünü de ele alın.
 
+> **Bu üç biçim yalnız gövde (non-stream) yanıtlar içindir.** `stream=true` ile açılan SSE
+> uçlarında hata **gövde olarak dönmez**: sunucu HTTP `200` ile akışı açar, hatayı
+> `event: providerError` içinde taşır ve sonunda `event: done` özetiyle kapanır. SSE hata
+> yolu için [SSE akışı](#7-sse-akışı) bölümüne bakın.
+
 ### Biçim A — `{ "error": "..." }`
 
 Validasyon ve bulunamadı hataları. `ApiErrors.BadRequest` / `ApiErrors.NotFound` ve bazı elle yazılan
@@ -1081,18 +1088,36 @@ alanlarını içerir.
 > bu doğrulama ASP.NET Core model bağlama katmanında (`{provider}`, `q` gibi) yapılır ve uç koduna
 > ulaşmaz. `q` gönderilip boş string verildiğinde ise Biçim A'ya uygun
 > `{"error":"Arama sorgusu ('q') boş olamaz."}` döner. İstemciler boş gövdeyi de ele almalıdır.
+> Bu iki biçimin tek biçime indirilmesi hangi koşulda gündeme geleceği
+> [Bilinen sınırlar](#19-bilinen-sınırlar) → *19.1* → **#4** maddesinde tanımlıdır.
 
 ### HTTP 200 dönen hatalar
 
-Bazı hatalar durum kodu taşımaz:
+Bazı hatalar durum kodu taşımaz. **Bir istemci yalnız HTTP durum koduna bakarak hata tespiti
+yapamaz**; akış uçlarında hata yalnızca `providerError` ve `done` içinden okunur.
+
+Gövde (non-stream) yanıtlarda:
 
 - `/anime/search` (non-stream): sağlayıcı hatası → `{"provider":"X","error":"Upstream arama hatası."}`
-- `/metadata/search` (tüm sağlayıcılar): sağlayıcı hatası → boş liste, diğer sağlayıcıların sonuçlarıyla birleşir
-- `/tracker/resolve` ve `/tracker/align`: eşleşme bulunamazsa veya belirsizse `200` + `entry: null` / `ambiguous: true`
-- `/anime/*/sources` (stream'li, `stream=true`): extractor hatası → `200` + akış içinde
-  `event: providerError` (`scope: "extract"`) ve `done.failed` sayacında artış
+  (zarf dizisinin o elemanı; diğer sağlayıcıların sonuçları etkilenmez)
+- `/metadata/search` (tüm sağlayıcılar): sağlayıcı hatası → boş liste, diğer sağlayıcıların
+  sonuçlarıyla birleşir
+- `/tracker/resolve` ve `/tracker/align`: eşleşme bulunamazsa veya belirsizse `200` + `entry: null` /
+  `ambiguous: true`
 - `/anime/*/sources` (non-stream): extractor hatası → o kaynak atlanır, `200` + eksik liste;
   gövde düz bir dizi olduğu için hata **gövdede bildirilemez**, yalnızca sunucu logunda görünür
+  (bkz. [Bilinen sınırlar](#19-bilinen-sınırlar) → *Doğrulama sınırı*)
+
+SSE (`stream=true`) uçlarında — hata **akışın içindedir**, gövdede değil:
+
+| Uç | Durum | Akış içindeki bildirim |
+|---|---|---|
+| `/anime/search` | `200` | `providerError` (`scope: "search"`) + `done.failed` artışı |
+| `/anime/*/sources` | `200` | Sağlayıcının kaynak listesi isteği çökerse `providerError` (`scope: "sources"`) |
+| `/anime/*/sources` | `200` | Tek bir kaynağın embed → medya çözümlemesi çökerse `providerError` (`scope: "extract"`) + `done.failed` artışı |
+
+`done` özetindeki `errors` dizisi, akışta gönderilen `providerError` olaylarının aynı kayıtlarını
+içerir; yani son bir `done` okumak, akış boyunca gelen tüm hataları tek yerde toplar.
 
 ---
 
@@ -1103,7 +1128,8 @@ Bazı hatalar durum kodu taşımaz:
 API `127.0.0.1` üzerine bağlanır ve **hiçbir uç yetkilendirme gerektirmez**. `0.0.0.0` üzerine
 bağlanıp ağa açarsanız ağınızdaki herkes sağlayıcı araması yapabilir, extractor çalıştırabilir ve
 `POST /api/v1/tracker/mapping` ile kalıcı eşleme tablosunu değiştirebilir. Ağa açacaksanız
-ters proxy + kimlik doğrulama katmanı ekleyin.
+ters proxy + kimlik doğrulama katmanı ekleyin. Bu, bugün işleyişi bozmayan bilinçli bir karardır;
+tetik koşulu [Bilinen sınırlar](#19-bilinen-sınırlar) → *19.1* → **#2** maddesindedir.
 
 ### Extractor SSRF koruması
 
@@ -1126,8 +1152,9 @@ Engelli adresler:
 
 > **Kapsam notu:** Bu koruma yalnızca `/api/v1/extractors/resolve` ucundadır. Anime sağlayıcıları
 > kullanıcı tarafından verilmiş birer alan adına istek atar ve bu uçtan SSRF kontrolü **yoktur**;
-> koruma, alan adının plugin tarafında sabit kodlanmış olmasına dayanır. SSRF kontrolü bir zamanlar
-> bu uca da eklenmeli.
+> koruma, alan adının plugin tarafında sabit kodlanmış olmasına dayanır. Bu, bugün işleyişi bozmayan
+> bilinçli bir karardır; ne zaman aksiyon alınacağı [Bilinen sınırlar](#19-bilinen-sınırlar)
+> → *19.1 Tetik koşullu kararlar* → **#1** maddesinde tanımlıdır.
 
 ### Başlık enjeksiyonu engeli
 
@@ -1295,25 +1322,58 @@ $env:ASPNETCORE_URLS = "http://127.0.0.1:7099"
 
 ## 19. Bilinen sınırlar
 
-- **`502` gözlemlenmedi.** Yukarıdaki testlerde tüm sağlayıcı istekleri başarılı oldu; geçersiz
-  bölüm kimlikleri bile `200` + boş liste döndürdü. Biçim B (`application/problem+json`) yalnızca
-  koddan doğrulandı, canlı yanıtla teyit edilmedi.
+Bu bölüm iki farklı türden kaydı barındırır:
+
+1. **Bugün Migurdex'i etkilemeyen, bilinçli olarak kabul edilmiş kararlar.** Bunlar kusur listesi
+   değil, **karar kaydıdır**: her biri bir "tetik koşulu" ile birlikte verilir. Tetik koşulu
+   gerçekleşmediği sürece aksiyon alınmaz.
+2. **Doğrulama sınırı** — kodun doğru olduğu düşünülen ama canlı kanıtı olmayan davranışlar
+   (bkz. bu bölümün sonundaki alt başlık).
+
+### 19.1 Tetik koşullu kararlar
+
+Aşağıdaki maddelerin hiçbiri şu anda işleyişi bozmaz. Her biri, hangi olay gerçekleştiğinde ilk
+iş olarak ele alınacağını belirtir.
+
+| # | Karar | Tetik koşulu — ne zaman aksiyon alınır |
+|---:|---|---|
+| #1 | **`/anime/*` uçlarında SSRF koruması yok.** Koruma yalnızca `POST /api/v1/extractors/resolve` ucunda; anime sağlayıcı uçları (search / groups / sources) korumasız, çünkü hedef alan adları plugin tarafında sabit kodlanmıştır | Kullanıcıdan URL alan bir özellik (özel kaynak / manuel URL girişi) eklenirse — o gün ilk iş. Koruma, `ExtractorEndpoints` içindeki `ResolvesToBlockedAddressAsync` / `IsBlockedAddress` mantığının bu uçlara da taşınmasıdır |
+| #2 | **API'de CORS / authentication / rate limiting yok.** `Program.cs` içinde `AddCors` / `UseAuthentication` / `UseRateLimiter` çağrısı yok; her uç yetkilendirme gerektirmez | `apiBaseUrl` ayarı arayüze (CLI/TUI) taşınırsa **ya da** varsayılan bağlama loopback dışına çıkarsa (`0.0.0.0`, `::`, container/LAN adresi) |
+| #4 | **Zorunlu sorgu parametresi hiç gönderilmemişse boş `400` gövde dönüyor** (çerçeve seviyesi), `q` boş string gönderilirse ise JSON hata gövdesi dönüyor — yani aynı eksiklik **iki farklı biçimde** yüzeye çıkıyor | API üçüncü taraflara açık desteklenmeye başlarsa (bkz. #2). O gün tek biçime (Biçim A) indirilmeli ya da en azından OpenAPI'de belgelenmeli |
+| #5 | **`/openapi/v1.json` gövde şemaları boş** (`components/schemas` dolu değil; modeller için şema üretimi tanımlı değil) | Swagger UI veya istemci kodu üretimi (codegen) sunulmaya karar verilirse. Bu belge boşluğu kapatıyor; şema üretimi eklenene kadar yeter |
+| #7 | **RFC 7807 `502` hata yolu canlı gözlemlenmedi.** Yukarıdaki testlerde tüm sağlayıcı istekleri başarılı oldu; geçersiz bölüm kimlikleri bile `200` + boş liste döndürdü. Biçim B (`application/problem+json`) yalnızca koddan doğrulandı | Bu endpoint'lere yeniden dokunulursa: değişikliğin bir parçası olarak bir `502` dalının canlı yanıtı alınmalı, aksi hâlde değişiklik doğrulanmış sayılmaz |
+
+### 19.2 Kapsam kayıtları
+
 - **Deokwave Cloudflare koruması** nedeniyle arama/kaynak isteklerinde upstream `403` dönebiliyor.
   Bu durum sağlayıcı hatası olarak `{"provider":"Deokwave","error":"Upstream arama hatası."}` ya da
   SSE `providerError` olarak yansır.
-- **`/openapi/v1.json` gövde şemaları boş.** Modeller için `System.Text.Json` şema üretimi
-  tanımlanmadığı için `components/schemas` dolu değil. Bu belge bu boşluğu kapatır.
 - **Yalnızca iki uç `POST`.** Toplu işlem (batch), abonelik, favoriler ve izleme geçmişi HTTP
   üzerinden **açık değildir**; bunlar CLI/TUI içinde yerel veritabanı üzerinden yürütülür. `Migurdex.Shared`
   içinde `BatchRequest`/`BatchResponse` modelleri bulunur ancak API'ye bağlı değildir.
 - **SSE'de `error` olayı yok.** Tüm hatalar `providerError` ile ifade edilir. Ölü olan
   `SseHelper.EventError` sabiti kaldırılmıştır; istemcilerin bu olayı dinlemesi yalnızca geriye
   dönük uyumluluk açısından zararsızdır, sunucu hiçbir zaman göndermez.
-- **Kaynak akışında hata sayımı artık tutarlı (düzeltildi).** `/anime/*/sources` stream modunda
-  extractor hatası artık `providerError` (`scope: "extract"`) üretir ve `done.failed` gerçek sayıyı
-  taşır. Kalan sınır: `stream=true` **kullanılmayan** non-stream yanıtın gövdesi düz bir kaynak
-  dizisi olduğu için per-source hata orada bildirilemez (yalnızca loglanır).
+- **Kaynak akışında hata sayımı tutarlı (düzeltildi).** `/anime/*/sources` stream modunda extractor
+  hatası `providerError` (`scope: "extract"`) üretir ve `done.failed` gerçek sayıyı taşır. Kalan
+  sınır aşağıdaki *Doğrulama sınırı* başlığında kayıtlıdır.
 - **Yazma uçları yalnızca tracker eşlemesi.** API üzerinden veri silme/güncelleme ucu yoktur.
+
+### 19.3 Doğrulama sınırı
+
+Buradaki maddeler ürün kusuru değildir; **doğrulamanın nereye kadar gittiğinin** kaydıdır.
+
+- **Non-stream modda per-source extractor hatası bildirilemiyor.** `/anime/*/sources` yanıtının gövdesi
+  düz bir kaynak dizisidir (`VideoSource[]`); hata taşımak için gövde şeklinin değiştirilmesi gerekirdi
+  ve bu, mevcut istemciler için kırıcı olurdu. Bu nedenle hata yalnızca sunucu loguna yazılır.
+  **Bu bilinçli bir karardır**, eksik bir uygulama değil: aynı hata `stream=true` modunda
+  `providerError` (`scope: "extract"`) olarak eksiksiz bildirilir.
+- **Yeni SSE hata yolunun canlı kanıtı yok.** `providerError` (`scope: "extract"`) ve `done.failed`
+  sayacı **yalnızca birim testiyle** (`Migurdex.Tests/SourceExtractionReportTests.cs`) doğrulandı.
+  29 Eylül 2026'da ~25 bölüm canlı olarak denendi, hiçbirinde extractor doğal olarak çökmedi;
+  dolayısıyla hata dalı gerçek bir yanıtta gözlemlenmedi. Başarı dalı (`succeeded: 2`,
+  `succeeded: 75`, `failed: 0`) canlı olarak doğrulandı. **Bu dal "canlı test edildi" diye
+  sunulmamalıdır** — yalnızca birim testi kapsamındadır.
 
 ---
 

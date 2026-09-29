@@ -5,8 +5,9 @@
 > | Hedef | Durum |
 > |---|---|
 > | Fork `Nutaliaxd/Migurdex` | [PR #1](https://github.com/Nutaliaxd/Migurdex/pull/1) **merge edildi** (29.09.2026 10:05 UTC) → merge commit `44f4010` → etiket `v1.10.2` → [release](https://github.com/Nutaliaxd/Migurdex/releases/tag/v1.10.2) yayımlandı ([CI run](https://github.com/Nutaliaxd/Migurdex/actions/runs/36562344972), sonuç **success**) |
-> | Upstream `roxyrekt/Migurdex` | [PR #2](https://github.com/roxyrekt/Migurdex/pull/2) **açık** ve `MERGEABLE` (temiz dal `upstream/download-clean`, 3 commit: `7f1e250` özellik, `f3aaad7` non-TTY help fix, `474a43d` dokümantasyon, 39 dosya, +10.173 / −266). Önceki [PR #1](https://github.com/roxyrekt/Migurdex/pull/1) kapatıldı (duplicate) |
-> | Fork PR #2 (dokümantasyon) | [PR #2](https://github.com/Nutaliaxd/Migurdex/pull/2) **açık** (`docs/api-reference` → `main`, commit `5d59491`, `API.md` + `README.md`, +1315 / −1, yalnız doküman). Ayrıntı: `Fork PR listesi` |
+> | Upstream `roxyrekt/Migurdex` | [PR #2](https://github.com/roxyrekt/Migurdex/pull/2) **açık** ve `MERGEABLE` (temiz dal `upstream/download-clean`, 3 commit: `7f1e250` özellik, `f3aaad7` non-TTY help fix, `474a43d` dokümantasyon, 39 dosya, +10.173 / −266). Önceki [PR #1](https://github.com/roxyrekt/Migurdex/pull/1) kapatıldı (duplicate) *(not: fork `main`, bu PR'a dokunulmadan `f3aaad7`'i cherry-pick ile aldı — bkz. `a7676fb` ve `DEVELOPMENT_LOG.md` → bölüm 18.3)* |
+> | Fork PR #2 (dokümantasyon) | [PR #2](https://github.com/Nutaliaxd/Migurdex/pull/2) **merge edildi** → `62bda06` (`docs/api-reference` → `main`, commit `5d59491`, `API.md` + `README.md`, +1315 / −1, yalnız doküman) |
+> | Fork PR #3 (SSE hata bildirimi) | [PR #3](https://github.com/Nutaliaxd/Migurdex/pull/3) **merge edildi** → `10db87d` (`fix/source-stream-error-reporting` → `main`, 3 commit, 9 dosya, +337 / −47). Ayrıntı: `Fork PR listesi` |
 >
 > **Süreç kuralı (29 Eylül 2026):** Bundan sonraki tüm yeni özellik ve dokümantasyon PR'ları
 > **önce yalnız `Nutaliaxd/Migurdex` fork'una** açılacak ve test edilecek; upstream
@@ -57,7 +58,8 @@ Fork `Nutaliaxd/Migurdex` üzerindeki tüm PR'lar, en yenisi aşağıda.
 | # | Başlık | Dal → hedef | Durum | Commit | Dosya / istatistik | Kapsam |
 |---|---|---|---|---|---|---|
 | 1 | `feat: add anime download support` | `feature/download` → `main` | **merged** (29.09.2026 10:05 UTC) | `44f4010` | 40 dosya · +11.559 / −249 | Kod + test + dokümantasyon; `v1.10.2` release'i |
-| 2 | `docs(api): add full REST API reference` | `docs/api-reference` → `main` | **açık** (`OPEN`) | `5d59491` | 2 dosya · **+1315 / −1** | **Yalnız doküman** |
+| 2 | `docs(api): add full REST API reference` | `docs/api-reference` → `main` | **merged** (`62bda06`) | `5d59491` | 2 dosya · **+1315 / −1** | **Yalnız doküman** |
+| 3 | `fix(api): report per-source extraction failures over sse` | `fix/source-stream-error-reporting` → `main` | **merged** (`10db87d`) | `ab189b3`, `9aa8359`, `013c01d` | 9 dosya · **+337 / −47** | Kod + test + dokümantasyon |
 
 ### Fork PR #2 — `docs(api): add full REST API reference`
 
@@ -65,7 +67,7 @@ Fork `Nutaliaxd/Migurdex` üzerindeki tüm PR'lar, en yenisi aşağıda.
 |---|---|
 | PR | [#2 — docs(api): add full REST API reference](https://github.com/Nutaliaxd/Migurdex/pull/2) |
 | Dal | `docs/api-reference` → `main` |
-| Durum | **OPEN** — merge edilmeyi bekliyor |
+| Durum | **merged** — merge commit `62bda06` (`Merge pull request #2 …`) |
 | Commit | `5d59491` — `docs(api): add full REST API reference` |
 | Dosyalar | `API.md` *(yeni — 1309 satır, 51 KB, 19 bölüm)*, `README.md` *(+6 / −1)* |
 | İstatistik | 2 dosya · **+1315 / −1** |
@@ -81,8 +83,36 @@ SSRF korumasının tek uçla sınırlı olması, SSE `failed` sayımı tutarsız
 boş OpenAPI gövde şemaları, kullanılmayan SSE `error` olayı ve gözlemlenemeyen 502 biçimi.
 Gerekçe: her biri ayrı kod PR'ı konusudur. Ayrıntı: `DEVELOPMENT_LOG.md` → bölüm 17.5.
 
-**Upstream durumu:** bu PR upstream'e gönderilmedi ve açık istek gelene kadar gönderilmeyecek —
-bkz. `Süreç kuralları`.
+> **29 Eylül 2026 güncellemesi:** Bu PR **merge edildi** (`62bda06`). Tespit edilen 7 kusurdan
+> **3 numaralı olanı (SSE `failed` sayımı) PR #3 ile düzeltildi**; kalanları `API.md` bölüm 19'da
+> **tetik koşulu** formatında karar kaydına dönüştürüldü. Ayrıntı: `DEVELOPMENT_LOG.md` → bölüm 18.
+>
+> **Upstream durumu (PR #2):** Bu PR upstream'e gönderilmedi ve açık istek gelene kadar
+> gönderilmeyecek — bkz. `Süreç kuralları` → *Kural 1*.
+
+### Fork PR #3 — `fix(api): report per-source extraction failures over sse`
+
+| Alan | Değer |
+|---|---|
+| PR | [#3 — fix/api: report per-source extraction failures over sse](https://github.com/Nutaliaxd/Migurdex/pull/3) |
+| Dal | `fix/source-stream-error-reporting` → `main` |
+| Durum | **merged** — merge commit `10db87d` (`Merge pull request #3 …`) |
+| Commit'ler | `ab189b3` — `fix(api): report per-source extraction failures over sse` · `9aa8359` — `fix(cli): surface source extraction errors in download failures` · `013c01d` — `docs(api): document extract scope and sse error reporting` |
+| İstatistik | 9 dosya · **+337 / −47** |
+| Kapsam | Kod + test + `API.md` güncellemesi |
+| Doğrulama | Build 0 hata / 0 uyarı; offline takım **309/309**; ayrıntı `TEST_RESULTS.md` → bölüm 14 |
+
+**Ne yaptı:** `/anime/*/sources` stream modunda embed → medya çözümlemesi çöken **her kaynak** artık
+`providerError` (`scope: "extract"`) üretir ve `done.failed` gerçek sayıyı taşır. Daha önce bu
+hatalar sessizce yutuluyor, yalnızca loglanıyor ve `done` özeti `failed: 0` diyordu. Yeni
+`SourceExtractionReport` / `DoneSummary` modelleri sayımı tek noktada toplar; CLI tarafı
+(`DownloadSourceResolver`) bu özeti indirme hatası mesajına yansıtır.
+
+**Test kapsamı:** `SourceExtractionReportTests.cs` *(yeni, 13 case)* + `DownloadCommandTests.cs`
+*(+3 case)* = **16**.
+
+**Upstream durumu (PR #3):** Bu PR da upstream'e gönderilmedi; Kural 1 gereği önce fork'ta test
+edilir, upstream hedefi yalnızca açık istek üzerine konuşulur. Upstream PR #2'ye dokunulmadı.
 
 ## Özet
 
@@ -574,18 +604,16 @@ Kod hatası değildir, kalıcı etki yoktur.
 - **Sürüm damgası:** Yerel build'lerde `migurdex v0.0.0` beklenen değerdir (`Directory.Build.props`
   → `VersionPrefix` 0.0.0); etiketli sürüm numarası yayın CI'sinde `-p:Version` ile basılır, bu
   yüzden `v1.10.2` release paketinde `migurdex --version` doğru sürümü gösterir.
-- **Linux arm64 runtime doğrulanmadı:** arm64 paketi statik doğrulandı ancak x64 ortamda QEMU
-  olmadığı için çalıştırılamadı; `--version`, `download --help`, `/health` ve canlı indirme arm64
-  üzerinde test edilmedi.
-- **AppImage checksum manifestinde yok:** yayımlanan `sha256sums-*.txt` yalnız `tar.gz` paketini
-  kapsıyor; AppImage bütünlüğü release özetiyle doğrulanamıyor. Upstream `build-release.yml`
-  iş akışının eksik adımıdır; bu PR'da düzeltilmemiştir.
 - **Linux arm64 runtime doğrulanmadı:** arm64 paketi statik doğrulandı (ELF, `unsquashfs`) ancak
   x64 ortamda QEMU olmadığı için çalıştırılamadı; `--version`, `download --help`, `/health` ve canlı
   indirme arm64 üzerinde test edilmedi.
 - **AppImage checksum manifestinde yok:** yayımlanan `sha256sums-*.txt` dosyaları yalnız `tar.gz`
   paketini kapsıyor; AppImage bütünlüğü release özetiyle doğrulanamıyor. Bu, indirme özelliğinin
   değil upstream `build-release.yml` iş akışının eksik adımıdır ve bu PR'da düzeltilmemiştir.
+- **CI fork'ta otomatik tetiklenmiyor:** GitHub Actions `Nutaliaxd/Migurdex` fork'unda `push`/
+  `pull_request` ile bir kez bile koşu üretmedi. Bu yüzden her kod değişikliğinden sonra CI
+  `gh workflow run build-release.yml --ref main` ile **elle** tetiklenir. Ayrıntı ve kanıt:
+  `Süreç kuralları` → *Kural 5*.
 
 ## Review notları
 
@@ -704,3 +732,37 @@ eksiksiz liste için:
 git log --oneline main..docs/api-reference     # fork PR #2 (yalnız doküman)
 git diff --shortstat main..docs/api-reference  # 2 dosya, +1315 / -1
 ```
+
+### Kural 5 — CI fork'ta otomatik tetiklenmiyor; elle tetiklenir (29 Eylül 2026)
+
+> GitHub Actions, `Nutaliaxd/Migurdex` fork'unda **otomatik tetikleyicileri hiç çalıştırmıyor**.
+> `push` ve `pull_request` tetikleyicileri fork'ta **bir kez bile** koşu üretmemiş; Actions
+> izinleri açık (`enabled=true`, `allowed_actions=all`) ve iş akışı `active` olmasına rağmen
+> `actions/runs` toplamı **1**'dir (elle tetiklenen `v1.10.2` release koşusu).
+
+| Kanıt | Değer |
+|---|---|
+| `actions/permissions` | `enabled=true`, `allowed_actions=all` |
+| Workflow "Build and Release" | `state=active` |
+| `actions/runs` → `total_count` | **1** (yalnız `36562344972`, `workflow_dispatch` @ `v1.10.2`, `success`) |
+| Kuyrukta bekleyen koşu | 0 |
+| PR #2 / PR #3 | **hiç check almadı** |
+
+Bu nedenle kalıcı süreç kuralı:
+
+> **Kural:** `main`'e giden **her kod değişikliğinden sonra** CI şu komutla **elle** tetiklenir ve
+> sonucu `TEST_RESULTS.md`'ye yazılır:
+>
+> ```bash
+> gh workflow run build-release.yml --repo Nutaliaxd/Migurdex --ref main
+> gh run list --repo Nutaliaxd/Migurdex --limit 1
+> ```
+>
+> Push'a güvenilerek merge yapılmaz; merge sonrası koşu elle başlatılır. `release` işi
+> `if: startsWith(github.ref, 'refs/tags/v')` ile korumalı olduğu için `--ref main` koşusu release
+> üretmez, yalnızca build'i doğrular. Koşu sonucu `TEST_RESULTS.md` içindeki CI tablosuna
+> işlenmeden ilgili kod değişikliği "doğrulanmış" sayılmaz.
+
+Bu anomalinin **kök nedeni henüz belirlenmemiştir**; olası nedenler: hesap bazlı Actions harcama
+limiti, fork'a miras kalan Actions politikası veya hesap düzeyinde bir kısıtlama. Kayıt:
+`TEST_RESULTS.md` → bölüm 14, `DEVELOPMENT_LOG.md` → bölüm 18.7.

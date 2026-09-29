@@ -3,9 +3,9 @@
 > Bu dosya, anime indirme özelliğinin **başlangıçtan merge ve release'e kadar** tüm geliştirme,
 > test, hata çözümü, paketleme ve sürüm uyumlama çalışmasını kronolojik ve teknik olarak kaydeder.
 >
-> Son güncelleme: 29 Eylül 2026 · Durum: **fork PR #1 merged**, **`v1.10.2` published**,
+> Son güncelleme: 29 Eylül 2026 · Durum: **fork PR #1, #2 ve #3 merged**, **`v1.10.2` published**,
 > **upstream PR #2 `OPEN`**
-> Aktif dal: **`main`** · Merge commit: `44f4010` (PR #1: `feature/download` → `main`)
+> Aktif dal: **`main`** · Merge commit: `10db87d` (PR #3: `fix/source-stream-error-reporting`)
 > Temel: `v1.10.1` (`4ecd7d7`) · Sürüm: `v1.10.2` → `44f4010`
 > PR (fork, merged): https://github.com/Nutaliaxd/Migurdex/pull/1
 > Release: https://github.com/Nutaliaxd/Migurdex/releases/tag/v1.10.2
@@ -18,12 +18,15 @@
 > **Yeni kalıcı süreç kuralı (29 Eylül 2026):** Bundan sonraki tüm yeni özellik ve dokümantasyon
 > PR'ları **önce yalnız `Nutaliaxd/Migurdex` fork'una** açılacak ve test edilecek; upstream
 > `roxyrekt/Migurdex` PR'ı yalnızca kullanıcı açıkça isterse açılacak. Ayrıntı: bölüm 17.2.
-> Fork dokümantasyon PR'sı: [#2](https://github.com/Nutaliaxd/Migurdex/pull/2) (`OPEN`, `5d59491`,
-> `API.md` + `README.md`) — ayrıntı bölüm 17.
+> Fork dokümantasyon PR'sı: [#2](https://github.com/Nutaliaxd/Migurdex/pull/2) **merged** (`62bda06`,
+> `5d59491`, `API.md` + `README.md`) — ayrıntı bölüm 17. PR #3 de merged (`10db87d`).
+> Birleştirme kararı ve kusur envanterinin güncel durumu: bölüm 18.
 >
-> **Test toplamları hangi ağaca ait:** bölüm 1'deki **275/275** ve **110/110** değerleri `main`
-> dalını (`44f4010`) temsil eder. **293/293** sonucu ise `upstream/download-clean` dalına
-> (`f3aaad7`) aittir; Linux runtime doğrulaması ve non-TTY help fix bölüm 16'dadır.
+> **Test toplamları hangi ağaca ait:** bölüm 1'deki **275/275** ve **110/110** değerleri indirme
+> özelliğinin merge'li halini (`44f4010`) temsil eder. **293/293** sonucu ise
+> `upstream/download-clean` dalına (`f3aaad7`) aittir; Linux runtime doğrulaması ve non-TTY help
+> fix bölüm 16'dadır. Branch birleştirme sonrası (`main` @ `10db87d`) genel offline takım
+> **309/309**'dur; kırılım ve düzeltilmiş test sayıları bölüm 18.5'tedir.
 
 > **Commit geçmişinde tek doğruluk kaynağı `git log`'dur** (bkz. bölüm 11). Bu dosyadaki commit
 > listeleri okunabilirlik için anlatıcı kayıttır; güncel ve eksiksiz liste için
@@ -50,6 +53,7 @@
 15. [PR #1 merge ve `v1.10.2` release](#15-pr-1-merge-ve-v1102-release)
 16. [Linux runtime doğrulaması ve non-TTY help fix](#16-linux-runtime-doğrulaması-ve-non-tty-help-fix)
 17. [API dokümantasyon çalışması ve fork-öncelikli süreç kuralı](#17-api-dokümantasyon-çalışması-ve-fork-öncelikli-süreç-kuralı)
+18. [Branch birleştirme ve kusur envanteri kararı](#18-branch-birleştirme-ve-kusur-envanteri-kararı)
 
 ---
 
@@ -93,6 +97,8 @@ Sonuç:
 - **Upstream PR #2 açıldı** (temiz dal `upstream/download-clean`, 3 commit: `7f1e250` özellik,
   `f3aaad7` non-TTY help fix, `474a43d` dokümantasyon; 39 dosya, +10.173/−266, `OPEN` + `MERGEABLE`);
   önceki upstream PR #1 kapatıldı — bkz. bölüm 15 ve 16
+- **Fork PR #2 ve PR #3 merge edildi** (`62bda06`, `10db87d`) ve help fix `main`'e cherry-pick
+  edildi (`a7676fb`); `main` = `10db87d`, genel offline takım **309/309** — bkz. bölüm 18
 
 ---
 
@@ -1312,8 +1318,10 @@ Uygulama:
 - Fork PR açılır → merge edilir → release/doğrulama yapılır → **ancak o noktadan sonra** upstream
   hedefi konuşulur.
 - Mevcut upstream PR #2 (`roxyrekt/Migurdex/pull/2`) bu kuralın öncesinde açılmıştır, hâlâ `OPEN`
-  ve `action_required` durumundadır; **dokunulmadı ve değiştirilmedi.**
-- Bu kayıt `main` dalındadır ve fork PR'ı merge edildiğinde güncellenecektir.
+  ve `action_required` durumundadır; **dokunulmadı ve değiştirilmedi.** `main`, `f3aaad7`'in
+  cherry-pick karşılığını (`a7676fb`) içerir, ancak upstream dalı olduğu gibi bırakıldı
+  (bkz. bölüm 18.3).
+- Bu kayıt `main` dalındadır; fork PR #2 (`62bda06`) ve PR #3 (`10db87d`) merge edildi, bkz. bölüm 18.
 
 Gerekçe: 29 Eylül'e kadar akış tersine çalışıyordu (önce upstream'e aç, sonra fork'ta geçiştir).
 İlk upstream denemesi (`roxyrekt/Migurdex/pull/1`) duplicate olarak kapanmak zorunda kaldı ve
@@ -1416,6 +1424,9 @@ Nihai karar: **düzeltme yok, belgeleme var.** 1, 2 ve 5 ürün/kod değişikli�
 sözleşme/davranış değişikliği ister ve istemci uyumluluğu düşünülmelidir; 7 bir doğrulama
 eksikliğidir ve tekrar koşumla kapatılabilir. Hiçbiri bu PR'ın kapsamına alınmadı.
 
+> **Sonraki durum (bölüm 18):** 3 numaralı bulgu PR #3 ile **düzeltildi**; kalanlar `API.md`
+> bölüm 19'da **tetik koşulu** formatında karar kaydına dönüştürüldü. Ayrıntı: bölüm 18.4.
+
 ### 17.6 Neden upstream'e şimdilik gönderilmedi
 
 - 17.2'deki **yeni süreç kuralı**: önce fork, test, merge; upstream yalnızca açık istek üzerine.
@@ -1425,11 +1436,14 @@ eksikliğidir ve tekrar koşumla kapatılabilir. Hiçbiri bu PR'ın kapsamına a
 - `API.md` upstream'e bir **dokümantasyon katkısı** olarak kabul edilebilir; ancak yedi bulgunun
   bir kısmı (özellikle 1 ve 2) upstream'in kendi güvenlik borcunu ilgilendirir. Bunları düzeltmeden
   göndermek, dokümanın "bilinen sınırlar" bölümünü upstream bakım yükü haline getirir.
-- Bu kayıt `main` dalındadır; fork PR'ı merge edildiğinde karar yeniden değerlendirilecektir.
+- Bu kayıt `main` dalındadır; fork PR #2 **merge edildi** (`62bda06`). Upstream'e gönderim kararı
+  değişmedi: 17.2'deki kural gereği açık istek olmadan gönderilmeyecek (bölüm 18.2, 18.3).
 
 ### 17.7 `API.md` bölüm yapısı
 
-1309 satır, 51 KB, 19 bölüm.
+1309 satır, 51 KB, 19 bölüm (bu değer PR #2'deki ilk sürüm içindir; güncel değer için dosyanın
+kendisine bakın — bölüm 19'daki tetik koşulu ve doğrulama sınırı alt başlıkları eklendikten
+sonra büyümüştür).
 
 | # | Bölüm | Kapsam |
 |---:|---|---|
@@ -1451,5 +1465,161 @@ eksikliğidir ve tekrar koşumla kapatılabilir. Hiçbiri bu PR'ın kapsamına a
 | 16 | Uçtan uca akışlar | Arama→oynatma/indirme, kaynak çözümleme, izleme senkronu |
 | 17 | **CLI ↔ API eşlemesi** | `ApiClientService` tablosu + CLI'nin çağırmadığı uçlar |
 | 18 | Doğrulama kaydı | 29 Eylül 2026 koşumu, 28 uçluk tablo, başlatma komutu |
-| 19 | Bilinen sınırlar | Yedi bulgunun kamuya dönük özeti |
+| 19 | Bilinen sınırlar | 19.1 tetik koşullu kararlar, 19.2 kapsam kayıtları, 19.3 doğrulama sınırı |
 | — | İlgili belgeler | `DOWNLOAD.md`, `README.md`, `TEST_RESULTS.md`, `DEVELOPMENT_LOG.md` |
+
+---
+
+## 18. Branch birleştirme ve kusur envanteri kararı
+
+Bu bölüm, 29 Eylül 2026'da fork'taki üç dalın (`docs/api-reference`,
+`fix/source-stream-error-reporting`, `upstream/download-clean`) tek bir `main` altında toplanma
+kararını, birleştirme sırasının **neden** bu şekilde kurulduğunu ve 17.5'teki kusur envanterinin
+bugünkü durumunu kaydeder. Kod değişikliği yapılmamıştır; bu kayıt yalnız `.md` dosyalarını
+günceller.
+
+### 18.1 Aktif dal ve commit zinciri
+
+| Dal | Durum | Son commit | Not |
+|---|---|---|---|
+| `main` | **aktif** | `10db87d` | PR #2 ve PR #3 merge edildi, help fix cherry-pick edildi |
+| `docs/api-reference` | PR #2 ile merge | `5d59491` | Dokümantasyon dalı; artık ayrı geliştirme hedefi değil |
+| `fix/source-stream-error-reporting` | PR #3 ile merge | `013c01d` | SSE hata bildirimi; artık ayrı hedef değil |
+| `upstream/download-clean` | **dokunulmadı** | `474a43d` | Upstream PR #2'nin kaynağı; `roxyrekt/Migurdex/pull/2` açık kalıyor |
+| `feature/download` | PR #1 ile merge | `c4c06c8` | v1.10.2 release'inin kaynağı |
+
+`main` üzerindeki birleşim sırası:
+
+```text
+44f4010  Merge pull request #1 from Nutaliaxd/feature/download      (PR #1, indirme özelliği)
+…
+62bda06  Merge pull request #2 from Nutaliaxd/docs/api-reference   (PR #2, API.md)
+a7676fb  fix(cli): handle top-level help without tty                (cherry-pick, upstream f3aaad7'den)
+10db87d  Merge pull request #3 from Nutaliaxd/fix/source-stream-error-reporting  (PR #3, SSE hata bildirimi)
+```
+
+### 18.2 Birleştirme sırası ve nedensellik
+
+Sıra **tesadüfi değil, `API.md` add/add çakışması tarafından belirlenmiştir:**
+
+1. **PR #2 önce merge edildi** (`62bda06`). Bu PR `API.md` dosyasını **yeni** olarak ekliyordu
+   (fork `main`'inde `API.md` henüz yoktu).
+2. **PR #3 `main`'den açıldığı için** (`main` zaten `API.md` içeriyordu) aynı dosyayı getiriyordu.
+   PR #3 önce merge edilseydi `main`'de `API.md` iki farklı kaynaktan gelmiş iki ayrı dosya olarak
+   çakışırdı (add/add).
+3. **Çözüm:** PR #3 `main` üzerine rebase edildi; çakışan `API.md` **branch tarafı (`theirs`)
+   alınarak** çözüldü, çünkü branch'in `API.md`'si daha yeni kopyaydı — `main`'deki PR #2 kopyası
+   üzerine PR #3'ün `docs(api): document extract scope and sse error reporting` değişikliği
+   (SSE `extract` kapsamı ve hata bildirimi) işlenmişti. Eski kopyayı (`ours`) almak, yeni SSE
+   hata yolunu belgelemeden geri gönderme anlamına gelirdi.
+4. **`README.md` çakışması** aynı merge'de çözüldü: branch'teki **gerçek `API.md` bağlantısı**
+   alındı; `main`'deki geçici "henüz merge edilmedi" notu atıldı. Gerekçe: branch, PR #2'nin
+   merge olduğu `main`'den açıldığı için bağlantının hedefinin artık mevcut olduğunu doğru
+   varsayıyordu; `main`'deki not ise merge öncesine ait geçici bir durumdu.
+5. **Help fix cherry-pick edildi** (`a7676fb`, upstream `f3aaad7`'den) — bkz. 18.3.
+6. **PR #3 merge edildi** (`10db87d`).
+
+Rebase sonrası branch/`main` farkı doğrulandı: tam olarak **9 dosya, +337 / −47**.
+
+### 18.3 `upstream/download-clean` neden merge edilmedi
+
+Bu dal **dokunulmadan** bırakıldı (`474a43d`). Gerekçe:
+
+- **Farklı taban.** `upstream/download-clean`, `main`'in PR #1 merge'li halinden değil, upstream
+  `v1.10.1`'den (`4ecd7d7`) açılmış temiz bir daldır. Aynı özelliğin (anime indirme) **iki ayrı
+  geçmişi** vardır: biri fork `main`'e PR #1 ile (commit `be85d61`), diğeri bu temiz dalda
+  (`7f1e250`). İkisini birleştirmek aynı işi iki kez yazma/iki yerden bakım anlamına gelirdi.
+- **Cherry-pick tercih edildi.** Bu dalın taşıdığı upstream'e özgü ve `main`'de eksik olan tek kod
+  parçası, non-TTY üst düzey yardım düzeltmesi (`f3aaad7`) idi. Bu commit **`main`'e cherry-pick
+  edildi** → `a7676fb`. Böylece `main` de düzeltmeyi içerirken `upstream/download-clean` dalına ve
+  upstream PR #2'ye **hiç dokunulmamış** oldu.
+- **Upstream PR #2 korunuyor.** `roxyrekt/Migurdex/pull/2` **dokunulmadı**, değiştirilmedi; hâlâ
+  `OPEN` / `action_required` durumdadır ve `f3aaad7`'i **olduğu gibi** içerir. Yeni süreç kuralı
+  (17.2) gereği upstream'e yeni bir PR açılmayacaktır.
+
+### 18.4 Kusur envanterinin bugünkü durumu (17.5 güncellemesi)
+
+17.5'teki yedi bulgunun durumu:
+
+| # | Bulgu | Durum (29.09.2026 sonrası) |
+|---:|---|---|
+| 1 | CORS / auth / rate limiting yok | **Belgelendi, tetik koşulu eklendi** (`API.md` 19.1 → #2) |
+| 2 | SSRF koruması tek uçla sınırlı | **Belgelendi, tetik koşulu eklendi** (`API.md` 19.1 → #1) |
+| 3 | SSE kaynak akışında `failed` sayımı tutarsız | **DÜZELTİLDİ** (PR #3, `ab189b3` + `9aa8359`) |
+| 4 | Zorunlu parametre eksikliği boş 400 | **Belgelendi, tetik koşulu eklendi** (`API.md` 19.1 → #4) |
+| 5 | `/openapi/v1.json` gövde şemaları boş | **Belgelendi, tetik koşulu eklendi** (`API.md` 19.1 → #5) |
+| 6 | SSE `error` olayı gönderilmiyor | Değişmedi; sözleşmenin bilinçli parçası |
+| 7 | `502` (RFC 7807) canlı gözlemlenmedi | **Belgelendi, tetik koşulu eklendi** (`API.md` 19.1 → #7) |
+
+Bugün için karar: **hiçbir dokümantasyon kusuru düzeltilmemiştir; hepsi tetik koşulu formatında
+karar kaydına dönüştürülmüştür.** Düzeltme ancak tetik koşulu gerçekleşirse, ayrı bir kod PR'ı
+olarak yapılacaktır. Ayrıntı: `API.md` → bölüm 19.
+
+### 18.5 Test kırılımının düzeltilmiş hali
+
+Bölüm 1 ve 7'deki 275/275 tabanı korunur. Branch birleştirme sonrası (`main` @ `10db87d`) genel
+offline takım **309/309**'dur ve kırılım şöyledir:
+
+```text
+275   fork main tabanı (indirme özelliği merge'li hali)
+ +18  Migurdex.Tests/TopLevelHelpTests.cs          (yeni dosya — non-TTY help fix, cherry-pick)
+ +13  Migurdex.Tests/SourceExtractionReportTests.cs (yeni dosya — SSE hata bildirimi, PR #3)
+  +3  Migurdex.Tests/DownloadCommandTests.cs        (mevcut dosya — PR #3, 3 yeni case)
+=309  ✔ dosya bazında [Fact]+[InlineData] toplamı da tam 309
+```
+
+**Düzeltme notu:** Önceki ajanın verdiği "17 yeni test (14+3)" rakamı **yanlıştı**. Doğru rakamlar:
+
+- `TopLevelHelpTests.cs` → **18** (3 `[Fact]` + 3 `[Theory]` + 15 `[InlineData]`), yeni dosya.
+- `SourceExtractionReportTests.cs` → **13** (10 `[Fact]` + 1 `[Theory]` + 3 `[InlineData]`), yeni dosya.
+- `DownloadCommandTests.cs` → **+3 case**, **yeni dosya değil**: bu dosya indirme özelliğinin
+  `be85d61 feat: add anime download support` commit'inde zaten vardı; PR #3 yalnızca 20 satır /
+  3 case ekledi.
+
+Bu yüzden ajanın "3 yeni test" iddiası doğru, "14 yeni test" iddiası **1 fazlaydı**; doğrusu 18'dir
+(18 + 13 + 3 = 34, taban 275 + 34 = 309).
+
+### 18.6 Canlı doğrulama sınırı
+
+Branch build'i ile `127.0.0.1:7099`'da canlı doğrulama yapıldı ve süreç **durduruldu** (port kapalı,
+süreç yok). Doğrulanan:
+
+- `event: done` → `{"succeeded":2,"failed":0,"errors":[],"totalItems":2}` (Animexe, Naruto 1. bölüm)
+- Embed'li TurkAnime ile → `{"succeeded":75,"failed":0,...,"totalItems":75}`
+
+**Sınır:** Yeni SSE hata yolunun (`providerError` `scope: "extract"`, `done.failed`) **canlı
+kanıtı yok**. ~25 bölüm denendi, hiçbirinde extractor doğal olarak çökmedi; hata dalı yalnız
+birim testiyle (`SourceExtractionReportTests`) kapsanıyor. Bu dal "tam test edildi" diye
+sunulmamalıdır. Ayrıntı: `API.md` → bölüm 19.3 (*Doğrulama sınırı*) ve `TEST_RESULTS.md` → bölüm 14.
+
+### 18.7 CI anomalisi (keşfedildi, çözülmedi)
+
+Fork'ta GitHub Actions **otomatik tetikleyicileri hiç çalışmamış**. Kanıt:
+
+```text
+repos/Nutaliaxd/Migurdex/actions/permissions  → enabled=true, allowed_actions=all
+workflow "Build and Release"                   → state=active
+repos/Nutaliaxd/Migurdex/actions/runs          → total_count=1
+   ve o tek koşu: 36562344972, event=workflow_dispatch, head=v1.10.2, success
+kuyrukta bekleyen koşu                          → 0
+```
+
+Yani ne `push` ne `pull_request` tetikleyicisi fork'ta bir kez bile koşu üretmemiş. `v1.10.2`
+release'i **elle tetiklenerek** yapılmış. Bugün `main`'e push edilen kod değişiklikleri için de
+hiçbir koşu oluşmadı; PR #2 ve PR #3 hiç check almadı.
+
+Bu nedenle CI **elle tetiklendi**:
+
+```text
+gh workflow run build-release.yml --repo Nutaliaxd/Migurdex --ref main
+→ run 36589928053  (https://github.com/Nutaliaxd/Migurdex/actions/runs/36589928053)
+```
+
+`release` işi `if: startsWith(github.ref, 'refs/tags/v')` ile korumalı olduğu için bu koşu release
+üretmez; yalnızca build'i doğrular.
+
+**Bu anomali düzeltilmedi, yalnızca kayda geçirildi.** Olası nedenler (hangisi doğruysa, henüz
+doğrulanmadı): hesap bazlı Actions harcama limiti, fork'a miras kalan Actions politikası veya
+hesap düzeyinde bir kısıtlama. Kalıcı süreç kuralı olarak `PR_DESCRIPTION.md` → *Süreç kuralları*'na
+eklendi: her kod değişikliğinden sonra CI elle tetiklenmeli, sonucu `TEST_RESULTS.md`'ye
+yazılmalıdır.

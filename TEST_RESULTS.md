@@ -1,19 +1,21 @@
 # Migurdex Test ve Doğrulama Raporu
 
 > Bu dosya, `main` dalındaki tüm doğrulama çalışmalarının merkezi kaydıdır.
-> Son güncelleme: 29 Eylül 2026 · Dal: **`main`** · Merge commit: `44f4010`
-> (PR #1 merged) · Sürüm: **`v1.10.2`** → `44f4010` · Temel: `v1.10.1` (`4ecd7d7`)
+> Son güncelleme: 29 Eylül 2026 · Dal: **`main`** · Merge commit: **`10db87d`**
+> (PR #1, #2, #3 merged) · Sürüm: **`v1.10.2`** → `44f4010` · Temel: `v1.10.1` (`4ecd7d7`)
 > Release: https://github.com/Nutaliaxd/Migurdex/releases/tag/v1.10.2
-> CI: https://github.com/Nutaliaxd/Migurdex/actions/runs/36562344972
-> PR: https://github.com/Nutaliaxd/Migurdex/pull/1
+> CI (v1.10.2): https://github.com/Nutaliaxd/Migurdex/actions/runs/36562344972
+> PR: https://github.com/Nutaliaxd/Migurdex/pull/1 · https://github.com/Nutaliaxd/Migurdex/pull/2 · https://github.com/Nutaliaxd/Migurdex/pull/3
 > Upstream PR: https://github.com/roxyrekt/Migurdex/pull/2
 >
-> **Test toplamları hangi ağaca ait:** bölüm 1'deki **275/275** ve **110/110** değerleri `main`
-> dalını (`44f4010`) temsil eder. **293/293** sonucu ise `upstream/download-clean` dalına
-> (`f3aaad7`) aittir ve bölüm 12'de kayıtlıdır.
+> **Test toplamları hangi ağaca ait:** bölüm 1'deki **275/275** ve **110/110** değerleri
+> indirme özelliğinin merge'li halini (`44f4010`) temsil eder. **293/293** sonucu
+> `upstream/download-clean` dalına (`f3aaad7`) aittir (bölüm 12). **309/309** sonucu ise üç dalın
+> birleşmiş halini (`main` @ `10db87d`) temsil eder (bölüm 14).
 >
 > **Bölüm 13 (API dokümantasyon doğrulaması)** bir **canlı uç doğrulamasıdır, build/test
-> koşumu değildir**; bu nedenle yukarıdaki test toplamlarının hiçbiri değişmemiştir.
+> koşumu değildir**; bu nedenle bölüm 1 ve 12'deki test toplamlarını değiştirmez. **Bölüm 14** ise
+> branch birleştirme sonrası gerçek bir **build + test** koşumudur ve 309/309 sonucunu üretir.
 
 ## 1. Offline doğrulama
 
@@ -895,3 +897,111 @@ Ayrıntılı gerekçe ve her kusurun hangi PR konusu olduğu: `DEVELOPMENT_LOG.m
 
 > **Not:** 24. satır kalıcı bir yazma işlemidir. Uygulamanın normal davranışıdır ve doğrulama için
 > kasıtlı olarak yapılmıştır; `API.md` bölüm 10.3'te bu uç zaten belgelenmiştir.
+
+---
+
+## 14. Branch birleştirme sonrası doğrulama (29 Eylül 2026)
+
+Bu bölüm, `main` dalının `10db87d` birleştirmesinden sonra yapılan doğrulamayı kaydeder. Kapsam:
+PR #2 (dokümantasyon), cherry-pick help fix (`a7676fb`) ve PR #3 (SSE hata bildirimi).
+
+### Ortam ve dal
+
+| Öğe | Değer |
+|---|---|
+| Tarih | 29 Eylül 2026 |
+| Dal | `main` @ `10db87d` (`Merge pull request #3 …`) |
+| Doğrulanan ağaç | PR #2 + `a7676fb` (cherry-pick) + PR #3 — yani `10db87d` |
+| İşletim sistemi | Windows 11 · portatif .NET SDK 10.0.401 |
+
+### Offline sonuç
+
+| Kontrol | Komut | Sonuç |
+|---|---|---|
+| Derleme | `dotnet build Migurdex.slnx -c Release` | **0 hata, 0 uyarı** |
+| Offline takım | `dotnet test … --filter "FullyQualifiedName!~ExtractorSmokeTests"` | **Başarılı: 309 · Başarısız: 0 · Atlanan: 0** |
+
+### Test kırılımı (275 → 309)
+
+```text
+275   fork main tabanı (indirme özelliği merge'li hali)
+ +18  Migurdex.Tests/TopLevelHelpTests.cs           (yeni dosya — non-TTY help fix)
+ +13  Migurdex.Tests/SourceExtractionReportTests.cs  (yeni dosya — SSE hata bildirimi, PR #3)
+  +3  Migurdex.Tests/DownloadCommandTests.cs        (mevcut dosya — PR #3, 3 yeni case)
+=309
+```
+
+Dosya bazında `[Fact]` + `[InlineData]` sayımı da tam **309** verir; iki yöntem örtüşüyor.
+
+| Dosya | Durum | `[Fact]` | `[Theory]` | `[InlineData]` | Katkı |
+|---|---|---:|---:|---:|---:|
+| `TopLevelHelpTests.cs` | **yeni dosya** (cherry-pick) | 3 | 3 | 15 | **+18** |
+| `SourceExtractionReportTests.cs` | **yeni dosya** (PR #3) | 10 | 1 | 3 | **+13** |
+| `DownloadCommandTests.cs` | mevcut dosya (PR #3) | 12 | 2 | 6 | **+3** |
+
+**Düzeltme:** Önceki ajanın "17 yeni test (14+3)" rakamı **yanlıştı**. Doğrusu **18 + 13 + 3 = 34**
+yeni test case'idir. `DownloadCommandTests.cs` **yeni dosya değildir** — indirme özelliğinin
+`be85d61 feat: add anime download support` commit'inde zaten vardı; PR #3 yalnızca 20 satır /
+3 case ekledi. Bu yüzden ajanın "3 yeni test" iddiası doğru, "14 yeni test" iddiası **1 fazlaydı**.
+
+### Canlı SSE doğrulaması
+
+Branch build'i `127.0.0.1:7099`'da çalıştırıldı, sonra **durduruldu** (port kapalı, süreç yok).
+Doğrulanan `event: done` çıktıları:
+
+| Koşu | `done` gövdesi |
+|---|---|
+| Animexe, Naruto 1. bölüm | `{"succeeded":2,"failed":0,"errors":[],"totalItems":2}` |
+| Embed'li TurkAnime | `{"succeeded":75,"failed":0,…,"totalItems":75}` |
+
+> **UYARI — hata dalının canlı kanıtı yok.** Yeni SSE hata yolu (`providerError` `scope: "extract"`
+> ve `done.failed` artışı) **yalnızca birim testiyle** (`SourceExtractionReportTests.cs`)
+> doğrulandı. ~25 bölüm canlı olarak denendi, **hiçbirinde extractor doğal olarak çökmedi**;
+> dolayısıyla hata dalı gerçek bir yanıtta gözlemlenmedi. Bu dal "tam test edildi" diye
+> sunulmamalıdır. Aynı kayıt: `API.md` → bölüm 19.3 ve `DEVELOPMENT_LOG.md` → bölüm 18.6.
+
+### CI anomalisi ve elle tetiklenen koşu
+
+Fork'ta GitHub Actions **otomatik tetikleyicileri hiç çalışmamış**. Kanıt:
+
+```text
+repos/Nutaliaxd/Migurdex/actions/permissions  → enabled=true, allowed_actions=all
+workflow "Build and Release"                   → state=active
+repos/Nutaliaxd/Migurdex/actions/runs          → total_count=1
+   ve o tek koşu: 36562344972, event=workflow_dispatch, head=v1.10.2, success
+kuyrukta bekleyen koşu                          → 0
+```
+
+Ne `push` ne `pull_request` tetikleyicisi fork'ta bir kez bile koşu üretmemiş; `v1.10.2` release'i
+elle tetiklenerek yapılmış. Bugün `main`'e push edilen kod değişiklikleri için de koşu oluşmadı;
+PR #2 ve PR #3 hiç check almadı. Bu nedenle CI **elle tetiklendi**:
+
+```text
+gh workflow run build-release.yml --repo Nutaliaxd/Migurdex --ref main
+→ run 36589928053  (https://github.com/Nutaliaxd/Migurdex/actions/runs/36589928053)
+```
+
+| Öğe | Durum |
+|---|---|
+| Run | [36589928053](https://github.com/Nutaliaxd/Migurdex/actions/runs/36589928053) — **başlatıldı** |
+| Ref | `main` |
+| Tetikleyici | `workflow_dispatch` (elle) |
+| Sonuç | **Bu kayıt yazılırken sonuçlandırılmamıştı** — sonuç buraya işlenmelidir |
+| Release etkisi | Yok. `release` işi `if: startsWith(github.ref, 'refs/tags/v')` ile korumalı; bu koşu yalnız build doğrular |
+
+Bu anomali **düzeltilmedi**, yalnızca kayda geçirildi. Kalıcı süreç kuralı
+`PR_DESCRIPTION.md` → *Süreç kuralları*'na eklendi: CI fork'ta otomatik tetiklenmediği için her
+kod değişikliğinden sonra `gh workflow run build-release.yml --ref main` ile **elle** tetiklenmeli
+ve sonucu bu dosyaya yazılmalıdır.
+
+### Şu ana kadarki tüm kod değişikliklerinin test kapsamı
+
+| Kod değişikliği | Kapsam | Test sayısı | Not |
+|---|---|---:|---|
+| **İndirme özelliği** (PR #1, `be85d61` ve arkadaşları) | indirme/TUI | **110/110** (10 sınıf) | Bölüm 1, bölüm 3, `DOWNLOAD.md` |
+| **Non-TTY help fix** (`a7676fb` ← upstream `f3aaad7`) | CLI yardım yönlendirmesi | **18** (`TopLevelHelpTests`) | bölüm 12; `DEVELOPMENT_LOG.md` → 18.5 |
+| **SSE hata bildirimi** (PR #3, `ab189b3` + `9aa8359`) | API hata raporu + CLI yüzeyi | **16** (`SourceExtractionReportTests` 13 + `DownloadCommandTests` +3) | bölüm 14; `DEVELOPMENT_LOG.md` → 18.5 |
+| **Toplam genel offline takım** | tüm projeler | **309/309** | `main` @ `10db87d` |
+
+`ExtractorSmokeTests` ağ erişimi gerektirdiği için bilinçli olarak hariç tutulmuştur; bu kayıttaki
+tüm "N/N" değerleri aynı filtreyi kullanır.
