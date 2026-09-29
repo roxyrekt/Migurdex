@@ -71,6 +71,47 @@ public class SettingsView : BaseView
             new()
             {
                 IsSection = true,
+                Label     = "İndirme"
+            },
+            new()
+            {
+                Id          = "AutoDownload",
+                Label       = "Otomatik İndir",
+                ValueGetter = c => c.AutoDownloadBestSource ? "Açık" : "Kapalı"
+            },
+            new()
+            {
+                Id          = "DownloadTimeout",
+                Label       = "İndirme Bekleme",
+                ValueGetter = c => $"{c.DownloadAutoSelectTimeoutSeconds:F1} sn"
+            },
+            new()
+            {
+                Id          = "DownloadSubtitles",
+                Label       = "Altyazı İndir",
+                ValueGetter = c => c.DownloadSubtitles ? "Açık" : "Kapalı"
+            },
+            new()
+            {
+                Id          = "DownloadResume",
+                Label       = "Kaldığı Yerden",
+                ValueGetter = c => c.DownloadResume ? "Açık" : "Kapalı"
+            },
+            new()
+            {
+                Id          = "DownloadOverwrite",
+                Label       = "Üzerine Yaz",
+                ValueGetter = c => c.DownloadOverwrite ? "Açık" : "Kapalı"
+            },
+            new()
+            {
+                Id          = "DownloadDirectory",
+                Label       = "İndirme Dizini",
+                ValueGetter = c => c.DownloadDirectory
+            },
+            new()
+            {
+                IsSection = true,
                 Label     = "Gizlilik"
             },
             new()
@@ -595,6 +636,43 @@ public class SettingsView : BaseView
                 break;
             case "PlayerLogs":
                 config.ShowPlayerLogs = !config.ShowPlayerLogs;
+                break;
+            case "AutoDownload":
+                config.AutoDownloadBestSource = !config.AutoDownloadBestSource;
+                break;
+            case "DownloadTimeout":
+                config.DownloadAutoSelectTimeoutSeconds =
+                    Theme.Ask("İndirme bekleme süresi (sn):", config.DownloadAutoSelectTimeoutSeconds);
+
+                if (config.DownloadAutoSelectTimeoutSeconds < 0.2)
+                {
+                    config.DownloadAutoSelectTimeoutSeconds = 0.2;
+                }
+
+                if (config.DownloadAutoSelectTimeoutSeconds > 120.0)
+                {
+                    config.DownloadAutoSelectTimeoutSeconds = 120.0;
+                }
+
+                break;
+            case "DownloadSubtitles":
+                config.DownloadSubtitles = !config.DownloadSubtitles;
+                break;
+            case "DownloadResume":
+                config.DownloadResume = !config.DownloadResume;
+                break;
+            case "DownloadOverwrite":
+                config.DownloadOverwrite = !config.DownloadOverwrite;
+                break;
+            case "DownloadDirectory":
+                var downloadDir = (Theme.Ask("İndirme dizini:", config.DownloadDirectory) ?? string.Empty).Trim();
+                if (string.IsNullOrEmpty(downloadDir))
+                {
+                    Toast.Show("[red]Dizin boş olamaz. Değişiklik yapılmadı.[/]");
+                    break;
+                }
+
+                config.DownloadDirectory = downloadDir;
                 break;
             case "UpdateCheck":
                 config.UpdateCheckEnabled = !config.UpdateCheckEnabled;
@@ -1179,7 +1257,8 @@ public class SettingsView : BaseView
         var bold = isSelected ? "bold " : "";
         var color = id switch
         {
-            "AutoPlay" or "Rpc" or "Incognito" or "PlayerLogs" or "UpdateCheck" =>
+            "AutoPlay" or "Rpc" or "Incognito" or "PlayerLogs" or "UpdateCheck"
+                or "AutoDownload" or "DownloadSubtitles" or "DownloadResume" or "DownloadOverwrite" =>
                 value == "Açık" ? "green" : "grey",
             "UpdateChannel" => value == "Pre-release" ? "yellow" : "green",
             "AniList" or "MyAnimeList" => value.Contains("Süresi dolmuş")

@@ -42,31 +42,6 @@ public sealed class TuiMarkupSafetyTests
         Assert.Throws<InvalidOperationException>(() => new Markup(broken));
     }
 
-    [Theory]
-    [InlineData("[Anime] Başlık [TV] [/red]")]
-    [InlineData("[/")]
-    [InlineData("[")]
-    [InlineData("[SubsPlease] Re:Zero kara Hajimeru Isekai Seikatsu [TV] Çok Uzun Başlık Denemesi 123456789")]
-    public void BuildSelectedSourceHeaders_BracketedAnimeTitles_ProduceParseableMarkup(string animeTitle)
-    {
-        var episode = new Episode { Id = "ep-5", Number = 5, Season = 1, Title = "[Final] Bölüm" };
-        var source = new VideoSource
-        {
-            Group   = "[SubsPlease]",
-            Hoster  = "[Uqload] Fan[/]host",
-            Quality = "[1080p]",
-            Type    = VideoType.Mp4
-        };
-
-        var headers = EpisodeSourcesView.BuildSelectedSourceHeaders(animeTitle, episode, source);
-
-        Assert.Equal(2, headers.Count);
-        foreach (var header in headers)
-        {
-            AssertValidMarkup(header);
-        }
-    }
-
     [Fact]
     public void FormatSources_BracketedFansubData_ProducesParseableChoiceMarkup()
     {

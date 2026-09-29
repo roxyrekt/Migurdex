@@ -262,6 +262,22 @@ public class AnimeDetailsView : BaseView
 
             episodeMap[playSearchable] = singleEp;
 
+            var downloadSearchable = isMovie ? "Filmi İndir" : "Bölümü İndir";
+            var downloadDisplay    = isMovie ? "[cyan]⤓ Filmi indir[/]" : "[cyan]⤓ Bölümü indir[/]";
+            var downloadActiveDisplay =
+                isMovie
+                    ? "[bold white on grey23] ⤓ Filmi indir [/]"
+                    : "[bold white on grey23] ⤓ Bölümü indir [/]";
+
+            choices.Add(new FuzzyChoice
+            {
+                Display       = downloadDisplay,
+                DisplayActive = downloadActiveDisplay,
+                Searchable    = downloadSearchable
+            });
+
+            episodeMap[downloadSearchable] = singleEp;
+
             choices.Add(new FuzzyChoice
             {
                 Display       = isFav ? "[yellow]♥ Favorilerden çıkar[/]" : "[yellow]♡ Favorilere ekle[/]",
@@ -373,8 +389,37 @@ public class AnimeDetailsView : BaseView
 
         if (episodeMap.TryGetValue(choice.Searchable, out var selectedEp))
         {
+            if (isSingleContent)
+            {
+                var singleMode = choice.Searchable.Contains("İndir", StringComparison.OrdinalIgnoreCase)
+                                     ? SourceViewMode.Download
+                                     : SourceViewMode.Play;
+                var singleSourcesView = (EpisodeSourcesView) _serviceProvider.GetService(typeof(EpisodeSourcesView))!;
+                singleSourcesView.SetTarget(_provider, _animeId, details.Title, selectedEp, details.Episodes, details.PosterUrl, mode: singleMode);
+                navigator.Push(singleSourcesView);
+                return;
+            }
+
+            var actions = new List<FuzzyChoice>
+            {
+                Theme.PlayChoice("Oynat"),
+                Theme.ActionChoice("İndir", Theme.Primary),
+                TuiHelpers.Back()
+            };
+            var action = FuzzyPrompt.Show(details.Title,
+                                          actions,
+                                          searchable: false,
+                                          headerLines:
+                                          [$"[grey]{Markup.Escape(TuiHelpers.EllipsizedTitle(details.Title))} › {Markup.Escape(TuiHelpers.FormatEpisodeRef(selectedEp))}[/]"],
+                                          footerHelp: "↑↓ gez • Enter seç • Esc geri");
+            if (action is null || action.Searchable == "Geri")
+            {
+                return;
+            }
+
+            var mode = action.Searchable == "İndir" ? SourceViewMode.Download : SourceViewMode.Play;
             var sourcesView = (EpisodeSourcesView) _serviceProvider.GetService(typeof(EpisodeSourcesView))!;
-            sourcesView.SetTarget(_provider, _animeId, details.Title, selectedEp, details.Episodes, details.PosterUrl);
+            sourcesView.SetTarget(_provider, _animeId, details.Title, selectedEp, details.Episodes, details.PosterUrl, mode: mode);
             navigator.Push(sourcesView);
         }
     }
