@@ -7,14 +7,15 @@ TUI'den (bölüm kaynak ekranında `İndir`) diske kaydeder. `Embed` ve `Unknown
 | Alan | Değer |
 |---|---|
 | Son güncelleme | 29 Eylül 2026 |
-| Aktif dal | `main` — PR #1 merge edildi, merge commit `44f4010` (taban: `v1.10.1` @ `4ecd7d7`) |
+| Aktif dal | `main` — PR #1 merge edildi, merge commit `44f4010` (taban: `v1.10.1` @ `4ecd7d7`). Upstream hedefi için ayrıca temiz dal `upstream/download-clean` @ `f3aaad7` yürütülüyor ([PR #2](https://github.com/roxyrekt/Migurdex/pull/2)) |
 | Özellik dalı | `feature/download` → `main` üzerine [PR #1](https://github.com/Nutaliaxd/Migurdex/pull/1) ile birleştirildi (29.09.2026, 10:05 UTC). Artık ayrı bir geliştirme dalı değil; kayıt `main` üzerinden yürütülür, eski dal adı yalnızca PR başlığı/hashesi bağlamında geçer |
 | Son kod commit’i | `00b2ee7` (`fix(downloader): report live yt-dlp HLS progress`) — merge sonrasında da değişmedi |
 | Sürüm | `v1.10.2` → `44f4010` (fork: `Nutaliaxd/Migurdex`) · [release](https://github.com/Nutaliaxd/Migurdex/releases/tag/v1.10.2) · [CI run](https://github.com/Nutaliaxd/Migurdex/actions/runs/36562344972) (`Build and Release`, sonuç: **success**) — ayrıntı `Yapılan işlemler` → madde 15 |
 | Upstream | `roxyrekt/Migurdex` `main` hâlâ `v1.10.1` (`4ecd7d7`); aynı PR metni upstream hedefi için kullanılabilir ([PR_DESCRIPTION.md](https://github.com/Nutaliaxd/Migurdex/blob/main/PR_DESCRIPTION.md)) |
 | Paket | v1.10.0 tabanlı win-x64 paketi üretildi, hash düzeyinde doğrulandı ve kök kuruluma yüklendi (27.09.2026; 14 sağlayıcı / 38 extractor) — bkz. `Yapılan işlemler` → maddeler 12–13. Bu paket **yerel doğrulanmış kök kurulum** olarak durur; `v1.10.2` release'i CI tarafından ayrıca üretildi ve kök kurulum bundan yükseltilmedi |
 | Temel commit | `be85d61` — feat: add anime download support (ilk yazılım `c3d307a`; v1.10.0 rebase karşılığı `321fe38`) |
-| Testler | 81 test metodu / 110 çalışan case, 10 sınıf (bkz. `Test kapsamı`); offline doğrulama: 275/275 geçti (29.09.2026, v1.10.1 rebase sonrası) |
+| Testler | 81 test metodu / 110 çalışan case, 10 sınıf (bkz. `Test kapsamı`); offline doğrulama: 275/275 (`main` @ `44f4010`, v1.10.1 rebase sonrası) ve **293/293** (temiz dal `upstream/download-clean` @ `f3aaad7`, non-TTY help fix sonrası) — bkz. `Platform doğrulaması` |
+| Platform doğrulaması | Windows referans koşusu + Linux x64 runtime (WSL2 Ubuntu 24.04.5): build 19 proje/0 uyarı/0 hata, test 275/275, CLI `--version`/`download --help`, `/health` 200 (14 sağlayıcı / 38 extractor / rust), AppImage extract + updateinformation + çalıştırma. Linux arm64 statik doğrulandı, çalıştırılamadı (x64 host, QEMU yok) — bkz. `Platform doğrulaması` |
 
 ## Genel akış
 
@@ -45,7 +46,7 @@ tamamlandı ancak kullanıcı iptal etti (altyazı aşaması kesildi).
    (`DownloadCommand.EnsureApiOnlineAsync` → `ApiClientService.TryStartApiDaemonAsync`).
 2. MP4 kaynağı için ek kurulum gerekmez. HLS de deneyecekseniz `yt-dlp`'yi (ve segment
    birleştirme için çoğu durumda `ffmpeg`'i) PATH'e kurun; ayrıntı için
-   [HLS indirme (yt-dlp)](#hls-indirme-yt-dlp) bölümüne bakın.
+   [HLS indirme (yt-dlp)](#hls-indirme-ytdlp) bölümüne bakın.
 3. Temel komut (bölüm verilmezse deterministik olarak ilk bölüm iner):
 
    ```
@@ -610,6 +611,99 @@ Log incelemesi:
 
 Test sonrası API süreci kapatıldı, port serbest bırakıldı ve geçici test dizini silindi.
 Kaynak ağacında kod değişikliği yapılmadı.
+
+## Platform doğrulaması (29 Eylül 2026)
+
+İndirme özelliği hem Windows hem Linux üzerinde doğrulandı. Windows koşumu referans alınır;
+Linux koşumu gerçek bir Linux çalıştırma ortamında (WSL2, Ubuntu 24.04.5) uçtan uca yapıldı.
+
+### Windows (referans koşu)
+
+| Koşum | Ağaç | Sonuç |
+|---|---|---|
+| Offline takım, `v1.10.1` rebase sonrası | `main` @ `44f4010` | **275/275** geçti (`ExtractorSmokeTests` hariç) |
+| Offline takım, non-TTY help fix sonrası | `upstream/download-clean` @ `f3aaad7` | **293/293** geçti (`ExtractorSmokeTests` hariç) |
+
+275 → 293 farkı tam olarak 18 yeni `TopLevelHelpTests` case'idir (bkz. aşağıdaki non-TTY `--help`
+düzeltmesi). İndirme kodu kapsamındaki sınıfların metrikleri değişmedi: **81 metot / 110 çalışan
+case / 10 sınıf** (`Test kapsamı`).
+
+### Linux x64 runtime
+
+| Adım | Komut / ölçüm | Sonuç |
+|---|---|---|
+| Bağımlılık | `dotnet restore Migurdex.slnx` | Başarılı |
+| Derleme | `dotnet build Migurdex.slnx -c Release --no-restore` | 19 proje, **0 uyarı, 0 hata** |
+| Offline takım | `dotnet test Migurdex.Tests/Migurdex.Tests.csproj -c Release --no-build --filter "FullyQualifiedName!~ExtractorSmokeTests"` | **275/275** geçti (help fix'i öncesi ağaç) |
+| CLI sürüm | `migurdex --version` | `migurdex v1.10.2` |
+| CLI alt komut yardımı | `migurdex download --help` | Çıktı release binary'siyle **byte-level aynı** |
+| API | `/health` | **HTTP 200**; 14 sağlayıcı, 38 extractor, `rust: true` |
+| Yerel build ↔ release | GNU BuildID karşılaştırması | İkisi de `c36ad71424f1fa2ffd952574ab64dd0d952b101a` |
+| AppImage | `--appimage-extract` | Extraction başarılı |
+| AppImage | zsync `updateinformation` | Gömülü ve doğru (`gh-releases-zsync\|roxyrekt\|Migurdex\|latest\|...`) |
+| AppImage | Çalıştırma | Başarılı (x86_64) |
+
+Linux derlemesi 0 uyarı / 0 hata ile tamamlandı; `migurdex download --help` çıktısı release
+paketiyle **byte-level** aynı olduğu için CLI yüzeyi paketleme sırasında değişmiyor.
+
+Yerel Linux build'i ile yayınlanan release binary'sinin **aynı GNU BuildID**'yi taşıması, paketleme
+adımının kaynak kodu değiştirmediğini gösterir; iki çıktı arasındaki fark yalnız sürüm damgası
+(`-p:Version`) ve paket biçimidir. Bu, release binary'sinin doğrudan çalıştırılabilir bir
+referans olduğu anlamına gelir — Linux smoke testlerinde yerel build yerine release paketi
+kullanılabilir.
+
+### Linux arm64
+
+arm64 payload'ı derlendi ve **statik olarak doğrulandı**, ancak **çalıştırılamadı**: doğrulama
+ortamı x64 olduğu için QEMU emülasyonu kurulu değildi.
+
+| Doğrulanan | Doğrulanamayan |
+|---|---|
+| ELF başlığı (mimari = AArch64) | `migurdex --version` / `download --help` çalıştırma |
+| `unsquashfs` ile AppImage içeriğinin açılması | `/health` isteği |
+| Dosya bütünlüğü ve boyut | Canlı indirme akışı |
+
+Bu bir ürün kusuru değil, ortam sınırıdır: arm64 paketi CI tarafından x64 ile **aynı kaynak koddan**
+ve aynı iş akışıyla üretildiği için derleme düzeyinde bir sapma beklenmez. Yine de arm64
+runtime kanıtı doğrulanmadan "Linux arm64 destekleniyor" denmemelidir; bu kayıt bilinçli olarak
+eksik kalmayı tercih eder.
+
+### non-TTY `--help` düzeltmesi (`f3aaad7`)
+
+Linux doğrulaması gerçek bir hata buldu: `migurdex --help` TTY olmayan ortamda (pipe, CI job,
+`$(...)`, Docker `CMD`, `nohup`) çöküyordu. Yardım metni basıldıktan sonra, etkileşimli akışta
+beklenen tuş okuma çağrısı yönlendirilmiş girdide hata veriyordu. **Alt komut yardımları
+etkilenmiyordu** (`migurdex download --help` her zaman `exit 0` veriyordu).
+
+Düzeltme: yardım istekleri ayrı bir yola alındı (`HelpCommand`); `--help`, `-h` ve `help`
+TTY olmadan da `exit 0` ile basılıyor, alt komutların kendi yardım çıktısı korunuyor.
+`TopLevelHelpTests` bu davranışı 18 yeni case ile sabitliyor:
+
+| Test | Case | Kapsam |
+|---|---:|---|
+| `IsTopLevelRequest_RecognizesEveryHelpAlias` | 5 | `--help`, `-h`, `help`, `--HELP`, `Help` |
+| `IsTopLevelRequest_LeavesSubCommandHelpToSubCommand` | 7 | `download`, `search`, `play`, `continue`, `update`, `auth`, `version` yardımları alt komutta kalır |
+| `IsTopLevelRequest_IsFalseWithoutAHelpRequest` | 3 | Yardım isteği yoksa üst düzey yakalanmaz |
+| `PrintHelp_CoversTuiSubCommandsVersionAndHelp` | 1 | Yardım metni TUI/alt komut/`--version` satırlarını kapsar, ANSI kaçış içermez |
+| `PrintHelp_ReusesNonInteractiveCommandLines` | 1 | Üst düzey yardım, non-interactive komut satırlarını yeniden kullanır |
+| `Run_WritesHelpToTheGivenWriterAndSucceeds` | 1 | `HelpCommand.Run` hedef yazara yazar ve `0` döner |
+
+### AppImage checksum manifest boşluğu
+
+`v1.10.2` release'inde `sha256sums-linux-x64.txt` ve `sha256sums-linux-arm64.txt` manifestleri
+**yalnız `tar.gz` paketini** kapsıyor. İki AppImage (`migurdex-x86_64.AppImage`,
+`migurdex-aarch64.AppImage`) bu manifestlerde **yer almıyor**. Dosya boyutları bunu
+doğruluyor: bir `sha256sum` satırı `64 hex + 2 boşluk + ad + 1 satır sonu` = 67 + ad uzunluğu
+bayt tutar; `migurdex-linux-x64.tar.gz` için 91, `migurdex-linux-arm64.tar.gz` için 93 bayt
+beklenir ve yayımlanan boyutlar 92 / 94'tür — yani manifest başına tam olarak **tek** dosya var.
+Windows manifesti (`sha256sums-win-x64.txt`, 87 bayt) tek paketi (`migurdex-win-x64.zip`)
+kapsadığı için bu boşluk ona dokunmuyor.
+
+Sonuç: AppImage bütünlüğü release sayfasında yayımlanan özetle **doğrulanamıyor**; yalnız
+`.zsync` dosyaları (delta güncelleme için) mevcut. Bu bir indirme özelliği kusuru değil, upstream
+release iş akışının eksik adımıdır; `build-release.yml`'ın checksum üretimine AppImage'lerin
+de eklenmesi gerekir. Bu PR kapsamında **düzeltilmedi** — iş akışı upstream'e ait ve release
+süreciyle ilgili ayrı bir konuşma konusudur.
 
 ## TUI markup güvenliği
 
