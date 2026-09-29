@@ -18,6 +18,19 @@ Terminalden Türkçe anime aramak ve izlemek için araç. TUI + yerel HTTP API +
 
 ![Migurdex demo](assets/docs/demo_3.gif)
 
+## Belgeler (start here)
+
+- **[`API.md`](API.md)** — Migurdex'in kendi yerel REST API'sinin tam referansı. Tüm uçlar
+  (`/health`, `/api/v1/anime/*`, `/api/v1/metadata/*`, `/api/v1/extractors/*`, `/api/v1/tracker/*`),
+  SSE akış protokolü, veri modelleri, enum karşılıkları, hata biçimleri, SSRF koruması ve canlı
+  doğrulama kaydı. **Harici istemci yazacaksan buradan başla.**
+- **[`DOWNLOAD.md`](DOWNLOAD.md)** — indirme özelliğinin tam dokümantasyonu. **İndirme özelliğini öğrenmek
+  için buradan başla:** genel akış, CLI bayrakları, çıkış kodları, JSON çıktısı, `config.json` alanları,
+  test kapsamı ve `Bilinen sınırlar ve riskler`.
+- [`DEVELOPMENT_LOG.md`](DEVELOPMENT_LOG.md) — indirme özelliğinin başlangıçtan upstream'e
+  merge edilene kadar kronolojik geliştirme günlüğü.
+- [`PR_DESCRIPTION.md`](PR_DESCRIPTION.md) — fork ve upstream hedefi için PR metinleri.
+
 ## Özellikler
 
 - Fuzzy arama (`opc` -> One Piece gibi)
@@ -99,12 +112,13 @@ AppImage için Linux'ta `libfuse2` gerekir (bkz. [Gereksinimler](#gereksinimler)
 
 ## Kullanım
 
-Akış basit: Arama -> Detay -> Bölüm -> Oynat / İndir.
+Akış basit: Arama -> Detay -> Bölüm -> Kaynaklar -> Oynat / İndir.
 
 1. Ana menüden aramaya gir, adı yaz (liste fuzzy daralır).
 2. Sonuçtan seçince açıklama ve bölüm listesi gelir.
-3. Bölümü seçince `Oynat`, `İndir` veya `Geri` seçilir.
-4. `Oynat` kaynak ekranını açar (otomatik seçim açıksa en iyi kaynak direkt oynar), `İndir` ayara göre otomatik indirir veya kaynak seçim ekranını açar.
+3. Bölümü seçince fansub grupları ve kaynaklar (sunucu / kalite / tür) taranır.
+4. Kaynağı seçince `Oynat`, `İndir` veya `Geri` seçilir. Otomatik kaynak seçimi açıksa en iyi kaynak
+   doğrudan oynatılır/indirilir.
 
 `Esc` bir önceki ekrana döner. Yön tuşları + `Enter` ile kullanılıyor. İndirme sırasında `Esc` indirmeyi iptal eder;
 indirme MPV'yi açmaz ve izleme geçmişi/tracker senkronunu tetiklemez.
@@ -187,6 +201,36 @@ otomatik olarak indirmez. Yalnız HTTP/HTTPS kaynakları kullanılır ve farklı
 kaydedin; DRM/paywall korumasını aşmaya çalışan kaynakları indirmeyin. `--debug` çıktısı güvenlik için URL, header ve token
 içermez.
 
+## Bilinen sınırlar
+
+- **HLS için harici araçlar gerekir.** `.m3u8` kaynaklarda [yt-dlp](https://github.com/yt-dlp/yt-dlp) zorunludur;
+  segmentleri birleştirmek/aktarmak için çoğu durumda [ffmpeg](https://ffmpeg.org/) de gerekir. Migurdex bu
+  araçları otomatik indirmez/kurmaz. `MP4` indirme bu araçlara ihtiyaç duymaz.
+- **MP4 resume imzalı kaynaklarda çalışmıyor.** Resume parçası, kaynak URL'inin normalize edilmiş
+  SHA-256 özetiyle adlandırılır. Google Drive ve googlevideo gibi sağlayıcılar her çözümlemede URL'i
+  yeniden imzaladığı için özet değişir; kısmi indirme bulunamaz ve silinmedikçe diskte birikir.
+  Ölçüm: aynı dosyada 6 koşu → 6 farklı özet, ~100 MB orphan. Düzeltme bu depoda
+  [`b3fc2c7`](https://github.com/Nutaliaxd/Migurdex/pull/4) commit'iyle.
+- **HLS'de resume yoktur.** MP4'te `.part` + `.meta` ile kaldığı yerden devam edilir; HLS'de yt-dlp her
+  denemeyi geçici iş dizininde baştan yapar. `--no-resume` yalnız MP4'ü etkiler.
+- **HLS'de graceful olmayan sonlandırma disk bırakır.** `SIGTERM`/`SIGHUP` ile kesilen HLS indirmesi
+  `.migurdex-job-*` klasörünü kalıcı olarak bırakır ve başlangıçta temizlenmez. `Ctrl+C` temizdir.
+  Ölçüm: 6 turda 43,6 MB monotonik birikim.
+- **CLI'da ağ geçidi koruması yok.** API'nin extractor ucu `IsBlockedAddress` ile loopback / özel IP /
+  cloud metadata adreslerini reddeder; indirici tarafındaki `DownloadHttp.ValidateHttpUri` yalnız
+  şema ve boş-olmayan host kontrol eder. Aynı makinede CLI ile hedef doğrudan verilebilir.
+- **Altyazı mux edilmez.** Altyazılar videonun yanına ayrı `.srt` / `.ass` / `.vtt` **sidecar** dosyası olarak
+  iner; videoya gömülmez. Altyazının oynatılması için oynatıcının sidecar'ı otomatik bulması gerekir.
+- **Deokwave sağlayıcısı boş sonuç verebilir.** `deokwave.com` Cloudflare `"Just a moment..."` JS
+  challenge'iyle HTTP 403 döndürür. Upstream bu sağlayıcı için Turnstile solver üzerinde çalışıyor.
+- **İndirme, izleme kaydı üretmez.** İndirme MPV açmaz, izleme geçmişine yazmaz ve AniList/MAL tracker
+  senkronunu tetiklemez.
+- **CLI tek bölüm indirir.** `migurdex download -e <n>` tek bölüm alır; `-s/--season` bir **filtre**,
+  "sezonun tamamını indir" değildir. Kaynak seçimi yalnız TUI'de vardır.
+
+Kapsamlı sınır listesi ve riskler için [`DOWNLOAD.md`](DOWNLOAD.md) → `Bilinen sınırlar ve riskler`
+bölümüne bak.
+
 ## Dosyalar
 
 Linux'ta `~/.config/migurdex/` altında tutulur:
@@ -211,8 +255,9 @@ Akış: `TUI/CLI -> API -> plugin (+ Rust HTTP) -> kaynak listesi -> MPV veya in
 (`libmigurdex_native.so` /
 `migurdex_native.dll`) API ile birlikte gelir, eksikse API başlamaz.
 
-Bulit-in extractor'lar `Migurdex.Core/Extractors` altında. API tarafında `GET /api/v1/extractors` ve
-`POST /api/v1/extractors/resolve` ile de çağrılabiliyor.
+Built-in extractor'lar `Migurdex.Core/Extractors` altında. API tarafında `GET /api/v1/extractors` ve
+`POST /api/v1/extractors/resolve` ile de çağrılabiliyor. Tüm HTTP uçlarının, SSE protokolünün ve veri
+modellerinin referansı için [`API.md`](API.md).
 
 TurkAnime sağlayıcısı, kapanan sitenin arşivinin temizlenip doğrulanmış halini kullanır (ölü kayıtlar atıldı, başlıklar
 onarıldı, AniList/MAL eşleştirmeleri eklendi; canlı Turso veritabanı üzerinden sorgulanır). Ham SQLite dosyası:
@@ -246,6 +291,29 @@ dotnet test
 ```
 
 Release paketlerini CI, [Kurulum → manuel kurulum](#kurulum) tablosundaki dosya adlarıyla üretir.
+
+### Doğrulama kaydı
+
+**v1.11.0 hizalama (30 Eylül 2026):** upstream `b690399` bu fork'un `main` dalına birleştirildi
+(19 çatışma; kodda upstream kazanmış, `SourceExtractionReport` ve dört doküman korunmuş).
+Release derlemesi **0 uyarı / 0 hata**; ağ bağımlı `ExtractorSmokeTests` hariç **333/333** test
+geçti (upstream'in 328'i + 5 `SourceExtractionReport` testi).
+
+MP4 resume düzeltmesi eklendiğinde aynı filtre ile **341/341** test geçti
+(333 taban + `Mp4DownloaderTests` 20→26, `HlsDownloaderTests` +2). Canlı doğrulama:
+üç ardışık `--format mp4` koşusunda 1→2 aynı fingerprint ve segment toplamı 19,1 → 43,1 MB
+(resume çalışıyor); `HLS` koşusunda 2925 ilerleme satırı, sahte bayt göstergesi **0** eşleşme,
+çıktı `273.127.301` bayt, `ffprobe` ile geçerli `h264 1920x1080 + aac`.
+
+Ayrıntılı ölçüm ve hata kayıtları: [`DOWNLOAD.md`](DOWNLOAD.md) → `Test kapsamı` ve
+`KNOWN-ISSUES.md` (bu depoda yok, `test-reports/` altında tutulur).
+
+### Yayım durumu
+
+İndirme özelliği upstream'e [`roxyrekt/Migurdex PR #2`](https://github.com/roxyrekt/Migurdex/pull/2)
+üzerinden **merge edildi** (2026-09-29 20:38:01Z, merge commit `5dc4e5c`) ve `v1.11.0` release'ıyla
+yayımlandı. Kurulum için upstream `roxyrekt/Migurdex` release'lerini kullanmak yeterlidir; ayrı bir
+fork release'ine gerek yoktur.
 
 ## Yol Haritası
 
