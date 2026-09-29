@@ -73,6 +73,26 @@ public sealed class DownloadCommandTests
     }
 
     [Fact]
+    public void BuildNoDirectSourceMessage_WithoutReportedErrorsKeepsGenericWording()
+    {
+        var message = DownloadSourceResolver.BuildNoDirectSourceMessage(0);
+
+        Assert.Equal("API'den indirilebilir doğrudan MP4/HLS kaynağı bulunamadı.", message);
+        Assert.DoesNotContain("çözümleme", message, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(1)]
+    [InlineData(3)]
+    public void BuildNoDirectSourceMessage_WithReportedErrorsNamesExtractionFailures(int errors)
+    {
+        var message = DownloadSourceResolver.BuildNoDirectSourceMessage(errors);
+
+        Assert.Contains(errors.ToString(), message, StringComparison.Ordinal);
+        Assert.Contains("çözümlemesi başarısız", message, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void IsDirectDownloadable_OnlyAcceptsHttpMp4AndM3u8()
     {
         Assert.True(DownloadSourceResolver.IsDirectDownloadable(

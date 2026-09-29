@@ -30,6 +30,17 @@ public static class DownloadSourceResolver
                || uri.Scheme.Equals(Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase);
     }
 
+    /// <summary>
+    ///     Doğrudan indirilebilir kaynak bulunamadığında gösterilecek mesajı üretir. API'den gelen
+    ///     hata sayısı sıfırdan büyükse gerçek sebep extractor çözümlemesidir ve mesaj bunu belirtir.
+    /// </summary>
+    public static string BuildNoDirectSourceMessage(int reportedErrors)
+    {
+        return reportedErrors > 0
+                   ? $"API'den indirilebilir doğrudan MP4/HLS kaynağı bulunamadı; {reportedErrors} kaynak çözümlemesi başarısız oldu."
+                   : "API'den indirilebilir doğrudan MP4/HLS kaynağı bulunamadı.";
+    }
+
     public static List<VideoSource> SelectCandidates(IEnumerable<VideoSource> sources,
         DownloadSourceFormat                                             format,
         CliConfig                                                       config)
