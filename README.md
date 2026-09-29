@@ -282,6 +282,13 @@ Canlı API smoke (26 Eylül 2026): 21 endpoint test edildi; 21/21 HTTP 200 ve ge
 API loglarında uygulama hatası yok; yalnızca iki upstream durumu (TrAnimeIzle captcha, Vidmoly reklam
 redirect’i) tespit edildi. Ayrıntılar: [`DOWNLOAD.md`](DOWNLOAD.md) → `Canlı API smoke doğrulaması`.
 
+Linux doğrulaması (29 Eylül 2026, WSL2 Ubuntu 24.04.5) uçtan uca geçti: Release derlemesi
+19 proje / 0 uyarı / 0 hata, offline takım 275/275 (temiz dalda non-TTY help fix sonrası 293/293),
+`migurdex --version` → `v1.10.2`, `migurdex download --help` release binary'siyle byte-level aynı,
+`/health` 200 (14 sağlayıcı / 38 extractor / Rust), AppImage extraction + zsync `updateinformation` +
+çalıştırma başarılı; arm64 paketi statik doğrulandı ancak çalıştırılamadı (x64 ortam, QEMU yok).
+Ayrıntılar: [`DOWNLOAD.md`](DOWNLOAD.md) → `Platform doğrulaması`.
+
 Release paketlerini CI, [Kurulum → manuel kurulum](#kurulum) tablosundaki dosya adlarıyla üretir.
 
 ## Ek geliştirme kayıtları
