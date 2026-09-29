@@ -95,7 +95,11 @@ public class TuiNavigator : ITuiNavigator
             {
                 AnsiConsole.WriteException(ex);
                 AnsiConsole.MarkupLine("[red]Devam etmek için bir tuşa basın...[/]");
-                Console.ReadKey(true);
+                if (!TuiConsole.WaitForKey())
+                {
+                    return;
+                }
+
                 Pop();
             }
         }

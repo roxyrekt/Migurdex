@@ -233,7 +233,7 @@ public class SettingsView : BaseView
             return grid;
         }
 
-        while (settingsRunning)
+        while (settingsRunning && !TuiConsole.IsAppExitRequested)
         {
             AnsiConsole.Clear();
             Theme.WriteHeader("Ayarlar");
@@ -246,7 +246,7 @@ public class SettingsView : BaseView
                              .StartAsync(async ctx =>
                              {
                                  var last = string.Empty;
-                                 while (settingsRunning && pendingSelection is null && !pendingEscape)
+                                 while (settingsRunning && pendingSelection is null && !pendingEscape && !TuiConsole.IsAppExitRequested)
                                  {
                                      var config = _configService.Config;
                                      var fp     = cursorIndex + "|" + SnapshotConfig();
@@ -365,6 +365,12 @@ public class SettingsView : BaseView
                                                                  cancellationToken: cts.Token);
             while (!waitTask.IsCompleted)
             {
+                if (TuiConsole.IsAppExitRequested)
+                {
+                    cts.Cancel();
+                    return null;
+                }
+
                 if (Console.KeyAvailable && Console.ReadKey(true).Key == ConsoleKey.Escape)
                 {
                     cts.Cancel();
@@ -684,7 +690,7 @@ public class SettingsView : BaseView
                 AnsiConsole.MarkupLine($"[grey]{Markup.Escape(providersResult.Error)}[/]");
             }
 
-            Console.ReadKey(true);
+            TuiConsole.WaitForKey();
             return;
         }
 
@@ -736,7 +742,7 @@ public class SettingsView : BaseView
                    .Start(ctx =>
                    {
                        var last = string.Empty;
-                       while (active)
+                       while (active && !TuiConsole.IsAppExitRequested)
                        {
                            var fp = Fingerprint();
                            if (!fp.Equals(last, StringComparison.Ordinal))
@@ -795,7 +801,7 @@ public class SettingsView : BaseView
     private async Task ConfigureSortingPrioritiesAsync(CliConfig config)
     {
         var active = true;
-        while (active)
+        while (active && !TuiConsole.IsAppExitRequested)
         {
             AnsiConsole.Clear();
             Theme.WriteHeader("Sıralama öncelikleri");
@@ -1102,7 +1108,7 @@ public class SettingsView : BaseView
                    .Start(ctx =>
                    {
                        var last = string.Empty;
-                       while (running)
+                       while (running && !TuiConsole.IsAppExitRequested)
                        {
                            var fp = Fingerprint();
                            if (!fp.Equals(last, StringComparison.Ordinal))

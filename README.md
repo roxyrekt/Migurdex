@@ -18,12 +18,6 @@ Terminalden Türkçe anime aramak ve izlemek için araç. TUI + yerel HTTP API +
 
 ![Migurdex demo](assets/docs/demo_3.gif)
 
-## Belgeler (start here)
-
-- **[`DOWNLOAD.md`](DOWNLOAD.md)** — indirme özelliğinin tam dokümantasyonu. **İndirme özelliğini öğrenmek
-  için buradan başla:** genel akış, CLI bayrakları, çıkış kodları, JSON çıktısı, `config.json` alanları,
-  test kapsamı ve `Bilinen sınırlar ve riskler`.
-
 ## Özellikler
 
 - Fuzzy arama (`opc` -> One Piece gibi)
@@ -144,7 +138,7 @@ tercihleri ve `SourceSelector` kurallarına uyar, en iyi üç uygun adayı sıra
 | `0` | Başarı |
 | `1` | Çalışma zamanı / upstream (sağlayıcı) hatası |
 | `2` | Kullanım (usage) hatası |
-| `130` | Video tamamlandı, altyazı aşaması kullanıcı tarafından iptal edildi |
+| `3` | Video tamamlandı, altyazı aşaması kullanıcı tarafından iptal edildi |
 
 `--debug` URL, header veya token yazdırmaz; indirmeyi başlatmadan yalnız güvenli kaynak özetini gösterir.
 `--json` modunda stdout yalnız JSON, ilerleme ve uyarılar stderr'e gider.
@@ -205,13 +199,9 @@ içermez.
 - **Deokwave sağlayıcısı boş sonuç verebilir.** `deokwave.com` tüm uç noktalarında Cloudflare
   `"Just a moment..."` JS challenge'iyle HTTP 403 döndürdüğü için arama şu anda boş liste dönüyor ve bu
   sağlayıcı üzerinden indirme kaynak çözümlemesine ulaşamadan hata veriyor. Uygulama hatası değil, upstream
-  erişim sorunu; diğer sağlayıcılar etkilenmiyor. Ayrıntı:
-  [`DOWNLOAD.md`](DOWNLOAD.md) → `Sağlayıcı upstream erişimi (Deokwave)`.
+  erişim sorunu; diğer sağlayıcılar etkilenmiyor.
 - **İndirme, izleme kaydı üretmez.** İndirme MPV açmaz, izleme geçmişine yazmaz ve AniList/MAL tracker
   senkronunu tetiklemez.
-
-Kapsamlı sınır listesi ve riskler için [`DOWNLOAD.md`](DOWNLOAD.md) → `Bilinen sınırlar ve riskler`
-bölümüne bak.
 
 ## Dosyalar
 
@@ -271,36 +261,7 @@ Testler:
 dotnet test
 ```
 
-Son offline doğrulama (29 Eylül 2026, upstream `main` / `4ecd7d7` üzerine rebase sonrası): çalışma ağacı temiz;
-Release derlemesi 19 proje / 0 uyarı / 0 hata; ağ bağımlı `ExtractorSmokeTests` hariç **275/275** test geçti.
-İndirme özelliğiyle ilgili test sınıfları ayrı grup koşularında **110/110** (10 sınıf) geçti. Ayrıntılı sonuçlar:
-[`DOWNLOAD.md`](DOWNLOAD.md) → `Test kapsamı`.
-
-Canlı API smoke (26 Eylül 2026): 21 endpoint test edildi; 21/21 HTTP 200 ve geçerli JSON döndü. `/health`
-13 sağlayıcı / 38 extractor / Rust hazır bildirdi; `q=one piece` araması 13/13 sağlayıcıda başarılı oldu ve
-153 sonuç döndü. Anime detayları, gruplar, kaynaklar, metadata ve tracker lookup uçları da doğrulandı.
-API loglarında uygulama hatası yok; yalnızca iki upstream durumu (TrAnimeIzle captcha, Vidmoly reklam
-redirect’i) tespit edildi. Ayrıntılar: [`DOWNLOAD.md`](DOWNLOAD.md) → `Canlı API smoke doğrulaması`.
-
-Linux doğrulaması (29 Eylül 2026, WSL2 Ubuntu 24.04.5) uçtan uca geçti: Release derlemesi
-19 proje / 0 uyarı / 0 hata, offline takım 275/275 (temiz dalda non-TTY help fix sonrası 293/293),
-`migurdex --version` → `v1.10.2`, `migurdex download --help` release binary'siyle byte-level aynı,
-`/health` 200 (14 sağlayıcı / 38 extractor / Rust), AppImage extraction + zsync `updateinformation` +
-çalıştırma başarılı; arm64 paketi statik doğrulandı ancak çalıştırılamadı (x64 ortam, QEMU yok).
-Ayrıntılar: [`DOWNLOAD.md`](DOWNLOAD.md) → `Platform doğrulaması`.
-
 Release paketlerini CI, [Kurulum → manuel kurulum](#kurulum) tablosundaki dosya adlarıyla üretir.
-
-## Ek geliştirme kayıtları
-
-Bu özelliğin geliştirme sürecine ait ayrıntılı kayıtlar (bu depoda değil, fork deposunda) tutuluyor:
-
-- [DEVELOPMENT_LOG.md](https://github.com/Nutaliaxd/Migurdex/blob/main/DEVELOPMENT_LOG.md) — başlangıçtan PR'a
-  kadar kronolojik geliştirme günlüğü.
-- [TEST_RESULTS.md](https://github.com/Nutaliaxd/Migurdex/blob/main/TEST_RESULTS.md) — offline ve canlı API
-  doğrulama kayıtları, sürüm geçiş notları ve paket doğrulama sonuçları.
-- [PR_DESCRIPTION.md](https://github.com/Nutaliaxd/Migurdex/blob/main/PR_DESCRIPTION.md) — PR metni ve
-  teknik gerekçe.
 
 ## Yol Haritası
 

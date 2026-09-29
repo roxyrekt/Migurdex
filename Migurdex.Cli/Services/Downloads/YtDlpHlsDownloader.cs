@@ -18,6 +18,26 @@ public sealed class YtDlpHlsDownloader : IHlsDownloader
         + @"(?<total>\d+(?:[.,]\d+)?)\s*(?<totalUnit>B|KiB|MiB|GiB|TiB)",
         RegexOptions.Compiled | RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
 
+    private static readonly Regex ProgressTotalRegex = new(
+        @"of\s+~?\s*(?<value>\d+(?:[.,]\d+)?)\s*(?<unit>B|KiB|MiB|GiB|TiB)(?!/s)",
+        RegexOptions.Compiled | RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+
+    private static readonly Regex ProgressSpeedRegex = new(
+        @"at\s+(?<value>\d+(?:[.,]\d+)?)\s*(?<unit>B|KiB|MiB|GiB|TiB)/s",
+        RegexOptions.Compiled | RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+
+    private static readonly Regex ProgressFragRegex = new(
+        @"\(frag\s+(?<done>\d+)/(?<total>\d+)\)",
+        RegexOptions.Compiled | RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+
+    private static readonly Regex ProgressEtaRegex = new(
+        @"ETA\s+(?:(?<hours>\d+):)?(?<minutes>\d{1,2}):(?<seconds>\d{2})\b",
+        RegexOptions.Compiled | RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+
+    private static readonly Regex ProgressDestinationRegex = new(
+        @"^\[download\]\s+Destination:\s*(?<path>.+?)\s*$",
+        RegexOptions.Compiled | RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+
     private readonly IExternalProcessRunner _processRunner;
     private readonly HlsDownloadOptions      _options;
 
@@ -38,13 +58,15 @@ public sealed class YtDlpHlsDownloader : IHlsDownloader
         IExternalProcessRunner processRunner,
         string                  executable  = "yt-dlp",
         int                     maxAttempts = 3,
-        TimeSpan?               retryDelay  = null)
+        TimeSpan?               retryDelay  = null,
+        int                     concurrentFragments = 5)
         : this(processRunner,
                new HlsDownloadOptions
                {
                    Executable   = executable,
                    MaxAttempts = maxAttempts,
-                   RetryDelay  = retryDelay ?? TimeSpan.FromSeconds(1)
+                   RetryDelay  = retryDelay ?? TimeSpan.FromSeconds(1),
+                   ConcurrentFragments = concurrentFragments
                })
     {
     }
@@ -94,6 +116,7 @@ public sealed class YtDlpHlsDownloader : IHlsDownloader
             var maxAttempts = Math.Clamp(_options.MaxAttempts, 1, 5);
             ExternalProcessResult? lastResult = null;
             string? lastError = null;
+            var attemptWarnings = new List<string>();
 
             for (var attempt = 1; attempt <= maxAttempts; attempt++)
             {
@@ -106,12 +129,18 @@ public sealed class YtDlpHlsDownloader : IHlsDownloader
                 Report(progress, DownloadStage.Requesting, 0, null);
 
                 var startInfo = BuildStartInfo(source, jobDirectory, inputPath);
+                var heartbeat = new HlsProgressHeartbeat();
+                var attemptErrors = new List<string>();
                 ExternalProcessResult result;
                 try
                 {
                     result = await _processRunner.RunAsync(
                                                     startInfo,
-                                                    line => ReportProcessProgress(line, progress),
+                                                    line =>
+                                                    {
+                                                        CaptureErrorLine(line, attemptErrors);
+                                                        heartbeat.Report(line, progress);
+                                                    },
                                                     cancellationToken)
                                               .ConfigureAwait(false);
                     cancellationToken.ThrowIfCancellationRequested();
@@ -146,10 +175,11 @@ public sealed class YtDlpHlsDownloader : IHlsDownloader
                                           destination,
                                           overwrite,
                                           progress,
-                                          cancellationToken);
+                                          cancellationToken,
+                                          attemptWarnings);
                     }
 
-                    lastError = "yt-dlp geçerli medya çıktısı üretmedi.";
+                    lastError = WithCause("yt-dlp geçerli medya çıktısı üretmedi.", attemptErrors);
                 }
                 else if (LooksLikeFfmpegFailure(result))
                 {
@@ -158,11 +188,12 @@ public sealed class YtDlpHlsDownloader : IHlsDownloader
                 }
                 else
                 {
-                    lastError = "yt-dlp HLS indirmeyi tamamlayamadı.";
+                    lastError = WithCause("yt-dlp HLS indirmeyi tamamlayamadı.", attemptErrors);
                 }
 
                 if (attempt < maxAttempts)
                 {
+                    attemptWarnings.Add($"Deneme {attempt}/{maxAttempts} başarısız ({ShortCause(lastError)}); tekrar deneniyor.");
                     var delay = _options.RetryDelay < TimeSpan.Zero
                                     ? TimeSpan.Zero
                                     : _options.RetryDelay;
@@ -238,9 +269,9 @@ public sealed class YtDlpHlsDownloader : IHlsDownloader
         startInfo.ArgumentList.Add("--no-playlist");
         startInfo.ArgumentList.Add("--no-part");
         startInfo.ArgumentList.Add("--newline");
-        // yt-dlp'de --print, --quiet davranışını ima eder ve progress çıktısını tamamen kapatır.
-        // --progress, --print after_move:filepath korunurken ilerleme satırlarını geri açar;
-        // ReportProcessProgress bu satırlardan DownloadStage.Downloading üretir.
+        // --print after_move:filepath bilerek kullanılmıyor: --print, [download]
+        // Destination satırlarını bastırıyor ve track takibi kör kalıyor. Final
+        // dosya bunun yerine iş dizinindeki en yeni medya dosyasından bulunuyor.
         startInfo.ArgumentList.Add("--progress");
         startInfo.ArgumentList.Add("--batch-file");
         startInfo.ArgumentList.Add(inputPath);
@@ -248,8 +279,9 @@ public sealed class YtDlpHlsDownloader : IHlsDownloader
         startInfo.ArgumentList.Add(jobDirectory);
         startInfo.ArgumentList.Add("--output");
         startInfo.ArgumentList.Add("media.%(ext)s");
-        startInfo.ArgumentList.Add("--print");
-        startInfo.ArgumentList.Add("after_move:filepath");
+        startInfo.ArgumentList.Add("--concurrent-fragments");
+        startInfo.ArgumentList.Add(Math.Clamp(_options.ConcurrentFragments, 1, 16)
+                                      .ToString(CultureInfo.InvariantCulture));
 
         // yt-dlp'ye global --add-header yalnız güvenli allowlist ile verilir.
         // Cookie/Authorization/API-key benzeri başlıklar dış sürece hiç taşınmaz.
@@ -262,44 +294,174 @@ public sealed class YtDlpHlsDownloader : IHlsDownloader
         return startInfo;
     }
 
-    private static void ReportProcessProgress(
-        string                         line,
-        IProgress<DownloadProgress>? progress)
+    private sealed class HlsProgressHeartbeat
     {
-        if (string.IsNullOrWhiteSpace(line) || progress is null)
+        private long _bytes;
+        private long? _total;
+        private string? _track;
+        private int _trackCount;
+
+        public void Report(string line, IProgress<DownloadProgress>? progress)
         {
-            return;
+            if (string.IsNullOrWhiteSpace(line) || progress is null)
+            {
+                return;
+            }
+
+            var destination = ProgressDestinationRegex.Match(line);
+            if (destination.Success)
+            {
+                var name = TrackName(destination.Groups["path"].Value);
+                if (!string.IsNullOrWhiteSpace(name)
+                    && !string.Equals(name, _track, StringComparison.Ordinal))
+                {
+                    _track = name;
+                    _trackCount++;
+                    _bytes = 0;
+                    _total = null;
+                    progress.Report(new DownloadProgress(DownloadStage.Downloading,
+                                                         0,
+                                                         null,
+                                                         track: _track,
+                                                         isAudioTrack: _trackCount > 1));
+                }
+
+                return;
+            }
+
+            var speed = TryParseSpeed(line);
+            var (fragDone, fragTotal) = TryParseFrags(line);
+            var eta = TryParseEta(line);
+
+            var bytesMatch = ProgressBytesRegex.Match(line);
+            if (bytesMatch.Success
+                && TryParseSize(bytesMatch.Groups["current"].Value, bytesMatch.Groups["currentUnit"].Value,
+                                out var current)
+                && TryParseSize(bytesMatch.Groups["total"].Value, bytesMatch.Groups["totalUnit"].Value,
+                                out var total))
+            {
+                _bytes = current;
+                _total = total;
+                progress.Report(new DownloadProgress(DownloadStage.Downloading, current, total, speed, fragDone, fragTotal, eta, null, _track, _trackCount > 1));
+                return;
+            }
+
+            var percentMatch = ProgressPercentRegex.Match(line);
+            if (percentMatch.Success
+                && double.TryParse(percentMatch.Groups["value"].Value,
+                                   NumberStyles.Float,
+                                   CultureInfo.InvariantCulture,
+                                   out var percent))
+            {
+                var totalMatch = ProgressTotalRegex.Match(line);
+                if (totalMatch.Success
+                    && TryParseSize(totalMatch.Groups["value"].Value, totalMatch.Groups["unit"].Value,
+                                    out var percentTotal))
+                {
+                    var downloaded = (long)Math.Round(percent / 100 * percentTotal);
+                    _bytes = downloaded;
+                    _total = percentTotal;
+                    progress.Report(new DownloadProgress(DownloadStage.Downloading, downloaded, percentTotal, speed, fragDone, fragTotal, eta, percent, _track, _trackCount > 1));
+                    return;
+                }
+
+                progress.Report(new DownloadProgress(DownloadStage.Downloading, _bytes, _total, speed, fragDone, fragTotal, eta, percent, _track, _trackCount > 1));
+                return;
+            }
+
+            if (line.Contains("[Merger]", StringComparison.OrdinalIgnoreCase)
+                || line.Contains("[ExtractAudio", StringComparison.OrdinalIgnoreCase)
+                || line.Contains("[Fixup", StringComparison.OrdinalIgnoreCase))
+            {
+                progress.Report(new DownloadProgress(DownloadStage.Finalizing, 0, null));
+                return;
+            }
+
+            if (line.Contains("[download]", StringComparison.OrdinalIgnoreCase))
+            {
+                progress.Report(new DownloadProgress(DownloadStage.Downloading, _bytes, _total, speed, fragDone, fragTotal, eta, null, _track, _trackCount > 1));
+            }
         }
 
-        var bytesMatch = ProgressBytesRegex.Match(line);
-        if (bytesMatch.Success
-            && TryParseSize(bytesMatch.Groups["current"].Value, bytesMatch.Groups["currentUnit"].Value,
-                            out var current)
-            && TryParseSize(bytesMatch.Groups["total"].Value, bytesMatch.Groups["totalUnit"].Value,
-                            out var total))
+        private static TimeSpan? TryParseEta(string line)
         {
-            progress.Report(new DownloadProgress(DownloadStage.Downloading, current, total));
-            return;
+            var match = ProgressEtaRegex.Match(line);
+            if (!match.Success
+                || !int.TryParse(match.Groups["minutes"].Value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var minutes)
+                || !int.TryParse(match.Groups["seconds"].Value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var seconds)
+                || seconds is < 0 or > 59
+                || minutes < 0)
+            {
+                return null;
+            }
+
+            var hours = 0;
+            if (match.Groups["hours"].Success
+                && !int.TryParse(match.Groups["hours"].Value, NumberStyles.Integer, CultureInfo.InvariantCulture, out hours))
+            {
+                return null;
+            }
+
+            try
+            {
+                return new TimeSpan(hours, minutes, seconds);
+            }
+            catch (ArgumentOutOfRangeException)
+            {
+                return null;
+            }
         }
 
-        var percentMatch = ProgressPercentRegex.Match(line);
-        if (percentMatch.Success
-            && double.TryParse(percentMatch.Groups["value"].Value,
-                               NumberStyles.Float,
-                               CultureInfo.InvariantCulture,
-                               out var percent))
+        private static string? TrackName(string path)
         {
-            progress.Report(new DownloadProgress(DownloadStage.Downloading,
-                                                 (long)Math.Round(percent),
-                                                 100));
-            return;
+            if (string.IsNullOrWhiteSpace(path))
+            {
+                return null;
+            }
+
+            string name;
+            try
+            {
+                name = Path.GetFileName(path.Trim());
+            }
+            catch
+            {
+                return null;
+            }
+
+            if (string.IsNullOrWhiteSpace(name))
+            {
+                return null;
+            }
+
+            return name.Length > 48 ? name[..48] + "…" : name;
         }
 
-        if (line.Contains("[Merger]", StringComparison.OrdinalIgnoreCase)
-            || line.Contains("[ExtractAudio", StringComparison.OrdinalIgnoreCase)
-            || line.Contains("[Fixup", StringComparison.OrdinalIgnoreCase))
+        private static (int? Done, int? Total) TryParseFrags(string line)
         {
-            progress.Report(new DownloadProgress(DownloadStage.Finalizing, 0, null));
+            var match = ProgressFragRegex.Match(line);
+            if (!match.Success
+                || !int.TryParse(match.Groups["done"].Value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var done)
+                || !int.TryParse(match.Groups["total"].Value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var total)
+                || done < 0
+                || total <= 0)
+            {
+                return (null, null);
+            }
+
+            return (done, total);
+        }
+
+        private static double? TryParseSpeed(string line)
+        {
+            var match = ProgressSpeedRegex.Match(line);
+            if (!match.Success
+                || !TryParseSize(match.Groups["value"].Value, match.Groups["unit"].Value, out var bytes))
+            {
+                return null;
+            }
+
+            return bytes;
         }
     }
 
@@ -343,7 +505,8 @@ public sealed class YtDlpHlsDownloader : IHlsDownloader
         DownloadPath                 destination,
         bool                         overwrite,
         IProgress<DownloadProgress>? progress,
-        CancellationToken             cancellationToken)
+        CancellationToken             cancellationToken,
+        IReadOnlyList<string>?        warnings = null)
     {
         cancellationToken.ThrowIfCancellationRequested();
         var extension = Path.GetExtension(outputPath);
@@ -382,11 +545,61 @@ public sealed class YtDlpHlsDownloader : IHlsDownloader
 
         bytes = new FileInfo(finalPath).Length;
         Report(progress, DownloadStage.Completed, bytes, bytes);
-        return new MediaDownloadResult(finalPath, bytes, bytes, false);
+        return new MediaDownloadResult(finalPath, bytes, bytes, false, warnings);
+    }
+
+    private static readonly Regex ErrorUrlScrubRegex = new(
+        @"https?://\S+",
+        RegexOptions.Compiled | RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+
+    private static void CaptureErrorLine(string line, List<string> sink)
+    {
+        if (!line.Contains("ERROR:", StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        sink.Add(SanitizeProcessLine(line));
+        while (sink.Count > 3)
+        {
+            sink.RemoveAt(0);
+        }
+    }
+
+    private static string SanitizeProcessLine(string line)
+    {
+        var clean = line.Replace('\r', ' ').Replace('\n', ' ').Trim();
+        clean = ErrorUrlScrubRegex.Replace(clean, "[adres]");
+        return clean.Length > 200 ? clean[..200] + "…" : clean;
+    }
+
+    private static string WithCause(string fallback, List<string> errors)
+    {
+        if (errors.Count == 0)
+        {
+            return fallback;
+        }
+
+        return fallback + " " + string.Join(" ", errors.TakeLast(2));
+    }
+
+    private static string ShortCause(string message)
+    {
+        var clean = message.Replace('\r', ' ').Replace('\n', ' ').Trim();
+        return clean.Length > 160 ? clean[..160] + "…" : clean;
     }
 
     private static string? FindOutputFile(ExternalProcessResult result, string jobDirectory)
     {
+        var merged = Directory.EnumerateFiles(jobDirectory, "*", SearchOption.TopDirectoryOnly)
+                              .Where(IsMediaFile)
+                              .OrderByDescending(File.GetLastWriteTimeUtc)
+                              .FirstOrDefault();
+        if (merged is not null)
+        {
+            return merged;
+        }
+
         var candidates = new List<string>();
         if (!string.IsNullOrWhiteSpace(result.OutputPath))
         {
@@ -416,10 +629,7 @@ public sealed class YtDlpHlsDownloader : IHlsDownloader
             }
         }
 
-        return Directory.EnumerateFiles(jobDirectory, "*", SearchOption.TopDirectoryOnly)
-                        .Where(IsMediaFile)
-                        .OrderByDescending(File.GetLastWriteTimeUtc)
-                        .FirstOrDefault();
+        return null;
     }
 
     private static string? ResolveCandidate(string candidate, string jobDirectory)

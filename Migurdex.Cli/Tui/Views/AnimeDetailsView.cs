@@ -55,7 +55,11 @@ public class AnimeDetailsView : BaseView
         if (string.IsNullOrEmpty(_provider) || string.IsNullOrEmpty(_animeId))
         {
             AnsiConsole.MarkupLine("[red]Hata: Sağlayıcı veya anime belirtilmemiş.[/]");
-            Console.ReadKey(true);
+            if (!TuiConsole.WaitForKey())
+            {
+                return;
+            }
+
             navigator.Pop();
             return;
         }
@@ -97,7 +101,11 @@ public class AnimeDetailsView : BaseView
                     AnsiConsole.MarkupLine($"[grey]{Markup.Escape(loadError)}[/]");
                 }
 
-                Console.ReadKey(true);
+                if (!TuiConsole.WaitForKey())
+                {
+                    return;
+                }
+
                 navigator.Pop();
                 return;
             }

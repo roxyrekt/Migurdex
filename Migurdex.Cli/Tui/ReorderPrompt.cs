@@ -167,6 +167,13 @@ public static class ReorderPrompt
                        var last = string.Empty;
                        while (isRunning)
                        {
+                           if (TuiConsole.IsAppExitRequested)
+                           {
+                               result    = null;
+                               isRunning = false;
+                               break;
+                           }
+
                            var fp = Fingerprint();
                            if (!fp.Equals(last, StringComparison.Ordinal))
                            {
