@@ -11,8 +11,13 @@
 > Release: https://github.com/Nutaliaxd/Migurdex/releases/tag/v1.10.2
 > CI run: https://github.com/Nutaliaxd/Migurdex/actions/runs/36562344972 (sonuç: **success**)
 > Upstream PR: https://github.com/roxyrekt/Migurdex/pull/2 (**OPEN**, `MERGEABLE`; temiz dal
-> `upstream/download-clean`, tek commit `7f1e250`) — eski upstream
+> `upstream/download-clean`, 3 commit: `7f1e250` özellik, `f3aaad7` non-TTY help fix,
+> `474a43d` dokümantasyon) — eski upstream
 > https://github.com/roxyrekt/Migurdex/pull/1 **CLOSED** (duplicate; temiz PR #2 ile değiştirildi)
+>
+> **Test toplamları hangi ağaca ait:** bölüm 1'deki **275/275** ve **110/110** değerleri `main`
+> dalını (`44f4010`) temsil eder. **293/293** sonucu ise `upstream/download-clean` dalına
+> (`f3aaad7`) aittir; Linux runtime doğrulaması ve non-TTY help fix bölüm 16'dadır.
 
 > **Commit geçmişinde tek doğruluk kaynağı `git log`'dur** (bkz. bölüm 11). Bu dosyadaki commit
 > listeleri okunabilirlik için anlatıcı kayıttır; güncel ve eksiksiz liste için
@@ -37,6 +42,7 @@
 13. [Bilinen sınırlar](#13-bilinen-sınırlar)
 14. [Kullanışlı dosyalar](#14-kullanışlı-dosyalar)
 15. [PR #1 merge ve `v1.10.2` release](#15-pr-1-merge-ve-v1102-release)
+16. [Linux runtime doğrulaması ve non-TTY help fix](#16-linux-runtime-doğrulaması-ve-non-tty-help-fix)
 
 ---
 
@@ -77,8 +83,9 @@ Sonuç:
 - Kök kurulum **v1.10.0 + download** olarak yükseltildi
 - **PR #1 merge edildi** (merge commit `44f4010`, 22 commit, 40 dosya, +11.559/−249)
 - **`v1.10.2` yayınlandı** (fork `Nutaliaxd/Migurdex`; CI release koşusu başarılı) — bkz. bölüm 15
-- **Upstream PR #2 açıldı** (temiz dal `upstream/download-clean`, tek commit `7f1e250`, 37 dosya,
-  +9.879/−253, `OPEN` + `MERGEABLE`); önceki upstream PR #1 kapatıldı — bkz. bölüm 15
+- **Upstream PR #2 açıldı** (temiz dal `upstream/download-clean`, 3 commit: `7f1e250` özellik,
+  `f3aaad7` non-TTY help fix, `474a43d` dokümantasyon; 39 dosya, +10.173/−266, `OPEN` + `MERGEABLE`);
+  önceki upstream PR #1 kapatıldı — bkz. bölüm 15 ve 16
 
 ---
 
@@ -721,6 +728,34 @@ HTTP 403 - Just a moment...
 
 ---
 
+### 5.11 Üst düzey `--help` TTY olmadan çöküyordu
+
+**Hata:**
+
+```text
+$ migurdex --help
+... yardım metni ...
+Aborted (core dumped)   # exit 134 / SIGABRT
+```
+
+**Neden:** `Program.Main` üst düzey `--help` / `-h` / `help` argümanlarını yakalamıyordu.
+Argümanlar düşüyor, TUI başlatma rotasına gidiyordu; yönlendirilmiş stdin'de `Console.ReadKey`
+çalıştırıldığı için süreç çöküyordu. `MaybePromptForUpdateAsync` içindeki "bir tuşa basın"
+beklemesi de aynı guard'dan yoksundu.
+
+**Kapsam:** `--version` ve `migurdex download --help` zaten doğru çalışıyordu; sorun yalnızca
+üst düzey help rotasındaydı.
+
+**Bu Linux'a özgü değildi** — `stdin` yönlendirilmiş her ortamda geçerliydi (CI, Docker `CMD`,
+`nohup`, `migurdex --help > dosya`, `$(...)`). Windows'ta yönlendirme yapılmadığı için görünmüyordu.
+
+**Çözüm:** `f3aaad7` — yeni `HelpCommand` sınıfı (`IsHelpToken`, `IsTopLevelRequest`,
+`PrintHelp(TextWriter)`, `Run()`), `Program.cs`'de TUI başlatılmadan önce top-level help kontrolü,
+`NonInteractiveCommand.Help()` → yeniden kullanılabilir `PrintHelp(TextWriter?)` ayrıştırması ve
+`ReadKey` guard'ı. Alt komut yardımı korunuyor; 18 yeni test. Ayrıntı: bölüm 16.
+
+---
+
 ## 6. Güvenlik ve veri bütünlüğü kararları
 
 - Yalnız HTTP/HTTPS kabul edilir.
@@ -796,6 +831,21 @@ Gerçek `One Piece` MP4 indirmesi ve ffprobe doğrulaması.
 ### 7.6 Deokwave
 
 Plugin yükleniyor, sağlayıcı çözülüyor; Cloudflare upstream engeli nedeniyle arama boş dönüyor.
+
+### 7.7 Linux runtime (WSL2, Ubuntu 24.04.5)
+
+Gerçek Linux ortamında uçtan uca koşu: restore, build (19 proje / 0 uyarı / 0 hata), test
+(275/275), CLI (`--version` → `v1.10.2`, `download --help` release binary'siyle byte-level aynı),
+API (`/health` → 200, 14 sağlayıcı / 38 extractor / `rust=true`), AppImage (`--appimage-extract`,
+zsync `updateinformation`, çalıştırma). Yerel build ile release binary'si aynı GNU BuildID'yi
+taşıyor (`c36ad71424f1fa2ffd952574ab64dd0d952b101a`). arm64 statik doğrulandı, çalıştırılamadı
+(x64 ortam, QEMU yok). Ayrıntı: bölüm 16.
+
+### 7.8 Üst düzey yardım (non-TTY)
+
+`f3aaad7` sonrası genel offline takım **293/293** (275 taban + 18 `TopLevelHelpTests`). Elle
+kontroller: `migurdex --help`, `-h`, `help` → `exit 0`; `migurdex download --help` alt komut
+yardımını koruyor; TUI açılmıyor.
 
 ---
 
@@ -975,6 +1025,12 @@ Ana alanlar:
   CI release paketlerinde sürüm damgası `-p:Version` ile basıldığı için `v1.10.2` doğru
   görünür (bkz. bölüm 15).
 - `Deokwave` dışındaki erişim sorunları ve upstream'e bağımlılıklar aynen geçerlidir.
+- **Linux arm64 runtime doğrulanmadı.** arm64 paketi statik doğrulandı (ELF, `unsquashfs`) ancak
+  x64 ortamda QEMU olmadığı için çalıştırılamadı; `--version`, `download --help`, `/health` ve canlı
+  indirme arm64 üzerinde test edilmedi (bkz. bölüm 16.5).
+- **AppImage checksum manifestinde yok.** Yayımlanan `sha256sums-*.txt` dosyaları yalnız `tar.gz`
+  paketini kapsıyor; AppImage bütünlüğü release özetiyle doğrulanamıyor. Bu, indirme özelliğinin
+  değil upstream `build-release.yml` iş akışının eksik adımıdır ve bu PR'da düzeltilmemiştir.
 
 ---
 
@@ -1030,8 +1086,8 @@ dallar korunuyor: `backup/download-pre-v110` (v1.10.0 öncesi) ve `backup/downlo
 | Başlık | `feat: add anime download support` |
 | Head / base | `Nutaliaxd:upstream/download-clean` → `roxyrekt:main` |
 | Durum | **OPEN**, `MERGEABLE` (`mergeable_state: unstable`; henüz check run üretilmedi) |
-| Commit | `7f1e250` — `feat: add anime download support` (tek commit, 29.09.2026 13:19 UTC) |
-| İstatistik | 1 commit · 37 dosya · +9.879 / −253 |
+| Commit | 3 commit: `7f1e250` `feat: add anime download support` (29.09.2026 13:19 UTC) · `f3aaad7` `fix(cli): handle top-level help without tty` (29.09.2026 16:58 +0300) · `474a43d` `docs: record Linux runtime validation` |
+| İstatistik | 3 commit · 39 dosya · +10.173 / −266 (kod commit'i sayılırsa: 2 kod + 1 docs) |
 | Kapsam | kod + testler + `README.md` + `DOWNLOAD.md` |
 | Önceki PR | https://github.com/roxyrekt/Migurdex/pull/1 — **CLOSED**, merge edilmedi (duplicate; temiz PR #2 ile değiştirildi) |
 
@@ -1070,12 +1126,147 @@ Release asset'ları (üç platform matrisi + checksum'lar):
   saygı/niyet notuyla başlar ve kod + testler + `README.md` + `DOWNLOAD.md` içerir; bu üç internal
   belge (`DEVELOPMENT_LOG.md`, `TEST_RESULTS.md`, `PR_DESCRIPTION.md`) PR'ye **bilinçli olarak
   dahil edilmemiştir** ve yalnızca fork `main` dalında durur — PR #2 gövdesinde mutlak bağlantılarıyla
-  işaret edilir.
+  işaret edilir. PR #2 gövdesi ayrıca 293/293 test sonucunu, Linux runtime kanıtını ve
+  `f3aaad7` help fix'inin ayrıntılı teknik bölümünü içerir; kullanıcının saygı/niyet notu
+  gövdenin en üstünde aynen korunur.
 - Release paketi, bölüm 9'daki yerel `build.ps1` paketinden farklıdır: CI sürüm damgası basar
   (yerel pakette `--version` → `v0.0.0`, release paketinde → `v1.10.2`), üç platformu kapsar ve
   `sha256sums-*.txt` ile doğrulanabilir. Yerel `migurdex-win-x64.zip` 61.605.017 bayt,
-  CI karşılığı 60.031.590 bayttır.
+  CI karşılığı 60.031.590 bayttır. Ancak Linux `sha256sums-*.txt` manifestleri **AppImage'leri
+  kapsamaz** (bkz. bölüm 16.5).
 - Kök kurulum (`C:\Users\naton\OneDrive\Desktop\migu`) release paketiyle **yükseltilmedi**;
   hâlâ doğrulanmış yerel paketi çalıştırır. Karşılaştırma tablosu: `TEST_RESULTS.md` bölüm 9.
 - Release notları yalnızca bu PR'ı içerir ("feat: add anime download support by @Nutaliaxd");
   arada başka commit yoktur, dolayısıyla sürüm atlaması veya atlama yapılmamıştır.
+
+---
+
+## 16. Linux runtime doğrulaması ve non-TTY help fix
+
+Bu bölüm, PR #1 merge edildikten ve `v1.10.2` yayınlandıktan **sonra** yürütülen çalışmanın
+kronolojik kaydıdır. İki sonuç üretti: (a) özelliğin Linux'da gerçekten çalıştığının kanıtı,
+(b) bir CLI yardım hatasının bulunup düzeltilmesi.
+
+**Dal:** `upstream/download-clean` (tabandan `4ecd7d7` / v1.10.1). Bu dal `main`'den ayrıdır;
+`main`'deki PR #1 kapsamı bu bölümdeki hiçbir değişikliği içermez.
+
+### 16.1 Zaman çizelgesi
+
+| # | Adım | Sonuç |
+|---|---|---|
+| 1 | Gerçek Linux ortamı kuruldu (WSL2, Ubuntu 24.04.5, x86_64) | hazır |
+| 2 | `dotnet restore Migurdex.slnx` | başarılı |
+| 3 | `dotnet build Migurdex.slnx -c Release --no-restore` | 19 proje, **0 uyarı, 0 hata** |
+| 4 | `dotnet test ... --filter "FullyQualifiedName!~ExtractorSmokeTests"` | **275/275** (help fix'i öncesi ağaç) |
+| 5 | `migurdex --version` | `migurdex v1.10.2` |
+| 6 | `migurdex download --help` | release binary'siyle **byte-level aynı** |
+| 7 | `migurdex --help` | **ÇÖKTÜ (exit 134)** → bulgu, bkz. 16.3 |
+| 8 | `/health` (yerel API) | **200**; `providers=14`, `extractors=38`, `rust=true` |
+| 9 | GNU BuildID karşılaştırması (yerel build ↔ release) | ikisi de `c36ad71424f1fa2ffd952574ab64dd0d952b101a` |
+| 10 | AppImage: `--appimage-extract` | başarılı |
+| 11 | AppImage: zsync `updateinformation` | gömülü ve doğru |
+| 12 | AppImage: çalıştırma | başarılı (x86_64) |
+| 13 | arm64 payload: derleme + ELF + `unsquashfs` | statik doğrulama başarılı |
+| 14 | arm64 payload: çalıştırma | **yapılamadı** (x64 host, QEMU yok) |
+| 15 | `sha256sums-*.txt` incelemesi | AppImage'ler manifestlerde **yok** → bkz. 16.5 |
+| 16 | `f3aaad7` — non-TTY help fix | 18 yeni test, **293/293** |
+| 17 | `474a43d` — dokümantasyon | `DOWNLOAD.md`, `README.md` |
+
+### 16.2 Linux x64 sonuçlarının yorumu
+
+**BuildID eşleşmesi.** Yerel Linux derlemesi ile yayınlanan release binary'si aynı GNU BuildID'yi
+taşıyor. BuildID, kaynak kodu ve derleme parametrelerini özetleyen bir linker çıktısıdır; iki
+çıktının aynı olması **paketleme adımının kaynak kodu değiştirmediğini** kanıtlar. Tek fark sürüm
+damgası (`-p:Version` → `1.10.2` ↔ yerelde `0.0.0`) ve paket biçimidir. Pratik karşılığı: release
+binary'si doğrudan çalıştırılabilir bir referanstır — Linux smoke'larında yerel build yerine
+release paketi kullanılabilir ve `migurdex download --help` çıktısı byte-level karşılaştırılabilir
+(bkz. adım 6).
+
+**`rust=true`.** `/health` yanıtındaki `rust=true`, `migurdex_native.so` köprüsünün Linux'da
+başarıyla yüklendiğini doğrular. Bu kritik: kaynak çözümleme Rust köprüsünden geçer ve
+köprü yüklenemezse API kaynak çözümlemesini yapamaz (Windows'taki `migurdex_native.dll` ile
+aynı durum). `rust=false` olsaydı Linux'daki indirme akışı çalışmazdı.
+
+**Sağlayıcı sayısı.** `providers=14`, `extractors=38`. Bölüm 7.3'teki 13 sağlayıcı kaydı
+v1.10.0 rebase'i öncesi bir koşuma aittir; `Deokwave` ile 14'e çıkmıştır. İki kayıt çelişmez.
+
+### 16.3 Bulunan hata: non-TTY üst düzey yardım (bkz. 5.11)
+
+Linux koşumu gerçek bir hata buldu. `migurdex --help` yönlendirilmiş stdin'de çöküyordu
+(exit 134) çünkü `Program.Main` üst düzey yardım argümanlarını yakalamıyor, TUI rotasına
+düşüyor ve `Console.ReadKey` yönlendirilmiş girdide hata veriyordu.
+
+**Bu Linux'a özgü değildi.** `stdin` yönlendirilmiş her ortamda geçerliydi — CI job'ları, Docker
+`CMD`/entrypoint, `nohup`, `migurdex --help > dosya`, `echo | migurdex --help`, `$(migurdex --help)`.
+Windows'ta görünmüyordu çünkü orada yönlendirme yapılmıyordu. Bu yüzden bulgu "Linux hatası"
+sanılmamalı, **etkileşimsiz ortam hatası** olarak kaydedilmiştir.
+
+**Daraltma.** `--version` ve `migurdex download --help` zaten doğru çalışıyordu; sorun yalnızca
+üst düzey help rotasındaydı. Alt komut yardımları hiç etkilenmedi ve düzeltmeden sonra da
+korunuyor.
+
+**Çözüm (`f3aaad7`).**
+
+| Bileşen | Değişiklik |
+|---|---|
+| `Migurdex.Cli/Services/HelpCommand.cs` *(yeni, 71 satır)* | `IsHelpToken`, `IsTopLevelRequest`, `PrintHelp(TextWriter)`, `Run()` — TUI'siz, yalnız yazan yardım rotası |
+| `Migurdex.Cli/Program.cs` (+10/−1) | `--version` rotasından sonra, TUI başlatılmadan önce top-level help kontrolü; `MaybePromptForUpdateAsync` içindeki `ReadKey` `Console.IsInputRedirected` ile korumaya alındı |
+| `Migurdex.Cli/Services/NonInteractiveCommand.cs` (+25/−14) | `Help()` → yeniden kullanılabilir `internal static void PrintHelp(TextWriter?)`; metin `WriteCommandLines` + `WriteFlagLegend` olarak ayrıştırıldı — **tek kaynak** |
+| `Migurdex.Tests/TopLevelHelpTests.cs` *(yeni, 89 satır)* | 18 test |
+
+`IsTopLevelRequest`, ilk argüman devredilen bir komut (`version`, `update`, `auth`, `search`,
+`play`, `continue`, `download`) olduğunda `false` döndürür — bu, `migurdex download --help`'in kendi
+yardımını basmaya devam etmesini sağlar.
+
+### 16.4 Test toplamları: 275 → 293
+
+| Koşu | Ağaç | Sonuç |
+|---|---|---:|
+| v1.10.1 rebase sonrası | `main` @ `44f4010` | **275/275** |
+| non-TTY help fix sonrası | `upstream/download-clean` @ `f3aaad7` | **293/293** |
+
+Fark **tam olarak 18 yeni `TopLevelHelpTests` case'idir** (5 + 7 + 3 + 1 + 1 + 1). `TopLevelHelpTests`
+CLI yardım yönlendirmesini kapsar, indirme kodunu değil; bu yüzden indirme/TUI grubu metrikleri
+**değişmedi**: hâlâ **81 metot / 110 çalışan case / 10 sınıf**. 293 genel offline takımın
+toplamıdır, 110 indirme/TUI kapsamının toplamıdır — çelişmez.
+
+Elle kontroller (redirected stdin): `migurdex --help` / `-h` / `help` → `exit 0`;
+`migurdex download --help` → alt komut yardımı korunuyor, `exit 0`; `migurdex --version` →
+değişmedi; TUI açılmıyor.
+
+### 16.5 Linux arm64 ve AppImage checksum boşluğu
+
+**arm64.** Payload derlendi ve statik doğrulandı (ELF mimari = AArch64, `unsquashfs` ile AppImage
+içeriğinin açılması, dosya bütünlüğü) ancak **çalıştırılamadı**: doğrulama ortamı x64 ve QEMU
+kurulu değil. `--version`, `download --help`, `/health` ve canlı indirme arm64 üzerinde
+test edilmedi. Bu bir ürün kusuru değil, ortam sınırıdır — arm64 paketi CI'da x64 ile aynı kaynak
+koddan üretildiği için derleme düzeyinde sapma beklenmez. Yine de arm64 runtime kanıtı
+doğrulanmadan "arm64 destekleniyor" denmemelidir.
+
+**AppImage checksum manifesti.** `v1.10.2` release'indeki `sha256sums-linux-x64.txt` ve
+`sha256sums-linux-arm64.txt` manifestleri **yalnız `tar.gz`** paketini kapsıyor; iki AppImage
+manifestlerde **yer almıyor**. Boyutlarla bağımsız doğrulama: bir `sha256sum` satırı
+`64 hex + 2 boşluk + ad + 1 satır sonu` = 67 + ad uzunluğu bayttur.
+
+| Manifest | Kapsanan dosya | Beklenen | Yayımlanan | Yorum |
+|---|---|---:|---:|---|
+| `sha256sums-linux-x64.txt` | `migurdex-linux-x64.tar.gz` | 91 | 92 | tek dosya |
+| `sha256sums-linux-arm64.txt` | `migurdex-linux-arm64.tar.gz` | 93 | 94 | tek dosya |
+| `sha256sums-win-x64.txt` | `migurdex-win-x64.zip` | 86 | 87 | tek dosya |
+
+Sabit 1 bayt farkı üç manifestte de aynıdır; önemli olan **sayıdır**: manifest başına tam olarak
+tek dosya vardır. AppImage'ler de kapsansaydı boyutlar ~150 bayt daha büyük olurdu.
+
+Sonuç: AppImage bütünlüğü release özetiyle **doğrulanamıyor**; yalnız `.zsync` dosyaları mevcut.
+Bu bir indirme özelliği kusuru değil, upstream `build-release.yml` iş akışının eksik adımıdır —
+checksum üretimine AppImage'lerin de eklenmesi gerekir. **Bu PR kapsamında düzeltilmemiştir.**
+
+### 16.6 Risk ve uyumluluk
+
+- `f3aaad7` yalnız yeni bir yönlendirme ve iki koruma guard'ı ekliyor; oynatma ve indirme akışı
+  değişmedi.
+- Etkilenen tek davranış: üst düzey yardım artık TUI'ye girmek yerine doğrudan basılıyor — bu,
+  etkileşimli terminalde de istenen davranış.
+- Windows ve Linux aynı şekilde fayda görüyor; platforma özgü kod veya `#if` yok.
+- Yeni paket bağımlılığı, yeni `config.json` alanı, hedef çerçive veya `/api/v1` sözleşmesi
+  değişikliği yok; breaking change yok.

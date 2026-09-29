@@ -29,7 +29,7 @@ Bu depo, [`Nutaliaxd/Migurdex`](https://github.com/Nutaliaxd/Migurdex) fork'udur
 bu özellik fork içinde [`PR #1`](https://github.com/Nutaliaxd/Migurdex/pull/1) ile merge edilip
 `v1.10.2` release'ı olarak yayımlandı. Upstream entegrasyonu
 [`roxyrekt/Migurdex PR #2`](https://github.com/roxyrekt/Migurdex/pull/2) üzerinden takip ediliyor
-(temiz dal `upstream/download-clean`, tek commit; durum `OPEN` ve `MERGEABLE`). Eski upstream
+(temiz dal `upstream/download-clean`, 3 commit; durum `OPEN` ve `MERGEABLE`). Eski upstream
 [`PR #1`](https://github.com/roxyrekt/Migurdex/pull/1) kapatıldı.
 
 | | Upstream | Bu fork |
@@ -329,6 +329,9 @@ Son offline doğrulama (29 Eylül 2026, `v1.10.2` yayını kapsamında, upstream
 ağacı temiz; Release derlemesi 19 proje / 0 uyarı / 0 hata; ağ bağımlı `ExtractorSmokeTests` hariç **275/275** test geçti.
 İndirme özelliğiyle ilgili test sınıfları ayrı grup koşularında **110/110** (10 sınıf) geçti. Ayrıntılı sonuçlar:
 [`DOWNLOAD.md`](DOWNLOAD.md) → `Test kapsamı` ve [`TEST_RESULTS.md`](TEST_RESULTS.md).
+
+Temiz dal `upstream/download-clean` üzerinde non-TTY üst düzey yardım düzeltmesi (`f3aaad7`) sonrası aynı
+filtre ile **293/293** test geçti (275 taban + 18 yeni `TopLevelHelpTests`).
 
 Canlı API smoke (26 Eylül 2026): 21 endpoint test edildi; 21/21 HTTP 200 ve geçerli JSON döndü. `/health`
 13 sağlayıcı / 38 extractor / Rust hazır bildirdi; `q=one piece` araması 13/13 sağlayıcıda başarılı oldu ve

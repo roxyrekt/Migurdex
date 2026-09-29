@@ -6,6 +6,11 @@
 > Release: https://github.com/Nutaliaxd/Migurdex/releases/tag/v1.10.2
 > CI: https://github.com/Nutaliaxd/Migurdex/actions/runs/36562344972
 > PR: https://github.com/Nutaliaxd/Migurdex/pull/1
+> Upstream PR: https://github.com/roxyrekt/Migurdex/pull/2
+>
+> **Test toplamları hangi ağaca ait:** bölüm 1'deki **275/275** ve **110/110** değerleri `main`
+> dalını (`44f4010`) temsil eder. **293/293** sonucu ise `upstream/download-clean` dalına
+> (`f3aaad7`) aittir ve bölüm 12'de kayıtlıdır.
 
 ## 1. Offline doğrulama
 
@@ -18,6 +23,10 @@
 Son koşum: 29 Eylül 2026, `v1.10.1` rebase sonrası (portatif .NET SDK 10.0.401).
 Bu kod tabanı PR #1 ile `main`'e merge edildi (`44f4010`) ve `v1.10.2` olarak yayınlandı;
 test kodu merge sonrasında değişmedi, dolayısıyla bu koşum `v1.10.2` ağacını da temsil eder.
+
+> **Yeni doğrulama kaydı:** `upstream/download-clean` dalında (`f3aaad7`) non-TTY üst düzey
+> yardım düzeltmesi sonrası aynı filtre ile **293/293** geçti (275 taban + 18 yeni
+> `TopLevelHelpTests`). Ayrıntı ve Linux runtime kanıtı için bkz. **bölüm 12**.
 
 > **Proje sayısı bağlamı:** 19 proje, `v1.10.0` ve sonrası (upstream `Deokwave` plugin
 > projesi dahil) çözüm ağacıdır. `v1.9.2` tabanlı ağaçta 18 proje vardır; bu yüzden 26–27
@@ -585,14 +594,184 @@ aynı gün etiketli sürüm yayınlandı. **Aktif dal `main`**'dir.
 - Bu release **fork'a** aittir. Upstream `roxyrekt/Migurdex` `main` dalı hâlâ `v1.10.1`
   (`4ecd7d7`) durumundadır; upstream entegrasyonu
   [PR #2](https://github.com/roxyrekt/Migurdex/pull/2) üzerinden açılmıştır. PR `OPEN` ve
-  `MERGEABLE` durumdadır; temiz dal `upstream/download-clean`, tek commit `7f1e250`, 37 dosya,
-  +9.879 / −253. Önceki upstream
+  `MERGEABLE` durumdadır; temiz dal `upstream/download-clean`, 3 commit (`7f1e250` özellik,
+  `f3aaad7` non-TTY help fix, `474a43d` dokümantasyon), 39 dosya, +10.173 / −266. Önceki upstream
   [PR #1](https://github.com/roxyrekt/Migurdex/pull/1) kapatıldı (duplicate).
 - PR #2 kapsamı **kod + testler + `README.md` + `DOWNLOAD.md`** ile sınırlıdır; `DEVELOPMENT_LOG.md`,
   `TEST_RESULTS.md` ve `PR_DESCRIPTION.md` PR'ye dahil edilmemiştir, yalnızca fork `main` dalında
   durur ve PR #2 gövdesinde mutlak bağlantılarıyla işaret edilir. PR #2 ağacı (upstream `4ecd7d7`
-  üzerine tek commit) ile `main`'in test edilen ağacı aynı kaynak kodu taşır; bölüm 1'deki
-  275/275 ve 110/110 sonuçları her ikisini de temsil eder.
+  üzerine rebase edilmiş dal) ile `main`'in test edilen ağacı **aynı indirme kaynak kodunu** taşır;
+  bölüm 1'deki 275/275 ve 110/110 sonuçları her ikisini de temsil eder. Aradaki tek fark
+  `f3aaad7`'nin eklediği `HelpCommand`/`TopLevelHelpTests` ve bölüm 12'de kayıtlı **293/293**
+  sonucudur.
 - Release paketi, bölüm 7'deki yerel `build.ps1` paketinden farklıdır: CI sürüm damgası basar
-  (`-p:Version`), üç platformu kapsar ve `sha256sums-*.txt` ile doğrulanabilir.
+  (`-p:Version`), üç platformu kapsar ve `sha256sums-*.txt` ile doğrulanabilir. Ancak Linux
+  `sha256sums-*.txt` manifestleri AppImage'leri kapsamaz — bkz. bölüm 12 → (e).
 - Kök kurulum hâlâ yerel paketi çalıştırmaktadır; ayrıntı ve fark tablosu bkz. bölüm 9.
+
+## 12. Linux runtime doğrulaması ve non-TTY help fix (29 Eylül 2026)
+
+Bu bölüm iki bağımsız kaydı içerir:
+
+- **(a)** gerçek bir Linux çalıştırma ortamında (WSL2, Ubuntu 24.04.5) alınan uçtan uca
+  doğrulama kanıtı,
+- **(b)** bu koşunun bulduğu ve `f3aaad7` ile düzeltilen üst düzey yardım çökmesi.
+
+İkisi de `upstream/download-clean` dalında yürütülmüştür. `main` dalındaki PR #1 kapsamı
+(PR #1'in merge edildiği ağaç) bu iki kayıttan **etkilenmez**; bölüm 1'deki 275/275 hâlâ `main`
+için geçerlidir.
+
+### Ortam
+
+| Öğe | Değer |
+|---|---|
+| Ortam | WSL2, Ubuntu 24.04.5 (x86_64) |
+| .NET SDK | 10.0.401 (Windows koşumuyla aynı) |
+| Doğrulanan ağaç | `upstream/download-clean` @ `f3aaad7` (tabandan `4ecd7d7` / v1.10.1) |
+| Kullanılan paket | `v1.10.2` release binary'si (CI üretimi) |
+
+### (a) Linux x64 runtime sonuçları
+
+| Adım | Komut / ölçüm | Sonuç |
+|---|---|---|
+| Bağımlılık | `dotnet restore Migurdex.slnx` | başarılı |
+| Derleme | `dotnet build Migurdex.slnx -c Release --no-restore` | 19 proje, **0 uyarı, 0 hata** |
+| Offline takım | `dotnet test Migurdex.Tests/Migurdex.Tests.csproj -c Release --no-build --filter "FullyQualifiedName!~ExtractorSmokeTests"` | **275/275** (help fix'i öncesi ağaç) |
+| CLI sürüm | `migurdex --version` | `migurdex v1.10.2` |
+| CLI alt komut yardımı | `migurdex download --help` | release binary'siyle **byte-level aynı** |
+| API | `/health` | **HTTP 200**; `providers=14`, `extractors=38`, `rust=true` |
+| Yerel build ↔ release | GNU BuildID | ikisi de `c36ad71424f1fa2ffd952574ab64dd0d952b101a` |
+| AppImage | `--appimage-extract` | extraction başarılı |
+| AppImage | zsync `updateinformation` | gömülü ve doğru (`gh-releases-zsync\|roxyrekt\|Migurdex\|latest\|...`) |
+| AppImage | çalıştırma | başarılı (x86_64) |
+
+**BuildID eşleşmesinin anlamı.** Yerel Linux derlemesi ile yayınlanan release binary'si aynı GNU
+BuildID'yi taşıyor (`c36ad71424f1fa2ffd952574ab64dd0d952b101a`). BuildID, kaynak kodu ve derleme
+parametrelerini özetleyen bir linker çıktısı olduğu için iki çıktının aynı BuildID'yi taşıması
+**paketleme adımının kaynak kodu değiştirmediğini** kanıtlar. İki binary arasındaki tek fark
+sürüm damgası (`-p:Version` → `1.10.2` ↔ yerelde `0.0.0`) ve paket biçimidir. Bunun pratik
+karşılığı: release binary'si doğrudan çalıştırılabilir bir referanstır, dolayısıyla Linux smoke
+testlerinde yerel build yerine **release paketi** kullanılabilir ve `migurdex download --help`
+çıktısı byte-level karşılaştırılabilir.
+
+**`/health` sonucu.** `providers=14` (upstream `v1.10.0`'da eklenen `Deokwave` dahil),
+`extractors=38`, `rust=true`. Bu, Rust native köprüsünün (`migurdex_native.so`) Linux'da
+başarıyla yüklendiğini doğrular; `rust=false` olsaydı API kaynak çözümlemesini yapamazdı.
+Windows tarafındaki bölüm 2 kaydı (13 sağlayıcı) v1.10.0 rebase'i öncesi bir koşuma aittir;
+güncel sayı 14'tür ve iki kayıt çelişmez.
+
+### Linux arm64
+
+| Durum | Açıklama |
+|---|---|
+| Derleme | başarılı |
+| ELF doğrulaması | mimari = AArch64 |
+| AppImage içeriği | `unsquashfs` ile açıldı, dosya bütünlüğü doğrulandı |
+| **Çalıştırma** | **yapılamadı** — doğrulama ortamı x64, QEMU emülasyonu kurulu değil |
+
+Çalıştırılamayan kontroller: `migurdex --version`, `migurdex download --help`, `/health` ve canlı
+indirme akışı. Bu bir ürün kusuru değil, **ortam sınırıdır**: arm64 paketi CI tarafından x64 ile
+aynı kaynak koddan ve aynı iş akışıyla üretildiği için derleme düzeyinde bir sapma beklenmez.
+Bununla birlikte arm64 runtime kanıtı **doğrulanmadan "arm64 destekleniyor" denmemelidir**;
+bu kayıt bilinçli olarak eksik kalmayı tercih eder.
+
+### (b) non-TTY `--help` çökmesi ve `f3aaad7` düzeltmesi
+
+**Bulgu.** Linux koşumunda `migurdex --help` çalıştırıldığında süreç çöktü (exit 134 / SIGABRT).
+
+**Kök neden — argüman yönlendirme boşluğu:**
+
+1. `Program.Main` üst düzey `--help` / `-h` / `help` argümanlarını yakalamıyordu.
+2. Argümanlar düşüyor ve TUI başlatma rotasına gidiyordu; TUI etkileşimli terminal bekliyordu.
+3. Yönlendirilmiş stdin'de `Console.ReadKey` çalıştırıldığında süreç çöküyordu.
+
+**Bu Linux'a özgü değildi.** `stdin` yönlendirilmiş olan her ortamda geçerliydi: CI job'ları,
+Docker `CMD`/entrypoint, `nohup`, `migurdex --help > dosya`, `echo | migurdex --help`,
+`$(migurdex --help)`. Yalnız Windows'ta görünmüyordu çünkü orada yönlendirme yapılmıyordu — bu,
+hatayı "Linux hatası" sanma riski taşıyan bir bulgudur.
+
+**Daraltılmış kapsam.** `--version` ve `migurdex download --help` **zaten doğru çalışıyordu**.
+Sorun yalnızca üst düzey help rotasındaydı; alt komutların kendi yardım yolu hiç etkilenmedi.
+
+**Düzeltme (`f3aaad7 fix(cli): handle top-level help without tty`):**
+
+| Bileşen | Değişiklik |
+|---|---|
+| `Migurdex.Cli/Services/HelpCommand.cs` *(yeni, 71 satır)* | `IsHelpToken`, `IsTopLevelRequest`, `PrintHelp(TextWriter)`, `Run()` — TUI'siz, yalnız yazan yardım rotası |
+| `Migurdex.Cli/Program.cs` (+10/−1) | `--version` rotasından sonra, TUI başlatılmadan önce top-level help kontrolü; `MaybePromptForUpdateAsync` içindeki `ReadKey` `Console.IsInputRedirected` ile korumaya alındı |
+| `Migurdex.Cli/Services/NonInteractiveCommand.cs` (+25/−14) | `Help()` → yeniden kullanılabilir `internal static void PrintHelp(TextWriter?)`; metin `WriteCommandLines` + `WriteFlagLegend` olarak ayrıştırıldı — **tek kaynak**, iki yardım metni kopyalanmıyor |
+| `Migurdex.Tests/TopLevelHelpTests.cs` *(yeni, 89 satır)* | 18 test |
+
+`IsTopLevelRequest`, ilk argüman devredilen bir komut (`version`, `update`, `auth`, `search`,
+`play`, `continue`, `download`) olduğunda `false` döndürür; böylece `migurdex download --help`
+üst düzey rotaya düşmez ve kendi yardımını basmaya devam eder.
+
+### (c) Test sonuçları: 275 → 293
+
+| Koşu | Ağaç | Sonuç |
+|---|---|---:|
+| Offline takım, v1.10.1 rebase sonrası | `main` @ `44f4010` | **275/275** |
+| Offline takım, non-TTY help fix sonrası | `upstream/download-clean` @ `f3aaad7` | **293/293** |
+
+275 → 293 farkı **tam olarak 18 yeni `TopLevelHelpTests` case'idir**:
+
+| Test | Case |
+|---|---:|
+| `IsTopLevelRequest_RecognizesEveryHelpAlias` | 5 |
+| `IsTopLevelRequest_LeavesSubCommandHelpToSubCommand` | 7 |
+| `IsTopLevelRequest_IsFalseWithoutAHelpRequest` | 3 |
+| `PrintHelp_CoversTuiSubCommandsVersionAndHelp` | 1 |
+| `PrintHelp_ReusesNonInteractiveCommandLines` | 1 |
+| `Run_WritesHelpToTheGivenWriterAndSucceeds` | 1 |
+| **Toplam** | **18** |
+
+**Kapsam notu.** `TopLevelHelpTests` CLI yardım yönlendirmesini kapsar; indirme kodu kapsamında
+değildir. Bu nedenle indirme/TUI grubu metrikleri **değişmedi**: hâlâ **81 metot / 110 çalışan
+case / 10 sınıf** (bkz. bölüm 1 ve `DOWNLOAD.md` → `Test kapsamı`). 293, genel offline takımın
+toplamıdır; 110 yalnız indirme/TUI kapsamındaki 10 sınıfın toplamıdır. İki sayı çelişmez.
+
+### (d) Elle kontroller (redirected stdin)
+
+| Komut | Sonuç |
+|---|---|
+| `migurdex --help` | `exit 0` |
+| `migurdex -h` | `exit 0` |
+| `migurdex help` | `exit 0` |
+| `migurdex download --help` | alt komut yardımı korunuyor, `exit 0` |
+| `migurdex --version` | değişmedi, `exit 0` |
+| TUI açılıyor mu | hayır — çıktı stdout'a yazılıp süreç çıkıyor |
+| Derleme | 19 proje, 0 uyarı, 0 hata |
+
+### (e) Bilinen release süreç boşluğu: AppImage checksum manifesti
+
+`v1.10.2` release'indeki `sha256sums-linux-x64.txt` ve `sha256sums-linux-arm64.txt` manifestleri
+**yalnız `tar.gz` paketini** kapsıyor; iki AppImage bu manifestlerde **yer almıyor**.
+
+Boyutlarla bağımsız doğrulama: bir `sha256sum` satırı `64 hex + 2 boşluk + ad + 1 satır sonu` =
+67 + ad uzunluğu bayt tutar.
+
+| Manifest | Kapsanan dosya | Beklenen boyut | Yayımlanan boyut | Yorum |
+|---|---|---:|---:|---|
+| `sha256sums-linux-x64.txt` | `migurdex-linux-x64.tar.gz` | 91 | 92 | tek dosya |
+| `sha256sums-linux-arm64.txt` | `migurdex-linux-arm64.tar.gz` | 93 | 94 | tek dosya |
+| `sha256sums-win-x64.txt` | `migurdex-win-x64.zip` | 86 | 87 | tek dosya |
+
+(Beklenen/yayımlanan arasındaki sabit 1 bayt farkı tüm üç manifestte de aynıdır — muhtemelen
+satır sonu sonrasında ek bir bayt; oran değil, **sayı** önemlidir: manifest başına tam olarak tek
+dosya vardır. Eğer AppImage'ler de kapsansaydı boyutlar 91 + ~150 bayt daha büyük olurdu.)
+
+**Sonuç:** AppImage bütünlüğü release sayfasında yayımlanan özetle **doğrulanamıyor**; yalnız
+`.zsync` dosyaları (delta güncelleme için) mevcut. Bu bir indirme özelliği kusuru değil, upstream
+release iş akışının (`build-release.yml`) eksik adımıdır — checksum üretimine AppImage'lerin de
+eklenmesi gerekir. **Bu PR kapsamında düzeltilmemiştir**; iş akışı upstream'e aittir ve release
+süreciyle ilgili ayrı bir konuşma konusudur.
+
+### (f) Uyumluluk / risk
+
+- `f3aaad7` yalnız yeni bir yönlendirme ve iki koruma guard'ı ekliyor; oynatma ve indirme akışı
+  değişmedi.
+- Etkilenen tek davranış: üst düzey yardım artık TUI'ye girmek yerine doğrudan basılıyor — bu,
+  etkileşimli terminalde de istenen davranış.
+- Windows ve Linux aynı şekilde fayda görüyor; platforma özgü kod veya `#if` yok.
+- Yeni paket bağımlılığı, yeni `config.json` alanı, hedef çerçive veya `/api/v1` sözleşmesi
+  değişikliği yok; breaking change yok.

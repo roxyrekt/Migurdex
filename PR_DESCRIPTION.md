@@ -5,12 +5,13 @@
 > | Hedef | Durum |
 > |---|---|
 > | Fork `Nutaliaxd/Migurdex` | [PR #1](https://github.com/Nutaliaxd/Migurdex/pull/1) **merge edildi** (29.09.2026 10:05 UTC) → merge commit `44f4010` → etiket `v1.10.2` → [release](https://github.com/Nutaliaxd/Migurdex/releases/tag/v1.10.2) yayımlandı ([CI run](https://github.com/Nutaliaxd/Migurdex/actions/runs/36562344972), sonuç **success**) |
-> | Upstream `roxyrekt/Migurdex` | [PR #2](https://github.com/roxyrekt/Migurdex/pull/2) **açık** ve `MERGEABLE` (temiz dal `upstream/download-clean`, tek commit `7f1e250`, 37 dosya, +9.879 / −253). Önceki [PR #1](https://github.com/roxyrekt/Migurdex/pull/1) kapatıldı (duplicate) |
+> | Upstream `roxyrekt/Migurdex` | [PR #2](https://github.com/roxyrekt/Migurdex/pull/2) **açık** ve `MERGEABLE` (temiz dal `upstream/download-clean`, 3 commit: `7f1e250` özellik, `f3aaad7` non-TTY help fix, `474a43d` dokümantasyon, 39 dosya, +10.173 / −266). Önceki [PR #1](https://github.com/roxyrekt/Migurdex/pull/1) kapatıldı (duplicate) |
 >
 > Fork dalı: `feature/download` → `main` · Base (upstream): `v1.10.1` (`4ecd7d7`) ·
 > İstatistik — fork PR #1: 22 commit, 40 dosya, **+11.559 / −249** ·
-> İstatistik — upstream PR #2: 1 commit, 37 dosya, **+9.879 / −253** (kod + testler + `README.md` + `DOWNLOAD.md`) ·
-> Son kod commit'i: `00b2ee7` · Tam commit listesi: `git log --oneline v1.10.1..main`
+> İstatistik — upstream PR #2: 3 commit (2 kod + 1 docs), 39 dosya, **+10.173 / −266** (kod + testler + `README.md` + `DOWNLOAD.md`) ·
+> Son kod commit'i (`main`): `00b2ee7` · Son kod commit'i (upstream dal): `f3aaad7` ·
+> Tam commit listesi: `git log --oneline v1.10.1..main`
 
 ## Durum ve release kanıtı (fork)
 
@@ -376,6 +377,63 @@ sonuç ekranı), `FuzzyPrompt.cs` (`searchable: false` + markup kaçışlama),
 - `dotnet test ... --filter "FullyQualifiedName!~ExtractorSmokeTests"`: **275/275 geçti**
   (ağ erişimi gerektiren `ExtractorSmokeTests` bilinçli olarak hariç).
 
+**Temiz dal doğrulaması** (`upstream/download-clean` @ `f3aaad7`): aynı filtre ile
+**293/293 geçti** — 275 taban + 18 yeni `TopLevelHelpTests` (bkz. aşağıdaki Linux bölümü).
+Derleme yine 19 proje / 0 uyarı / 0 hata.
+
+**Linux runtime doğrulaması** (29 Eylül 2026, WSL2, Ubuntu 24.04.5 x86_64): özellik gerçek bir
+Linux ortamında uçtan uca çalıştırıldı.
+
+| Adım | Komut / ölçüm | Sonuç |
+|---|---|---|
+| Bağımlılık | `dotnet restore Migurdex.slnx` | başarılı |
+| Derleme | `dotnet build Migurdex.slnx -c Release --no-restore` | 19 proje, **0 uyarı, 0 hata** |
+| Offline takım | `dotnet test ... --filter "FullyQualifiedName!~ExtractorSmokeTests"` | **275/275** (help fix'i öncesi ağaç) |
+| CLI sürüm | `migurdex --version` | `migurdex v1.10.2` |
+| CLI alt komut yardımı | `migurdex download --help` | release binary'siyle **byte-level aynı** |
+| API | `/health` | **200**; 14 sağlayıcı, 38 extractor, `rust=true` |
+| Yerel build ↔ release | GNU BuildID | ikisi de `c36ad71424f1fa2ffd952574ab64dd0d952b101a` |
+| AppImage | `--appimage-extract` | başarılı |
+| AppImage | zsync `updateinformation` | gömülü ve doğru |
+| AppImage | çalıştırma | başarılı (x86_64) |
+
+**BuildID eşleşmesi**, paketleme adımının kaynak kodu değiştirmediğini kanıtlar; tek fark sürüm
+damgası (`-p:Version`) ve paket biçimidir. Bu, release binary'sinin doğrudan çalıştırılabilir
+bir referans olduğu anlamına gelir — Linux smoke'larında yerel build yerine release paketi
+kullanılabilir ve `download --help` çıktısı byte-level karşılaştırılabilir. `rust=true`, Rust
+native köprüsünün (`migurdex_native.so`) Linux'da yüklendiğini ve kaynak çözümlemenin çalıştığını
+doğrular.
+
+**Linux arm64:** payload derlendi ve statik doğrulandı (ELF mimari = AArch64, `unsquashfs` ile
+AppImage içeriğinin açılması, dosya bütünlüğü) ancak **çalıştırılamadı** — doğrulama ortamı x64 ve
+QEMU emülasyonu kurulu değil. `--version`, `download --help`, `/health` ve canlı indirme arm64
+üzerinde test edilmedi. Bu bir ürün kusuru değil, ortam sınırıdır; arm64 paketi CI'da x64 ile aynı
+kaynak koddan üretildiği için derleme düzeyinde sapma beklenmez. Runtime kanıtı doğrulanmadan
+"arm64 destekleniyor" denmemelidir.
+
+**Bu koşunun bulduğu hata — non-TTY üst düzey yardım (`f3aaad7`).** `migurdex --help` yönlendirilmiş
+stdin'de çöküyordu (exit 134 / SIGABRT): `Program.Main` üst düzey `--help`/`-h`/`help`
+argümanlarını yakalamıyor, TUI başlatma rotasına düşüyor ve `Console.ReadKey` yönlendirilmiş
+girdide hata veriyordu. `--version` ve `migurdex download --help` zaten doğru çalışıyordu.
+**Bu Linux'a özgü değildi** — `stdin` yönlendirilmiş her ortamda geçerliydi (CI job'ları, Docker
+`CMD`, `nohup`, `migurdex --help > dosya`, `$(...)`); Windows'ta yönlendirme yapılmadığı için
+görünmüyordu. Düzeltme: yeni `HelpCommand` sınıfı (`IsHelpToken`, `IsTopLevelRequest`,
+`PrintHelp(TextWriter)`, `Run()`), `Program.cs`'de TUI başlatılmadan önce top-level help kontrolü,
+`NonInteractiveCommand.Help()` → yeniden kullanılabilir `PrintHelp(TextWriter?)` ayrıştırması
+(tek kaynak) ve `MaybePromptForUpdateAsync` içindeki `ReadKey` için `Console.IsInputRedirected`
+guard'ı. İlk argüman devredilen bir komut olduğunda üst düzey rota devre dışı kalır — böylece
+alt komut yardımları korunur. 18 yeni `TopLevelHelpTests` ile sabitlendi; elle kontrollerde
+`--help` / `-h` / `help` → `exit 0`, `download --help` → alt komut yardımı korunuyor, TUI açılmıyor.
+Yalnız yeni yönlendirme ve guard eklendi; oynatma/indirme akışı değişmedi.
+
+**Bilinen release süreç boşluğu (bu PR'da düzeltilmedi).** `v1.10.2` release'indeki
+`sha256sums-linux-x64.txt` / `sha256sums-linux-arm64.txt` manifestleri yalnız `tar.gz`
+paketini kapsıyor; iki AppImage manifestlerde **yer almıyor** (bir `sha256sum` satırı
+`67 + ad uzunluğu` bayttur: `tar.gz` için 91/93 beklenir, yayımlanan boyutlar 92/94'tür —
+manifest başına tam olarak tek dosya). Sonuç: AppImage bütünlüğü release özetiyle
+**doğrulanamıyor**. Bu indirme özelliğinin değil upstream `build-release.yml` iş akışının eksik
+adımıdır.
+
 **Canlı API smoke** (26 Eylül 2026, v1.10.0 rebase'i **öncesi** koşum): 21 endpoint test edildi,
 **21/21 HTTP 200** ve geçerli JSON. `/health`: 13 sağlayıcı / 38 extractor / Rust hazır;
 `q=one piece` araması 13/13 sağlayıcıda başarılı, 153 sonuç. API loglarında 0 exception /
@@ -427,7 +485,8 @@ Kod hatası değildir, kalıcı etki yoktur.
   Upstream `roxyrekt/Migurdex` `main` dalı hâlâ `v1.10.1` (`4ecd7d7`); upstream hedefi için bu
   metin aynı base ile kullanılabilir ve açık upstream PR
   [PR #2](https://github.com/roxyrekt/Migurdex/pull/2) üzerinden yürüyor (`OPEN`, `MERGEABLE`, dal
-  `upstream/download-clean`, tek commit `7f1e250`). Ayrıntı: `Durum ve release kanıtı` bölümü.
+  `upstream/download-clean`, 3 commit: `7f1e250` özellik, `f3aaad7` non-TTY help fix,
+  `474a43d` dokümantasyon). Ayrıntı: `Durum ve release kanıtı` bölümü.
 - Upstream v1.10.0 iki commit içerir: `8094425` (altyazı oynatmada isim + link yerine indirme)
   ve `4035f9a` (`feat(providers): add Deokwave`) — sağlayıcı sayısı 13 → 14. Upstream v1.10.1
   üç commit içerir: `e4a32b4` (TurkAnime DB bağlantısı), `914dfdd` (Anizm isimsiz fansub
@@ -474,6 +533,18 @@ Kod hatası değildir, kalıcı etki yoktur.
 - **Sürüm damgası:** Yerel build'lerde `migurdex v0.0.0` beklenen değerdir (`Directory.Build.props`
   → `VersionPrefix` 0.0.0); etiketli sürüm numarası yayın CI'sinde `-p:Version` ile basılır, bu
   yüzden `v1.10.2` release paketinde `migurdex --version` doğru sürümü gösterir.
+- **Linux arm64 runtime doğrulanmadı:** arm64 paketi statik doğrulandı ancak x64 ortamda QEMU
+  olmadığı için çalıştırılamadı; `--version`, `download --help`, `/health` ve canlı indirme arm64
+  üzerinde test edilmedi.
+- **AppImage checksum manifestinde yok:** yayımlanan `sha256sums-*.txt` yalnız `tar.gz` paketini
+  kapsıyor; AppImage bütünlüğü release özetiyle doğrulanamıyor. Upstream `build-release.yml`
+  iş akışının eksik adımıdır; bu PR'da düzeltilmemiştir.
+- **Linux arm64 runtime doğrulanmadı:** arm64 paketi statik doğrulandı (ELF, `unsquashfs`) ancak
+  x64 ortamda QEMU olmadığı için çalıştırılamadı; `--version`, `download --help`, `/health` ve canlı
+  indirme arm64 üzerinde test edilmedi.
+- **AppImage checksum manifestinde yok:** yayımlanan `sha256sums-*.txt` dosyaları yalnız `tar.gz`
+  paketini kapsıyor; AppImage bütünlüğü release özetiyle doğrulanamıyor. Bu, indirme özelliğinin
+  değil upstream `build-release.yml` iş akışının eksik adımıdır ve bu PR'da düzeltilmemiştir.
 
 ## Review notları
 
@@ -489,20 +560,25 @@ Kod hatası değildir, kalıcı etki yoktur.
    hata mesajı sanitizasyonu.
 6. `DownloadCommand.cs` + `DownloadSourceResolver.cs` — CLI yüzeyi, çıkış kodları, JSON şeması.
 7. TUI: `EpisodeSourcesView.cs`, `FuzzyPrompt.cs`, `TuiApplicationCancellation.cs`.
+8. `HelpCommand.cs` + `Program.cs` (top-level help yönlendirmesi) — küçük ve izole, indirmeden bağımsız.
 
 **Dikkat çekmek istediğim noktalar:**
 
+- **`f3aaad7` (non-TTY `--help` fix):** Linux koşumunda bulundu, indirme özelliğinden bağımsız.
+  Yeni yönlendirme + iki guard'dan ibaret (4 dosya, +195/−15); `migurdex --help` artık TTY olmadan
+  `exit 0` veriyor, alt komut yardımları korunuyor. 18 yeni `TopLevelHelpTests`. Ayrıntılı teknik
+  bölüm yukarıdadır.
 - **`00b2ee7` (`--progress` fix):** yt-dlp'de `--print`'in `--quiet` ima etmesi tuzağı — `--print
   after_move:filepath` + `--progress` birlikteliği `HlsDownloaderTests`'te sabitlendi; ayrıştırma
   kalıplarına (`%`, `MiB/x MiB`) yt-dlp sürüm değişiminde dikkat.
 - **TUI diff'i görece büyük** (`FuzzyPrompt` ~329, `EpisodeSourcesView` ~359 değişiklik satırı)
   ama iki bağımsız fix içerir: markup dengeleme (`6c366c9`, 23 yeni test) ve sonuç ekranında
   `Ara:` satırı gizleme (`b3dd5d5`, `searchable: false`, 18 yeni test).
-- **Kod vs. docs oranı:** PR'daki 22 commit'in 4'ü kod (`be85d61` ana özellik, `6c366c9`, `b3dd5d5`,
-  `00b2ee7`), geri kalanı dokümantasyon (`DOWNLOAD.md`/`TEST_RESULTS.md`/`DEVELOPMENT_LOG.md`/
-  `PR_DESCRIPTION.md` çalışma kayıtları). Kod incelemesi bu 4 commit'e odaklanabilir; kesin
-  dağılım için `git log --oneline v1.10.1..main` (commit sayısı:
-  `git rev-list --count v1.10.1..main`).
+- **Kod vs. docs oranı:** `main` üzerindeki PR #1'de 22 commit'in 4'ü kod (`be85d61` ana özellik,
+  `6c366c9`, `b3dd5d5`, `00b2ee7`), geri kalanı dokümantasyon. Upstream PR #2'de ise **2 kod
+  commit'i** (`7f1e250` ana özellik, `f3aaad7` help fix) + 1 docs commit'i (`474a43d`) var; kod
+  incelemesi bu ikisine odaklanabilir. Kesin dağılım için `git log --oneline v1.10.1..main`
+  (commit sayısı: `git rev-list --count v1.10.1..main`).
 - **Bilinçli tercihler, tartışmaya açık:** HLS'te resume yokluğu; altyazıda mux yerine sidecar;
   imzalı URL'de fingerprint değişince sıfırdan başlama; `.part`'ın iptalde korunması. Alternatif
   yaklaşım öneriniz varsa lütfen yorumda belirtin.
@@ -522,7 +598,7 @@ Kod hatası değildir, kalıcı etki yoktur.
 ```bash
 dotnet build Migurdex.slnx -c Release
 dotnet test Migurdex.Tests/Migurdex.Tests.csproj -c Release --no-build \
-  --filter "FullyQualifiedName!~ExtractorSmokeTests"   # 275/275
+  --filter "FullyQualifiedName!~ExtractorSmokeTests"   # 275/275 (main) · 293/293 (upstream/download-clean @ f3aaad7)
 ```
 
 **Diff / sürüm doğrulama komutları:**
@@ -531,6 +607,10 @@ dotnet test Migurdex.Tests/Migurdex.Tests.csproj -c Release --no-build \
 git diff --shortstat v1.10.1..main   # 40 dosya, +11.559 / −249
 git rev-list --count v1.10.1..main   # 23 commit (22 PR + merge)
 git rev-list -n1 v1.10.2             # 44f4010 (release hedefi)
+
+# upstream PR #2 dalı
+git diff --shortstat origin/main..upstream/download-clean   # 39 dosya, +10.173 / −266
+git rev-list --count origin/main..upstream/download-clean   # 3 commit (2 kod + 1 docs)
 ```
 
 Ayrıntılı kayıtlar: [`DOWNLOAD.md`](DOWNLOAD.md), [`TEST_RESULTS.md`](TEST_RESULTS.md),
