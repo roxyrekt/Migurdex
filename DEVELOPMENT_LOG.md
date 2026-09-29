@@ -1,12 +1,20 @@
 # Migurdex İndirme Özelliği — Geliştirme Kaydı
 
-> Bu dosya, `feature/download` dalındaki anime indirme özelliğinin **başlangıçtan PR’a kadar** tüm geliştirme, test, hata çözümü, paketleme ve sürüm uyumlama çalışmasını kronolojik ve teknik olarak kaydeder.
+> Bu dosya, anime indirme özelliğinin **başlangıçtan merge ve release'e kadar** tüm geliştirme,
+> test, hata çözümü, paketleme ve sürüm uyumlama çalışmasını kronolojik ve teknik olarak kaydeder.
 >
-> Son güncelleme: 29 Eylül 2026  
-> Dal: `feature/download`  
-> Temel: `v1.10.1` (`4ecd7d7`)  
-> Son teknik hedef: `https://github.com/Nutaliaxd/Migurdex` üzerine PR  
-> PR: https://github.com/Nutaliaxd/Migurdex/pull/1
+> Son güncelleme: 29 Eylül 2026 · Durum: **PR #1 merged**, **`v1.10.2` published**
+> Aktif dal: **`main`** · Merge commit: `44f4010` (PR #1: `feature/download` → `main`)
+> Temel: `v1.10.1` (`4ecd7d7`) · Sürüm: `v1.10.2` → `44f4010`
+> PR (fork, merged): https://github.com/Nutaliaxd/Migurdex/pull/1
+> Release: https://github.com/Nutaliaxd/Migurdex/releases/tag/v1.10.2
+> CI run: https://github.com/Nutaliaxd/Migurdex/actions/runs/36562344972 (sonuç: **success**)
+> Upstream: `roxyrekt/Migurdex` `main` hâlâ `v1.10.1` (`4ecd7d7`); upstream PR hedefi için aynı
+> metin `PR_DESCRIPTION.md` dosyasında hazırdır.
+
+> **Commit geçmişinde tek doğruluk kaynağı `git log`'dur** (bkz. bölüm 11). Bu dosyadaki commit
+> listeleri okunabilirlik için anlatıcı kayıttır; güncel ve eksiksiz liste için
+> `git log --oneline v1.10.1..main` çalıştırılmalıdır.
 
 ---
 
@@ -26,6 +34,7 @@
 12. [Dosya etkisi ve istatistikler](#12-dosya-etkisi-ve-istatistikler)
 13. [Bilinen sınırlar](#13-bilinen-sınırlar)
 14. [Kullanışlı dosyalar](#14-kullanışlı-dosyalar)
+15. [PR #1 merge ve `v1.10.2` release](#15-pr-1-merge-ve-v1102-release)
 
 ---
 
@@ -58,12 +67,14 @@ Ana teknik hedefler:
 
 Sonuç:
 
-- Offline testler: **275/275**
-- Canlı API smoke: **21/21 endpoint**
+- Offline testler: **275/275** (genel takım) · indirme/TUI kapsamı **81 metot / 110 çalışan case / 10 sınıf**
+- Canlı API smoke: **21/21 endpoint** (26.09.2026, v1.10.0 öncesi koşum — 13 sağlayıcı)
 - TUI canlı akış: **371.406.042 bayt** gerçek indirme
 - CLI canlı akış: **437.668.399 bayt** gerçek MP4 indirmesi
 - `v1.10.1` üzerine rebase (tek çakışma `Program.cs`, çözüldü)
 - Kök kurulum **v1.10.0 + download** olarak yükseltildi
+- **PR #1 merge edildi** (merge commit `44f4010`, 22 commit, 40 dosya, +11.559/−249)
+- **`v1.10.2` yayınlandı** (fork `Nutaliaxd/Migurdex`; CI release koşusu başarılı) — bkz. bölüm 15
 
 ---
 
@@ -491,6 +502,19 @@ Sonuç:
 - Tüm feature commit hash'leri yeniden yazıldı; eski hash'ler `backup/download-pre-v1101`
   dalında korunuyor.
 
+> Proje sayısı notu: 19 proje, `v1.10.0` ve sonrası çözüm ağacıdır (upstream `Deokwave`
+> plugin projesi dahil). `v1.9.2` tabanlı ağaç 18 projeydi; 26–27 Eylül tarihli kayıtlardaki
+> "18 proje" ifadeleri o ağaca aittir.
+
+---
+
+### 3.9 PR #1 merge ve `v1.10.2` release
+
+29.09.2026'da `feature/download` dalı fork (`Nutaliaxd/Migurdex`) `main` dalına PR #1 ile
+birleştirildi (merge commit `44f4010`) ve aynı gün `v1.10.2` etiketiyle GitHub release'i
+yayınlandı. Kanıtlar, asset listesi ve doğrulama komutları bölüm 15'tedir. Bu noktadan sonra
+aktif dal **`main`**'dir.
+
 ---
 
 ## 4. Mimari çözüm
@@ -727,7 +751,13 @@ Sonuç:
 275/275 geçti
 ```
 
+Bu koşum 29 Eylül 2026 tarihli `v1.10.1` rebase ağacıdır (Release, 19 proje, 0 uyarı / 0 hata);
+bu ağaç PR #1 ile `main`'e merge edilip `v1.10.2` olarak yayımlandı, merge sonrası kod değişmedi.
+
 ### 7.2 Test sınıfları
+
+Bu tablo **8 sınıflık filtre** koşusunun sonucudur — `DownloadPathBuilderTests` (4) ve
+`ExternalProcessRunnerTests` (3) dahil edilmediği için toplam 8 sınıf / 103 case:
 
 | Sınıf | Sonuç |
 |---|---:|
@@ -739,10 +769,17 @@ Sonuç:
 | `ApiClientServiceTests` | 2/2 |
 | `TuiMarkupSafetyTests` | 23/23 |
 | `FuzzyPromptSearchableTests` | 18/18 |
+| **8 sınıflık filtre toplamı** | **103/103** |
+
+**10 sınıflık tam kapsam: 110/110** — 103 + `DownloadPathBuilderTests` 4 +
+`ExternalProcessRunnerTests` 3. Kanonik metrikler **81 metot / 110 çalışan case / 10 sınıf**
+(`DOWNLOAD.md` → `Test kapsamı`). Tam sınıf/metod/case dökümü ve 103↔110 farkının kaydı için
+`TEST_RESULTS.md` bölüm 1 ve `DOWNLOAD.md` → `Test kapsamı` bölümlerine bakın.
 
 ### 7.3 Canlı API
 
-21 endpoint test edildi, hepsi `HTTP 200`.
+21 endpoint test edildi, hepsi `HTTP 200` (26 Eylül 2026 koşumu, v1.10.0 rebase'i öncesi:
+o noktada 13 sağlayıcı; güncel sayı 14).
 
 ### 7.4 TUI canlı
 
@@ -815,7 +852,18 @@ klasöründe korunuyor.
 
 ## 11. Yapılan commit’ler
 
-v1.10.1 rebase sonrası güncel commit listesi (`v1.10.1..feature/download`):
+**Tek doğruluk kaynağı `git log`'dur.** Aşağıdaki listeler ve eşlemeler okunabilirlik için
+anlatıcı kayıttır; commit sayısı, sırası ve içeriği için şunlar çalıştırılmalıdır:
+
+```bash
+git log --oneline v1.10.1..main     # güncel ve eksiksiz liste (22 commit + merge)
+git rev-list --count v1.10.1..main   # dinamik commit sayısı
+git log --oneline --graph --all -30 # dal ve merge grafiği
+git describe --tags                 # HEAD'in etiketli sürümü (v1.10.2)
+```
+
+`v1.10.1..main` kapsamındaki commit'ler (PR #1, 22 commit) — `feature/download` üzerinde
+geliştirildi, `main`'e merge commit `44f4010` ile birleştirildi:
 
 | Commit | Konu |
 |---|---|
@@ -840,9 +888,16 @@ v1.10.1 rebase sonrası güncel commit listesi (`v1.10.1..feature/download`):
 | `9a52271` | `docs: finalize PR commit count` |
 | `8c58e2f` | `docs: make PR description commit count dynamic` |
 | `7ca27de` | `docs: round PR diff stats` |
+| `c4c06c8` | `docs: record v1.10.1 rebase and compatibility` |
 
-Bu listenin sonrasında `docs: record v1.10.1 rebase and compatibility` commit'i gelir
-(bu kayıt; hash'i push sonrası görünebilir).
+Merge commit (PR dışı, ancak `v1.10.1..main` sayımına **dahildir**: 22 PR commit + 1 merge):
+
+```text
+44f4010 Merge pull request #1 from Nutaliaxd/feature/download
+```
+
+Bu kaydın kendi düzenleme commit'leri de `main` üzerine bu listeden sonra düşer; tam liste için
+yukarıdaki `git log` komutunu kullanın.
 
 Rebase karşılıkları:
 
@@ -868,7 +923,7 @@ v1.10.0 tabanlı hash'lerin tamamı `backup/download-pre-v1101` dalında korunma
 
 ## 12. Dosya etkisi ve istatistikler
 
-v1.10.1 base’ine göre (`DEVELOPMENT_LOG.md` ve `PR_DESCRIPTION.md` hariç):
+v1.10.1 base'ine göre (`DEVELOPMENT_LOG.md` ve `PR_DESCRIPTION.md` hariç):
 
 ```text
 38 dosya
@@ -876,8 +931,17 @@ v1.10.1 base’ine göre (`DEVELOPMENT_LOG.md` ve `PR_DESCRIPTION.md` hariç):
 −249 satır
 ```
 
-Tam diff (`git diff --shortstat v1.10.1..HEAD`): 40 dosya, ~+11,6k / −249
-(5 doküman dosyası dahil; kesin değer commit sonrası görülebilir).
+Tam diff (`git diff --shortstat v1.10.1..HEAD`, HEAD = merge commit `44f4010`):
+
+```text
+40 dosya
++11.559 satır
+−249 satır
+```
+
+Bu değerler PR #1 istatistikleriyle birebir aynıdır (22 commit, 40 dosya, +11.559 / −249).
+Doküman dosyaları da dahildir (`DOWNLOAD.md`, `TEST_RESULTS.md`, `README.md` ve bu log ile
+`PR_DESCRIPTION.md`). Yeniden doğrulama: `git diff --shortstat v1.10.1..main`.
 
 Ana alanlar:
 
@@ -903,7 +967,10 @@ Ana alanlar:
 - Sağlayıcı kaynakları upstream değişimlerine bağlıdır.
 - `Deokwave` şu anda Cloudflare challenge nedeniyle erişilemiyor.
 - Video hash doğrulaması yoktur; boyut/Range/Content-Type doğrulaması vardır.
-- Root kurulumda `--version` hâlâ `v0.0.0` gösterir; build sistemi sürüm metadata basmıyor.
+- **Yerel** kök kurulumda `--version` hâlâ `v0.0.0` gösterir; `build.ps1` sürüm damgası basmıyor.
+  CI release paketlerinde sürüm damgası `-p:Version` ile basıldığı için `v1.10.2` doğru
+  görünür (bkz. bölüm 15).
+- `Deokwave` dışındaki erişim sorunları ve upstream'e bağımlılıklar aynen geçerlidir.
 
 ---
 
@@ -912,6 +979,79 @@ Ana alanlar:
 | Dosya | İçerik |
 |---|---|
 | `DOWNLOAD.md` | İndirme özelliğinin teknik kullanım ve mimari dokümanı |
-| `TEST_RESULTS.md` | Offline/canlı test, paketleme, Deokwave ve kök kurulum raporu |
-| `PR_DESCRIPTION.md` | Hedef repoda açılacak PR için GitHub metni |
-| `DEVELOPMENT_LOG.md` | Bu dosya; kronolojik geliştirme ve hata çözüm kaydı |
+| `TEST_RESULTS.md` | Offline/canlı test, paketleme, Deokwave, kök kurulum ve `v1.10.2` release raporu |
+| `PR_DESCRIPTION.md` | Fork (merged) ve upstream hedefi için kullanılabilir PR metni |
+| `DEVELOPMENT_LOG.md` | Bu dosya; kronolojik geliştirme, merge ve release kaydı |
+
+---
+
+## 15. PR #1 merge ve `v1.10.2` release
+
+29 Eylül 2026'da `feature/download` dalı fork (`Nutaliaxd/Migurdex`) `main` dalına PR ile
+birleştirildi ve aynı gün etiketli sürüm yayınlandı. **Aktif dal `main`**'dir; `feature/download`
+artık ayrı bir geliştirme hedefi değildir.
+
+### PR #1
+
+| Alan | Değer |
+|---|---|
+| Başlık | `feat: add anime download support` |
+| Link | https://github.com/Nutaliaxd/Migurdex/pull/1 |
+| Dal yönü | `feature/download` → `main` |
+| Durum | **merged** — 29.09.2026 10:05 UTC |
+| Merge commit | `44f4010` — `Merge pull request #1 from Nutaliaxd/feature/download` |
+| Ebeveynler | `4ecd7d7` (upstream `v1.10.1`) ve `c4c06c8` (dalın son commit'i) |
+| İstatistik | 22 commit · 40 dosya · +11.559 / −249 |
+
+Merge birleştirmeli (merge commit) gerçekleşti; `main` üzerindeki ağaç, upstream `v1.10.1`'in
+üzerine dalın tamamının konduğu lineer bir geçmiş değil, iki ebeveynli bir birleşimdir. Yedek
+dallar korunuyor: `backup/download-pre-v110` (v1.10.0 öncesi) ve `backup/download-pre-v1101`
+(v1.10.1 öncesi).
+
+### `v1.10.2` release
+
+| Alan | Değer |
+|---|---|
+| Etiket | `v1.10.2` → `44f4010` |
+| Release | https://github.com/Nutaliaxd/Migurdex/releases/tag/v1.10.2 (29.09.2026 11:41 UTC) |
+| CI run | https://github.com/Nutaliaxd/Migurdex/actions/runs/36562344972 — **success** (`workflow_dispatch` @ `v1.10.2`) |
+| Upstream taban | `v1.10.1` (`4ecd7d7`) |
+
+Release asset'ları (üç platform matrisi + checksum'lar):
+
+| Asset | Boyut (bayt) |
+|---|---:|
+| `migurdex-win-x64.zip` | 60.031.590 |
+| `migurdex-linux-x64.tar.gz` | 61.318.906 |
+| `migurdex-linux-arm64.tar.gz` | 58.679.919 |
+| `migurdex-x86_64.AppImage` | 56.900.088 |
+| `migurdex-x86_64.AppImage.zsync` | 194.707 |
+| `migurdex-aarch64.AppImage` | 54.163.976 |
+| `migurdex-aarch64.AppImage.zsync` | 185.357 |
+| `sha256sums-win-x64.txt` | 87 |
+| `sha256sums-linux-x64.txt` | 92 |
+| `sha256sums-linux-arm64.txt` | 94 |
+
+### Doğrulama
+
+| Kontrol | Komut / sonuç |
+|---|---|
+| Commit sayısı | `git rev-list --count v1.10.1..main` → **23** (22 PR commit + merge `44f4010`) |
+| Etiket çözümü | `git rev-list -n1 v1.10.2` → `44f4010…` |
+| Sürüm damgası | `git describe --tags` → `v1.10.2` |
+| Kaynak kod değişikliği | Merge sonrası kod değişmedi; bölüm 1'deki 275/275 ve 110/110 sonuçları geçerlidir |
+| CI sonucu | `success` — linux-x64, linux-arm64, win-x64 |
+
+### Kapsam notları
+
+- `v1.10.2`, **fork'a** özel bir sürüm numarasıdır; upstream `roxyrekt/Migurdex` `main` dalı
+  hâlâ `v1.10.1` (`4ecd7d7`) durumundadır ve orada bu çalışma için PR açılmamıştır. Upstream
+  hedefi için aynı PR metni `PR_DESCRIPTION.md` içinde hazırdır (base: upstream `main`).
+- Release paketi, bölüm 9'daki yerel `build.ps1` paketinden farklıdır: CI sürüm damgası basar
+  (yerel pakette `--version` → `v0.0.0`, release paketinde → `v1.10.2`), üç platformu kapsar ve
+  `sha256sums-*.txt` ile doğrulanabilir. Yerel `migurdex-win-x64.zip` 61.605.017 bayt,
+  CI karşılığı 60.031.590 bayttır.
+- Kök kurulum (`C:\Users\naton\OneDrive\Desktop\migu`) release paketiyle **yükseltilmedi**;
+  hâlâ doğrulanmış yerel paketi çalıştırır. Karşılaştırma tablosu: `TEST_RESULTS.md` bölüm 9.
+- Release notları yalnızca bu PR'ı içerir ("feat: add anime download support by @Nutaliaxd");
+  arada başka commit yoktur, dolayısıyla sürüm atlaması veya atlama yapılmamıştır.

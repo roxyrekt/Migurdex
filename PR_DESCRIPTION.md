@@ -1,8 +1,47 @@
 # feat: add anime download support
 
-> Dal: `feature/download` · Temel: `v1.10.1` (`4ecd7d7`) ·
-> 40 dosya, **~+11,6k / −249** (`git diff --stat v1.10.1..HEAD`) · Son kod commit'i: `00b2ee7` ·
-> Tam commit listesi PR sayfasındadır.
+> **Bu metin iki hedef için kullanılabilir.**
+>
+> | Hedef | Durum |
+> |---|---|
+> | Fork `Nutaliaxd/Migurdex` | [PR #1](https://github.com/Nutaliaxd/Migurdex/pull/1) **merge edildi** (29.09.2026 10:05 UTC) → merge commit `44f4010` → etiket `v1.10.2` → [release](https://github.com/Nutaliaxd/Migurdex/releases/tag/v1.10.2) yayımlandı ([CI run](https://github.com/Nutaliaxd/Migurdex/actions/runs/36562344972), sonuç **success**) |
+> | Upstream `roxyrekt/Migurdex` | Bu metin **açılmamış**; upstream `main` hâlâ `v1.10.1` (`4ecd7d7`) — aynı içerik, aynı base ile kullanılabilir |
+>
+> Fork dalı: `feature/download` → `main` · Base (upstream): `v1.10.1` (`4ecd7d7`) ·
+> Statistik (PR #1, değişmeden): 22 commit, 40 dosya, **+11.559 / −249** ·
+> Son kod commit'i: `00b2ee7` · Tam commit listesi: `git log --oneline v1.10.1..main`
+
+## Durum ve release kanıtı (fork)
+
+| Alan | Değer |
+|---|---|
+| PR | [#1 — feat: add anime download support](https://github.com/Nutaliaxd/Migurdex/pull/1) (`feature/download` → `main`) |
+| Durum | **merged** — 29.09.2026 10:05 UTC |
+| Merge commit | `44f4010` (`Merge pull request #1 from Nutaliaxd/feature/download`); ebeveynler `4ecd7d7` + `c4c06c8` |
+| İstatistik | 22 commit · 40 dosya · +11.559 / −249 |
+| Etiket | `v1.10.2` → `44f4010` |
+| Release | https://github.com/Nutaliaxd/Migurdex/releases/tag/v1.10.2 (29.09.2026 11:41 UTC) |
+| CI run | https://github.com/Nutaliaxd/Migurdex/actions/runs/36562344972 — **success** (3 build matrisi) |
+
+**Release asset'ları** (CI üretimi; `sha256sums-*.txt` ile doğrulanabilir):
+
+| Asset | Boyut (bayt) |
+|---|---:|
+| `migurdex-win-x64.zip` | 60.031.590 |
+| `migurdex-linux-x64.tar.gz` | 61.318.906 |
+| `migurdex-linux-arm64.tar.gz` | 58.679.919 |
+| `migurdex-x86_64.AppImage` | 56.900.088 |
+| `migurdex-x86_64.AppImage.zsync` | 194.707 |
+| `migurdex-aarch64.AppImage` | 54.163.976 |
+| `migurdex-aarch64.AppImage.zsync` | 185.357 |
+| `sha256sums-win-x64.txt` | 87 |
+| `sha256sums-linux-x64.txt` | 92 |
+| `sha256sums-linux-arm64.txt` | 94 |
+
+Doğrulama: `git rev-list --count v1.10.1..main` → **23** (22 PR commit + merge `44f4010`) ·
+`git rev-list -n1 v1.10.2` → `44f4010` ·
+`git describe --tags` → `v1.10.2`. Release paketinde `migurdex --version` gerçek sürümü
+(`migurdex v1.10.2`) basar; yerel `build.ps1` paketi `v0.0.0` gösterir.
 
 ## Özet
 
@@ -227,8 +266,9 @@ anlaşılır hata döner.
 
 ## Eklenen dosyalar
 
-`git diff --stat v1.10.1..HEAD`: **38 dosya, +10.181 / −249** (çalışma kaydı dokümanları
-`DEVELOPMENT_LOG.md` ve `PR_DESCRIPTION.md` hariç).
+`git diff --stat v1.10.1..main` — **DEVELOPMENT_LOG.md** ve **PR_DESCRIPTION.md** hariç:
+**38 dosya, +10.181 / −249**. Doküman dosyaları dahil tam diff (merge commit `44f4010` üzerinden,
+PR #1 istatistiğiyle birebir aynı): **40 dosya, +11.559 / −249**.
 
 **Yeni üretim kodu — `Migurdex.Cli` (14 dosya):**
 
@@ -249,7 +289,7 @@ anlaşılır hata döner.
 | `Services/Downloads/SubtitleDownloader.cs` | 529 | Altyazı indirme, `data:` URI, biçim doğrulama |
 | `Services/Downloads/YtDlpHlsDownloader.cs` | 605 | HLS indirme, yt-dlp sarmalayıcı |
 
-**Yeni testler — `Migurdex.Tests` (10 sınıf, ~3.052 satır):**
+**Yeni testler — `Migurdex.Tests` (10 sınıf, 2.962 satır):**
 
 | Dosya | Satır |
 |---|---:|
@@ -264,8 +304,10 @@ anlaşılır hata döner.
 | `ExternalProcessRunnerTests.cs` | 83 |
 | `ApiClientServiceTests.cs` | 66 |
 
-**Yeni dokümantasyon:** `DOWNLOAD.md` (893 satır — özellik dokümanı, test kayıtları, çalışma
-günlüğü), `TEST_RESULTS.md` (409 satır — konsolide doğrulama raporu).
+**Yeni dokümantasyon:** `DOWNLOAD.md` (özellik dokümanı, test kayıtları, çalışma günlüğü),
+`TEST_RESULTS.md` (konsolide doğrulama raporu), `DEVELOPMENT_LOG.md` (geliştirme kaydı),
+`PR_DESCRIPTION.md` (bu metin). Satır sayıları commit'le birlikte değişir; güncel değer için
+`git show --stat <hash>` ya da dosyanın kendisi esas alınmalıdır.
 
 **Değiştirilen mevcut dosyalar:** `AnimeEndpoints.cs` (metadata birleştirme),
 `M3U8PlaylistExtractor.cs` (non-transferable header'lar), `CliConfig.cs` (5 yeni alan),
@@ -296,8 +338,8 @@ sonuç ekranı), `FuzzyPrompt.cs` (`searchable: false` + markup kaçışlama),
   `FileShare.None`); ayrı süreçteki ikinci indirme kilidi açamayınca açık hata alır.
 - **TUI markup güvenliği:** Dinamik her metin (anime adı, fansub, hoster, kalite, sorgu)
   `Markup.Escape` ile kaçırılır; `[1080p]`, `[SubsPlease]` gibi veriler sahte renk etiketi
-  olamaz. `TuiMarkupSafetyTests` tüm prompt/header/choice satırlarının dengeli olduğunu doğrular
-  (düzeltme: `bd59ca4`).
+  olamaz. `TuiMarkupSafetyTests` tüm prompt/header/choice satırının dengeli olduğunu doğrular
+  (düzeltme: `6c366c9`; v1.10.0 tabanındaki karşılığı `bd59ca4`).
 
 ## Test ve doğrulama
 
@@ -318,18 +360,28 @@ sonuç ekranı), `FuzzyPrompt.cs` (`searchable: false` + markup kaçışlama),
 | `FuzzyPromptSearchableTests` | 8 | 18 | 18/18 |
 | **Toplam** | **81** | **110** | **110/110** |
 
-**Offline doğrulama** (29 Eylül 2026, `v1.10.1` rebase sonrası, temiz ağaç, Release):
+> 110, indirme/TUI kapsamındaki **10** sınıfın toplamıdır. `TEST_RESULTS.md` bölüm 1'deki
+> **103** değeri aynı sınıfların yalnızca **8** tanesiyle koşulan filtrenin sonucudur
+> (103 + `DownloadPathBuilderTests` 4 + `ExternalProcessRunnerTests` 3 = 110); kapsam farkıdır,
+> metrik çelişkisi değil.
+
+**Offline doğrulama** (29 Eylül 2026, `v1.10.1` rebase sonrası, temiz ağaç, Release; bu ağaç
+`44f4010` ile merge edilip `v1.10.2` olarak yayımlandı — merge sonrası kod değişmedi):
 
 - `dotnet restore Migurdex.slnx`: başarılı.
 - `dotnet build Migurdex.slnx -c Release --no-restore`: 19 proje, **0 uyarı / 0 hata**.
+  (19 proje = `v1.10.0` ve sonrası ağaç, `Deokwave` plugin projesi dahil; `v1.9.2` tabanı 18
+  projeydi — 26–27 Eylül tarihli kayıtlardaki "18 proje" o ağaca aittir.)
 - `dotnet test ... --filter "FullyQualifiedName!~ExtractorSmokeTests"`: **275/275 geçti**
   (ağ erişimi gerektiren `ExtractorSmokeTests` bilinçli olarak hariç).
 
-**Canlı API smoke** (26 Eylül 2026): 21 endpoint test edildi, **21/21 HTTP 200** ve geçerli JSON.
-`/health`: 13 sağlayıcı / 38 extractor / Rust hazır; `q=one piece` araması 13/13 sağlayıcıda
-başarılı, 153 sonuç. API loglarında 0 exception / 0 stack trace / 0 serialization hatası.
-İki upstream notu (uygulama hatası değil): `TrAnimeIzle` captcha challenge → boş liste;
-`VidmolyExtractor` reklam ağına 302 → kaynağı atlayıp diğer hoster'lardan devam.
+**Canlı API smoke** (26 Eylül 2026, v1.10.0 rebase'i **öncesi** koşum): 21 endpoint test edildi,
+**21/21 HTTP 200** ve geçerli JSON. `/health`: 13 sağlayıcı / 38 extractor / Rust hazır;
+`q=one piece` araması 13/13 sağlayıcıda başarılı, 153 sonuç. API loglarında 0 exception /
+0 stack trace / 0 serialization hatası. İki upstream notu (uygulama hatası değil):
+`TrAnimeIzle` captcha challenge → boş liste; `VidmolyExtractor` reklam ağına 302 → kaynağı
+atlayıp diğer hoster'lardan devam. (13 → 14 sağlayıcı geçişi v1.10.0 ile `Deokwave`'ta oldu;
+bkz. Sürüm uyumluluğu.)
 
 **TUI canlı smoke** (ConPTY, gerçek `naruto` sorgusu): arama → seçim → kaynak → İndir akışı
 uçtan uca koştu; **371.406.042 bayt** video indirildi, `exit=0`. Bu smoke gerçek bir hata buldu —
@@ -366,6 +418,13 @@ Kod hatası değildir, kalıcı etki yoktur.
   `Console.IsInputRedirected` guard'lı + try/catch `ReadKey` versiyonu alındı; encoding guard
   kaldırma otomatik merge ile geldi. Rebase sonrası restore başarılı, Release 0 uyarı / 0 hata,
   offline takım 275/275.
+- **Merge ve release:** Fork `Nutaliaxd/Migurdex` `main` dalına [PR #1](https://github.com/Nutaliaxd/Migurdex/pull/1)
+  ile birleştirildi (29.09.2026 10:05 UTC, merge commit `44f4010`, 22 commit / 40 dosya /
+  +11.559 / −249) ve `v1.10.2` etiketiyle
+  [release](https://github.com/Nutaliaxd/Migurdex/releases/tag/v1.10.2) yayımlandı
+  ([CI run](https://github.com/Nutaliaxd/Migurdex/actions/runs/36562344972) — `success`).
+  Upstream `roxyrekt/Migurdex` `main` dalı hâlâ `v1.10.1` (`4ecd7d7`); upstream hedefi için bu
+  metin aynı base ile kullanılabilir. Ayrıntı: `Durum ve release kanıtı` bölümü.
 - Upstream v1.10.0 iki commit içerir: `8094425` (altyazı oynatmada isim + link yerine indirme)
   ve `4035f9a` (`feat(providers): add Deokwave`) — sağlayıcı sayısı 13 → 14. Upstream v1.10.1
   üç commit içerir: `e4a32b4` (TurkAnime DB bağlantısı), `914dfdd` (Anizm isimsiz fansub
@@ -410,7 +469,8 @@ Kod hatası değildir, kalıcı etki yoktur.
   olmadan açılmaz (exit 1). Dosyanın `migurdex.exe` yanındaki `api\` klasöründe bulunması gerekir.
   Risk tamamen kaynak çözümü tarafında; MP4/altyazı indirme kodu bu kütüphaneleri kullanmaz.
 - **Sürüm damgası:** Yerel build'lerde `migurdex v0.0.0` beklenen değerdir (`Directory.Build.props`
-  → `VersionPrefix` 0.0.0); etiketli sürüm numarası upstream yayın CI'sinde `-p:Version` ile basılır.
+  → `VersionPrefix` 0.0.0); etiketli sürüm numarası yayın CI'sinde `-p:Version` ile basılır, bu
+  yüzden `v1.10.2` release paketinde `migurdex --version` doğru sürümü gösterir.
 
 ## Review notları
 
@@ -435,9 +495,11 @@ Kod hatası değildir, kalıcı etki yoktur.
 - **TUI diff'i görece büyük** (`FuzzyPrompt` ~329, `EpisodeSourcesView` ~359 değişiklik satırı)
   ama iki bağımsız fix içerir: markup dengeleme (`6c366c9`, 23 yeni test) ve sonuç ekranında
   `Ara:` satırı gizleme (`b3dd5d5`, `searchable: false`, 18 yeni test).
-- **Kod vs. docs oranı:** 22 commit'in 4'ü kod (`be85d61` ana özellik, `6c366c9`, `b3dd5d5`,
-  `00b2ee7`), 18'i dokümantasyon (DOWNLOAD.md/TEST_RESULTS.md/DEVELOPMENT_LOG.md çalışma
-  kayıtları). Kod incelemesi bu 4 commit'e odaklanabilir.
+- **Kod vs. docs oranı:** PR'daki 22 commit'in 4'ü kod (`be85d61` ana özellik, `6c366c9`, `b3dd5d5`,
+  `00b2ee7`), geri kalanı dokümantasyon (`DOWNLOAD.md`/`TEST_RESULTS.md`/`DEVELOPMENT_LOG.md`/
+  `PR_DESCRIPTION.md` çalışma kayıtları). Kod incelemesi bu 4 commit'e odaklanabilir; kesin
+  dağılım için `git log --oneline v1.10.1..main` (commit sayısı:
+  `git rev-list --count v1.10.1..main`).
 - **Bilinçli tercihler, tartışmaya açık:** HLS'te resume yokluğu; altyazıda mux yerine sidecar;
   imzalı URL'de fingerprint değişince sıfırdan başlama; `.part`'ın iptalde korunması. Alternatif
   yaklaşım öneriniz varsa lütfen yorumda belirtin.
@@ -449,6 +511,8 @@ Kod hatası değildir, kalıcı etki yoktur.
 - **Dokümantasyon güncelleme kuralı:** `DOWNLOAD.md` → `Güncelleme talimatı` bölümü, indirme
   koduna dokunan her değişiklikte hangi doküman bölümünün revize edileceğini eşler; bu PR'daki
   docs commit'leri bu kuralı izler.
+- **Commit geçmişinde tek doğruluk kaynağı `git log`'dur.** Bu metindeki commit listeleri
+  anlatıcı kayıttır; güncel liste `git log --oneline v1.10.1..main` ile alınır.
 
 **Yerel doğrulama komutları:**
 
@@ -458,4 +522,13 @@ dotnet test Migurdex.Tests/Migurdex.Tests.csproj -c Release --no-build \
   --filter "FullyQualifiedName!~ExtractorSmokeTests"   # 275/275
 ```
 
-Ayrıntılı kayıtlar: [`DOWNLOAD.md`](DOWNLOAD.md) ve [`TEST_RESULTS.md`](TEST_RESULTS.md).
+**Diff / sürüm doğrulama komutları:**
+
+```bash
+git diff --shortstat v1.10.1..main   # 40 dosya, +11.559 / −249
+git rev-list --count v1.10.1..main   # 23 commit (22 PR + merge)
+git rev-list -n1 v1.10.2             # 44f4010 (release hedefi)
+```
+
+Ayrıntılı kayıtlar: [`DOWNLOAD.md`](DOWNLOAD.md), [`TEST_RESULTS.md`](TEST_RESULTS.md),
+[`DEVELOPMENT_LOG.md`](DEVELOPMENT_LOG.md).

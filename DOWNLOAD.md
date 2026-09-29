@@ -7,9 +7,12 @@ TUI'den (bölüm kaynak ekranında `İndir`) diske kaydeder. `Embed` ve `Unknown
 | Alan | Değer |
 |---|---|
 | Son güncelleme | 29 Eylül 2026 |
-| Dal | `feature/download` (temel: `v1.10.1` @ `4ecd7d7`) |
-| Son kod commit’i | `00b2ee7` (`fix(downloader): report live yt-dlp HLS progress`) |
-| Paket | v1.10.0 tabanlı win-x64 paketi üretildi, hash düzeyinde doğrulandı ve kök kuruluma yüklendi (27.09.2026; 14 sağlayıcı / 38 extractor) — bkz. `Yapılan işlemler` → maddeler 12–13; kaynak dal v1.10.1 tabanlıdır, paket bu sürüm için yeniden üretilmedi |
+| Aktif dal | `main` — PR #1 merge edildi, merge commit `44f4010` (taban: `v1.10.1` @ `4ecd7d7`) |
+| Özellik dalı | `feature/download` → `main` üzerine [PR #1](https://github.com/Nutaliaxd/Migurdex/pull/1) ile birleştirildi (29.09.2026, 10:05 UTC). Artık ayrı bir geliştirme dalı değil; kayıt `main` üzerinden yürütülür, eski dal adı yalnızca PR başlığı/hashesi bağlamında geçer |
+| Son kod commit’i | `00b2ee7` (`fix(downloader): report live yt-dlp HLS progress`) — merge sonrasında da değişmedi |
+| Sürüm | `v1.10.2` → `44f4010` (fork: `Nutaliaxd/Migurdex`) · [release](https://github.com/Nutaliaxd/Migurdex/releases/tag/v1.10.2) · [CI run](https://github.com/Nutaliaxd/Migurdex/actions/runs/36562344972) (`Build and Release`, sonuç: **success**) — ayrıntı `Yapılan işlemler` → madde 15 |
+| Upstream | `roxyrekt/Migurdex` `main` hâlâ `v1.10.1` (`4ecd7d7`); aynı PR metni upstream hedefi için kullanılabilir (`PR_DESCRIPTION.md`) |
+| Paket | v1.10.0 tabanlı win-x64 paketi üretildi, hash düzeyinde doğrulandı ve kök kuruluma yüklendi (27.09.2026; 14 sağlayıcı / 38 extractor) — bkz. `Yapılan işlemler` → maddeler 12–13. Bu paket **yerel doğrulanmış kök kurulum** olarak durur; `v1.10.2` release'i CI tarafından ayrıca üretildi ve kök kurulum bundan yükseltilmedi |
 | Temel commit | `be85d61` — feat: add anime download support (ilk yazılım `c3d307a`; v1.10.0 rebase karşılığı `321fe38`) |
 | Testler | 81 test metodu / 110 çalışan case, 10 sınıf (bkz. `Test kapsamı`); offline doğrulama: 275/275 geçti (29.09.2026, v1.10.1 rebase sonrası) |
 
@@ -309,7 +312,7 @@ yazmak için `--force` veya `config.json` → `DownloadOverwrite: true` gerekir.
 | `Services/Downloads/Mp4Downloader.cs` | 613 | MP4 indirme, HTTP Range resume |
 | `Services/Downloads/Mp4ResumeMetadata.cs` | 130 | Resume meta dosyası (`.meta`), ETag/Last-Modified eşleşmesi |
 | `Services/Downloads/SubtitleDownloader.cs` | 529 | Altyazı indirme, `data:` URI, biçim doğrulama |
-| `Services/Downloads/YtDlpHlsDownloader.cs` | 601 | HLS indirme, yt-dlp sarmalayıcı |
+| `Services/Downloads/YtDlpHlsDownloader.cs` | 605 | HLS indirme, yt-dlp sarmalayıcı |
 
 Testler (`Migurdex.Tests`): `Mp4DownloaderTests`, `SubtitleDownloaderTests`, `HlsDownloaderTests`,
 `DownloadServiceTests`, `DownloadCommandTests`, `DownloadPathBuilderTests`,
@@ -446,6 +449,11 @@ Not: `TuiMarkupSafetyTests` için "8 test" ve "23 test" ifadeleri aynı gerçeğ
 8 test **metodu** vardır (5 `[Fact]` + 3 `[Theory]`); Theory'ler 18 `[InlineData]` ile
 genişlediğinden xUnit toplam **23 test çalıştırır**.
 
+Kolon toplamları: **81 metot / 110 çalışan case / 10 sınıf**. Bu kanonik değerdir; tüm doküman
+ve PR metinlerinde geçen "109" (27.09.2026 öncesi), "102" (26.09.2026 öncesi) ve "103"
+(`TEST_RESULTS.md` bölüm 1'deki 8 sınıflık filtre koşusu) değerleri farklı tarih/kapsamın geçmiş
+kayıtlarıdır — ayrım için `--progress` düzeltmesi bölümündeki açıklamaya bakın.
+
 ### Doğrulama sonuçları (offline, 26 Eylül 2026)
 
 26 Eylül 2026'da `feature/download` dalında, temiz çalışma ağacı üzerinde (son kod commit:
@@ -460,7 +468,7 @@ derlemesi üzerinde koşuldu.
 | Çalışma ağacı | `git status --short --branch` | Temiz (işlenmemiş değişiklik yok) |
 | Boşluk denetimi | `git diff --check` | Temiz |
 | Bağımlılık | `dotnet restore Migurdex.slnx` | Başarılı |
-| Derleme | `dotnet build Migurdex.slnx -c Release --no-restore` | 18 proje, 0 uyarı, 0 hata |
+| Derleme | `dotnet build Migurdex.slnx -c Release --no-restore` | 18 proje, 0 uyarı, 0 hata (v1.9.2 tabanlı ağaç; Deokwave eklendiğinde çözüm 19 projeye çıkıyor) |
 
 Tam takım koşusu (`ExtractorSmokeTests` hariç):
 
@@ -480,19 +488,24 @@ Tam takım koşusu (`ExtractorSmokeTests` hariç):
 | `ApiClientServiceTests` | 2/2 |
 | `TuiMarkupSafetyTests` | 23/23 |
 | `FuzzyPromptSearchableTests` | 18/18 |
-| **Grup toplamı** | **102/102** |
+| **Grup toplamı (8 sınıflık filtre)** | **102/102** |
 
 Notlar:
 
 - 274'lük genel toplam, `ExtractorSmokeTests` dışındaki tüm test sınıflarını kapsar: yukarıdaki
-  10 indirme test sınıfının tamamı (`DownloadPathBuilderTests` → 4, `ExternalProcessRunnerTests`
-  → 3 dahil; 109 çalışan case) ve indirme kapsamı dışındaki sınıflar (OAuth, izleme senkronu,
+  8 indirme test sınıfının tamamı ile indirme kapsamı dışındaki sınıflar (OAuth, izleme senkronu,
   veritabanı, sezon/film, güncelleme vb.).
-- 102'lik grup toplamı yalnızca ayrı filtrelerle koşulan 8 sınıfa aittir; 102 + 4 + 3 = 109.
+- **102'lik grup toplamı yalnızca ayrı filtrelerle koşulan 8 sınıfa aittir;** 10 sınıflık tam
+  kapsam o gün 102 + 4 (`DownloadPathBuilderTests`) + 3 (`ExternalProcessRunnerTests`) = **109**
+  olurdu. Bu koşumdan sonra `HlsDownloaderTests`'e 1 metot eklendi, bu yüzden güncel değerler
+  **110** (10 sınıf) ve 8 sınıflık filtrede **103**'tür.
 - Testler var olan Release derlemesi üzerinde `--no-build` ile koşulduğundan sonuçlar, 0 uyarı /
   0 hata ile tamamlanan derleme çıktısıyla birebir eşleşir.
-- Bu koşumda kod değişmedi; `Test kapsamı` tablosundaki metrikler (80 test metodu / 109 çalışan
-  case) ve `Yapılan işlemler` kayıtları olduğu gibi korunur.
+- Bu koşumda kod değişmedi. `Test kapsamı` tablosundaki **güncel** metrikler
+  **81 test metodu / 110 çalışan case**'dir; 109 → 110 farkı yalnızca 27 Eylül'deki
+  `--progress` düzeltmesiyle eklenen `HlsDownloaderTests` metodundan gelir
+  (`Download_ParsesYtDlpProgressLinesIntoDownloadingStage`), 102 → 103 farkı da aynı metoddandır
+  (bkz. aşağıdaki `--progress` düzeltmesi bölümü).
 
 ### `--progress` düzeltmesi ve doğrulama (27 Eylül 2026)
 
@@ -523,14 +536,33 @@ Doğrulama (portatif .NET SDK 10.0.401, `feature/download`, `ExtractorSmokeTests
 
 | Komut | Sonuç |
 |---|---|
-| `dotnet build Migurdex.slnx -c Release` | 18 proje, 0 uyarı, 0 hata |
+| `dotnet build Migurdex.slnx -c Release` | 18 proje, 0 uyarı, 0 hata (düzeltme v1.10.0 rebase'i öncesinde doğrulandı; Deokwave'li/aftaki ağaç 19 proje) |
 | `dotnet test Migurdex.Tests\Migurdex.Tests.csproj -c Release --no-build --filter "FullyQualifiedName!~ExtractorSmokeTests"` | **275/275 geçti** |
 | Aynı koşu + `FullyQualifiedName~HlsDownloaderTests` filtresi | **8/8 geçti** |
-| İndirme/TUI odaklı sınıf filtreleri (Downloader/Service/Command/PathBuilder/ProcessRunner/ApiClient/TuiMarkup/FuzzyPrompt) | **110/110 geçti** |
+| İndirme/TUI odaklı sınıf filtreleri (Downloader/Service/Command/PathBuilder/ProcessRunner/ApiClient/TuiMarkup/FuzzyPrompt) | **110/110 geçti** (10 sınıf) |
 
 Değişiklik bu doküman güncellemesiyle birlikte çalışma ağacında hazır bırakıldı; commit yapılmadı.
 
+**103/103 ile 110/110 arasındaki 7 case farkı — neden:** iki sayı da doğrudur, fark yalnızca
+filtre kapsamındadır.
+
+- **110/110** = indirme/TUI kapsamındaki **10** sınıfın tamamı:
+  `Mp4DownloaderTests` 20 + `SubtitleDownloaderTests` 10 + `HlsDownloaderTests` 8 +
+  `DownloadServiceTests` 7 + `DownloadCommandTests` 15 + `DownloadPathBuilderTests` 4 +
+  `ExternalProcessRunnerTests` 3 + `ApiClientServiceTests` 2 + `TuiMarkupSafetyTests` 23 +
+  `FuzzyPromptSearchableTests` 18 = 110.
+- **103/103** (`TEST_RESULTS.md` bölüm 1) = aynı 10 sınıftan yalnızca **8** tanesinin geçtiği
+  koşu; `DownloadPathBuilderTests` (4) ve `ExternalProcessRunnerTests` (3) o koşunun tablosunda
+  yer almıyor. 103 + 4 + 3 = 110.
+- Güncel kanonik değer **110**'dur (`Test kapsamı` tablosu ve `Güncelleme talimatı`); 103 yalnızca
+  8 sınıflık filtre koşusunun geçmiş bir kaydıdır.
+
 ### Canlı API smoke doğrulaması (26 Eylül 2026)
+
+26 Eylül 2026 koşumudur ve **v1.10.0 rebase'i öncesindeki** ağacı kapsar: o sırada upstream
+`v1.9.2` tabanındaydı ve `/health` **13 sağlayıcı** bildiriyordu. Rebase ile gelen `Deokwave`
+(+1) sonrası beklenen sağlayıcı sayısı **14**'tür (bkz. `Yapılan işlemler` → madde 11 ve
+`TEST_RESULTS.md` bölüm 7). Extractor sayısı 13/14 sağlayıcı için de 38'dir, değişmemiştir.
 
 `feature/download` dalı, temiz bir kopya üzerinde rastgele bir loopback portunda
 (`http://127.0.0.1:37972`) canlı API smoke testi koşuldu. API 2 saniyede hazır hâle geldi:
@@ -668,8 +700,10 @@ Kaynak ağacında kod değişikliği yapılmadı.
 
 ## Yapılan işlemler
 
-Bu bölüm, indirme özelliğinin `feature/download` dalında nasıl hazırlandığının çalışma
-kayıdıdır.
+Bu bölüm, indirme özelliğinin `feature/download` dalında nasıl hazırlandığının kronolojik
+çalışma kaydıdır. Özellik 29.09.2026'da `main` üzerine birleştirildi ve `v1.10.2` olarak
+yayınlandı (madde 15). Maddeler 1–14 `feature/download` üzerindeki çalışmanın tarihsel
+kaydıdır; bu maddelerde geçen dal adı geçmiş bağlamıdır — güncel durum `main` + `v1.10.2`'dir.
 
 1. **Kaynak klonlama ve dal**: Depo `https://github.com/roxyrekt/Migurdex.git` adresinden
    `..\migu\source` içine klonlandı; `main` (`444a49e`) üzerinden `feature/download` dalı açıldı.
@@ -690,7 +724,8 @@ kayıdıdır.
    `ApiClientService`'e API daemon otomatik başlatma (`TryStartApiDaemonAsync`).
 5. **TUI entegrasyonu** (`c3d307a`): `EpisodeSourcesView`'e `İndir` eylemi, ilerleme izleme
    (`DownloadProgressTracker`), iptal ve sonuç ekranı (`DownloadSourceAsync`,
-   `ShowDownloadResultAsync`) eklendi; `TuiApplicationCancellation` genişletildi.
+   `ShowDownloadResultAsync`) eklendi; `TuiApplicationCancellation` **yeni eklendi** (v1.9.2
+   tabanında yoktu, `be85d61` ile geldi ve 26 satırdır).
 6. **Güvenlik düzeltmeleri** (`c3d307a` kapsamında): `DownloadHttp`'te elle yönetilen yönlendirme
    zinciri (en fazla `MaxRedirects = 5` adım) ve üç ayrı header allowlist'i (cross-origin, yt-dlp,
    altyazı fallback); hata mesajlarında URL/header sanitizasyonu
@@ -702,7 +737,9 @@ kayıdıdır.
    Ayrıntı: `TUI markup güvenliği` bölümü.
 8. **Test**: 9 indirme test sınıfı yazıldı; `dotnet test` ile 72 metod / 91 çalışan case
    doğrulandı (metrikler statik `[Fact]`/`[Theory]`/`[InlineData]` sayımıyla da tutarlı; bkz.
-   `Test kapsamı`).
+   `Test kapsamı`). Bu, ilk test yazımının anlık metriğidir; **güncel değer 81 metod / 110
+   çalışan case / 10 sınıftır** (`DownloadPathBuilderTests` ve `ExternalProcessRunnerTests`
+   eklendi, `--progress` düzeltmesiyle `HlsDownloaderTests` +1 case kazandı).
 9. **Derleme ve paket üretimi** *(v1.10.0 öncesi paket)*: `.\build.ps1 -Publish` ile Release
    paketi üretildi — `dist\migurdex.exe` (win-x64, self-contained, single-file, trimmed),
    `dist\api\` (self-contained API + 13 provider eklentisi + `migurdex_native.dll` +
@@ -797,6 +834,49 @@ kayıdıdır.
       derlemesi 19 proje / 0 uyarı / 0 hata; offline test takımı **275/275** geçti.
     - Rebase tüm feature commit hash'lerini yeniden yazdı; v1.10.0 tabanlı eski hash'ler
       (`321fe38`…`9711773`) `backup/download-pre-v1101` dalında korunuyor.
+15. **PR #1 merge ve `v1.10.2` release** (29.09.2026): `feature/download` dalı fork
+    (`Nutaliaxd/Migurdex`) `main` dalına PR ile birleştirildi ve aynı gün etiketli sürüm
+    yayınlandı. Bu noktadan sonra aktif dal **`main`**'dir; `feature/download` yalnızca PR
+    başlığı/hash bağlamında geçer.
+
+    | Olay | Değer |
+    |---|---|
+    | PR | [#1 — feat: add anime download support](https://github.com/Nutaliaxd/Migurdex/pull/1) (`feature/download` → `main`) |
+    | PR durumu | **merged** (29.09.2026 10:05 UTC) |
+    | Merge commit | `44f4010` — `Merge pull request #1 from Nutaliaxd/feature/download` |
+    | PR istatistikleri | 22 commit, 40 dosya, +11.559 / −249 |
+    | Tag | `v1.10.2` → `44f4010` (upstream taban: `v1.10.1` @ `4ecd7d7`) |
+    | Release | [v1.10.2](https://github.com/Nutaliaxd/Migurdex/releases/tag/v1.10.2) (29.09.2026 11:41 UTC) |
+    | CI run | [Build and Release #36562344972](https://github.com/Nutaliaxd/Migurdex/actions/runs/36562344972) — sonuç **success** (11:32 UTC, `workflow_dispatch` @ `v1.10.2`) |
+
+    Merge commit'in iki ebeveyni vardır: `4ecd7d7` (upstream `v1.10.1`) ve `c4c06c8`
+    (dokümantasyon kaydının son commit'i). Yani `main` üzerindeki indirme özelliği, upstream
+    `v1.10.1` üzerine **ff-merge olmayan** (merge commit'li) birleşmiştir; `feature/download`
+    dalları `backup/download-pre-v110` ve `backup/download-pre-v1101` korunuyor.
+
+    **Release asset'ları** (üretim: CI, 29.09.2026):
+
+    | Asset | Boyut (bayt) |
+    |---|---:|
+    | `migurdex-win-x64.zip` | 60.031.590 |
+    | `migurdex-linux-x64.tar.gz` | 61.318.906 |
+    | `migurdex-linux-arm64.tar.gz` | 58.679.919 |
+    | `migurdex-x86_64.AppImage` | 56.900.088 |
+    | `migurdex-x86_64.AppImage.zsync` | 194.707 |
+    | `migurdex-aarch64.AppImage` | 54.163.976 |
+    | `migurdex-aarch64.AppImage.zsync` | 185.357 |
+    | `sha256sums-win-x64.txt` | 87 |
+    | `sha256sums-linux-x64.txt` | 92 |
+    | `sha256sums-linux-arm64.txt` | 94 |
+
+    - Yerel `build.ps1 -Publish` paketi (madde 12) ile CI paketi **aynı değildir**: CI, `-p:Version`
+      ile sürüm damgası basar ve üç platformda derler; `migurdex-win-x64.zip` boyutu 61.605.017
+      (yerel) ↔ 60.031.590 (CI) olarak farklıdır.
+    - CI paketinde `migurdex --version` gerçek sürümü (`migurdex v1.10.2`) basar; yerel pakette
+      `v0.0.0` görünür (bkz. `Güncelleme talimatı` → sürüm damgası notu).
+    - Upstream `roxyrekt/Migurdex` `main` dalı hâlâ `v1.10.1` (`4ecd7d7`); fork'taki `v1.10.2`
+      yalnızca bu çalışma dalını içerir. Upstream hedefi için aynı PR metni kullanılabilir
+      (`PR_DESCRIPTION.md`).
 
 ### Upstream v1.10.0 notları
 
@@ -805,6 +885,8 @@ kayıdıdır.
 - Bizim `SubtitleDownloader` ile upstream’in altyazı indirme mantığı arasında fonksiyonel
   benzerlik var; ileride ortak yardımcıya çıkarılabilir.
 - Upstream yeni `Deokwave` sağlayıcısını ekledi; sağlayıcı sayısı 13’ten 14’e çıktı.
+- Bu bölümdeki "13 sağlayıcı" geçen paket/smoke kayıtları **v1.10.0 öncesi** koşumlardır
+  (bkz. `Yapılan işlemler` → maddeler 9–10 ve `Canlı API smoke doğrulaması`); güncel sayı 14'tür.
 - `DownloadSourceResolver` sağlayıcı listesini dinamik okuduğu için Deokwave için ek kod
   değişikliği gerekmez.
 
@@ -836,24 +918,48 @@ kayıdıdır.
 - Komutlar:
 
   ```
-  dotnet test Migurdex.Tests\Migurdex.Tests.csproj    # 91 çalışan case
-  dotnet build Migurdex.slnx -c Release -m           # tam çözüm derlemesi
-  .\build.ps1 -Publish                               # dist paketi
+  dotnet test Migurdex.Tests\Migurdex.Tests.csproj    # 110 çalışan case (indirme/TUI kapsamı)
+  dotnet build Migurdex.slnx -c Release -m           # tam çözüm derlemesi (19 proje)
+  .\build.ps1 -Publish                               # dist paketi (yerel, sürüm damgasız)
   ```
+
+  Not: `dotnet test` filtresiz çalıştırıldığında tüm takımı kapsar (`ExtractorSmokeTests`
+  dahil, 275'in üzerinde case). Yukarıdaki **110**, indirme/TUI kapsamındaki 10 sınıfın
+  toplamıdır; `--filter "FullyQualifiedName!~ExtractorSmokeTests"` ile tüm takım **275/275**
+  geçer. Karşılaştırmalı kayıt: `TEST_RESULTS.md` bölüm 1 (8 sınıflık filtre = 103) ve
+  bölüm 3 (10 sınıflık filtre = 110).
 
 ### HEAD ve commit listesi
 
-- Dal: `feature/download` (temel: `v1.10.1` @ `4ecd7d7`).
+**Tek doğruluk kaynağı `git log`'dur.** Aşağıdaki tablo ve listeler o anki durumun okunabilir
+bir anlatımıdır; yeni commit'lerde elle güncellenmesi gerekmez ve yanıltmamalıdır. Doğrulama
+komutları:
+
+```bash
+git log --oneline v1.10.1..main              # upstream tabandan bu işe ait commit'ler
+git rev-list --count v1.10.1..main            # toplam commit sayısı (dinamik)
+git log --oneline --graph --all -30          # dal/merge grafiği
+git describe --tags                          # HEAD'in işaretli sürümü (v1.10.2)
+git rev-list --count v1.10.1..main -- Migurdex.Cli/Services/Downloads/   # yalnız indirme kodu
+```
+
+Aşağıdaki kayıt **29.09.2026, `v1.10.2` yayını anındaki** durumudur ve PR #1 kapsamındaki
+22 commit'i içerir.
+
+- Aktif dal: **`main`** — HEAD `44f4010` (`Merge pull request #1 from Nutaliaxd/feature/download`).
+- Merge commit `44f4010`; iki ebeveyni: `4ecd7d7` (upstream `v1.10.1`) ve `c4c06c8`
+  (`docs: record v1.10.1 rebase and compatibility`, dalın son commit'i).
+- Etiketli sürüm: `v1.10.2` → `44f4010`.
 - Son kod commit'i: `00b2ee7` — `fix(downloader): report live yt-dlp HLS progress`
-  (2026-09-27; v1.10.1 üzerine rebase sonrası karşılığı).
-- HEAD (bu kayıt yazılırken): `7ca27de` — `docs: round PR diff stats`
-  (2026-09-29 03:32 +0300). v1.10.1 rebase kaydını işleyen
-  `docs: record v1.10.1 rebase and compatibility` commit'i bu listeden sonraki satırdır.
-- `v1.10.1..feature/download` (21 commit):
+  (2026-09-27; v1.10.1 üzerine rebase sonrası karşılığı). Merge sonrasında da değişmedi.
+- `v1.10.1..main` — **23 commit** (22 PR commit + merge `44f4010`):
   `be85d61` → `6c366c9` → `320302e` → `b3dd5d5` → `6135f91` →
   `ed397f0` → `f19e2a4` → `fc6747f` → `ba2665f` → `00b2ee7` →
   `38972ce` → `07d8110` → `7792f47` → `e3345a9` → `8226b95` →
-  `e9d8276` → `d6774a7` → `4d56774` → `9a52271` → `8c58e2f` → `7ca27de`.
+  `e9d8276` → `d6774a7` → `4d56774` → `9a52271` → `8c58e2f` →
+  `7ca27de` → `c4c06c8`, ardından merge commit `44f4010`.
+  (Bu kayıt, dokümanın kendi düzenleme commit'lerinden sonra `main` üzerine eklenmiştir;
+  güncel ve eksiksiz liste için `git log --oneline v1.10.1..main` kullanılmalıdır.)
 - Upstream v1.10.1, üç yeni commit içerir:
   `e4a32b4` (`fix: update database link for TurkAnime provider`),
   `914dfdd` (`fix(anizm): handle unnamed anizm fansub groups`) ve
@@ -886,6 +992,13 @@ kayıdıdır.
 | `9a52271` | 2026-09-29 03:12 +0300 | `docs: finalize PR commit count` | `PR_DESCRIPTION.md` commit sayısı netleştirildi — 1 dosya (+1/−1) |
 | `8c58e2f` | 2026-09-29 03:20 +0300 | `docs: make PR description commit count dynamic` | `PR_DESCRIPTION.md` commit sayısı sabit yerine dinamik ifadeye çekildi — 1 dosya (+3/−2) |
 | `7ca27de` | 2026-09-29 03:32 +0300 | `docs: round PR diff stats` | `PR_DESCRIPTION.md` diff istatistikleri yuvarlandı — 1 dosya (+1/−1) |
+| `c4c06c8` | 2026-09-29 04:03 +0300 | `docs: record v1.10.1 rebase and compatibility` | v1.10.1 rebase kaydı işlendi; `DOWNLOAD.md`, `DEVELOPMENT_LOG.md`, `PR_DESCRIPTION.md`, `TEST_RESULTS.md` — 4 dosya |
+| `44f4010` | 2026-09-29 13:05 +0300 | `Merge pull request #1 from Nutaliaxd/feature/download` | PR #1 `main`'e merge edildi; ebeveynler `4ecd7d7` (upstream `v1.10.1`) + `c4c06c8`. 22 commit, 40 dosya, +11.559/−249. Ardından `v1.10.2` etiketi ve release yayınlandı |
+
+> **Bu tablo git geçmişinin bir anlatımıdır, tek doğruluk kaynağı değildir.** Commit listesi,
+> sırası, tarihleri ve istatistikleri için `git log --oneline v1.10.1..main` ile
+> `git show --stat <hash>` çalıştırılmalıdır; tablo güncel değilse kayıt olarak değerini
+> yitirmez ama karar dayanağı olarak kullanılmamalıdır.
 
 Gelecekteki commit'ler için satır formatı:
 
@@ -919,13 +1032,16 @@ eşlemeye göre ilgili bölüm revize edilir.
 | `CliConfig.cs` / `config.json` alanları | `Yapılandırma (config.json)` |
 | `Migurdex.Tests\*` (test ekleme/çıkarma) | `Test kapsamı` (yeniden sayım yapılır) |
 | `build.ps1`, csproj, paket düzeni | `Yapılan işlemler`, `Bilinen sınırlar ve riskler` |
+| Merge / etiket / release | `Son güncelleme` tablosu, `Yapılan işlemler` → madde 15, `HEAD ve commit listesi`, `Değişiklik geçmişi` |
 
 Test sayılarının doğrulanması:
 
 1. `dotnet test Migurdex.Tests\Migurdex.Tests.csproj` çalıştırın; indirme/TUI kapsamındaki
    sınıfların geçen test sayısı, `Test kapsamı` tablosundaki "Çalışan case" toplamıyla
-   (şu an 110) eşleşmelidir (takım konu dışı sınıfları da içerdiğinden genel toplam daha
-   yüksektir).
+   (şu an **110**, 10 sınıf) eşleşmelidir (takım konu dışı sınıfları da içerdiğinden genel
+   toplam daha yüksektir). `TEST_RESULTS.md` bölüm 1'deki **103** değeri 8 sınıflık filtrenin
+   sonucudur (110 − 4 `DownloadPathBuilderTests` − 3 `ExternalProcessRunnerTests`); ikisi de
+   doğrudur, kapsamı farklıdır.
 2. `dotnet` olmadan statik çapraz kontrol: her test sınıfında `[Fact]` + `[Theory]` (metod
    sayısı) ve `[Theory]` başına düşen `[InlineData]` satırları (case sayısı) sayılır; örn.
    `Select-String -Path "Migurdex.Tests\Mp4DownloaderTests.cs" -Pattern "\[Fact\]"`.
@@ -934,10 +1050,16 @@ Test sayılarının doğrulanması:
 
 Commit ve tarih güncelleme kuralı:
 
-- Her yeni commit `Değişiklik geçmişi` tablosuna bir satır ekler; baştaki `Son güncelleme`
-  (dokümanın gerçek düzenleme günü) ve `HEAD` (tam hash + kısa hash + konu) alanları aynı
-  değişiklikle güncellenir.
+- **Tek doğruluk kaynağı `git log`'dur.** `Değişiklik geçmişi` tablosu ve
+  `HEAD ve commit listesi` bölümü anlatıcı kayıttır; doğrulama gerektiğinde
+  `git log --oneline v1.10.1..main`, `git show --stat <hash>` ve
+  `git describe --tags` çalıştırılmalıdır. Tablo güncellenmezse yanlışa düşmez, eskir.
+- Yeni bir commit eklenirken: tabloya bir satır düşülür ve baştaki `Son güncelleme` (dokümanın
+  gerçek düzenleme günü) ile `HEAD` alanları aynı değişiklikle tazelenir.
+- Merge commit'leri de kayda girer; ancak birleştirilen dalın commit'leri zaten varsa tekrarlanmaz
+  (bkz. `44f4010` satırı).
 - Tarihler commit'in author tarihinden (+0300) alınır; commit mesajları yukarıdaki conventional
   formatın dışına çıkmaz.
-- Bu doküman, feature dalının parçası olarak `docs:` commit'leriyle sürülür; ilk kaydın rebase
-  öncesi karması `73535cb`, rebase sonrası eşleniği `81335bc`'tir.
+- Bu doküman `docs:` commit'leriyle sürülür. İlk kaydın rebase öncesi karması `73535cb`, rebase
+  sonrası eşleniği `81335bc`'tir; PR #1 merge edildikten sonra dal `main`'dir, yeni kayıtlar
+  `main` üzerine düşer.
