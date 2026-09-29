@@ -584,9 +584,15 @@ aynı gün etiketli sürüm yayınlandı. **Aktif dal `main`**'dir.
 
 - Bu release **fork'a** aittir. Upstream `roxyrekt/Migurdex` `main` dalı hâlâ `v1.10.1`
   (`4ecd7d7`) durumundadır; upstream entegrasyonu
-  [PR #1](https://github.com/roxyrekt/Migurdex/pull/1) üzerinden açılmıştır. PR `OPEN` ve
-  `MERGEABLE` durumdadır; fork PR CI'si maintainer onayı beklediği için
-  [run](https://github.com/roxyrekt/Migurdex/actions/runs/36571814259) `action_required` sonucundadır.
+  [PR #2](https://github.com/roxyrekt/Migurdex/pull/2) üzerinden açılmıştır. PR `OPEN` ve
+  `MERGEABLE` durumdadır; temiz dal `upstream/download-clean`, tek commit `7f1e250`, 37 dosya,
+  +9.879 / −253. Önceki upstream
+  [PR #1](https://github.com/roxyrekt/Migurdex/pull/1) kapatıldı (duplicate).
+- PR #2 kapsamı **kod + testler + `README.md` + `DOWNLOAD.md`** ile sınırlıdır; `DEVELOPMENT_LOG.md`,
+  `TEST_RESULTS.md` ve `PR_DESCRIPTION.md` PR'ye dahil edilmemiştir, yalnızca fork `main` dalında
+  durur ve PR #2 gövdesinde mutlak bağlantılarıyla işaret edilir. PR #2 ağacı (upstream `4ecd7d7`
+  üzerine tek commit) ile `main`'in test edilen ağacı aynı kaynak kodu taşır; bölüm 1'deki
+  275/275 ve 110/110 sonuçları her ikisini de temsil eder.
 - Release paketi, bölüm 7'deki yerel `build.ps1` paketinden farklıdır: CI sürüm damgası basar
   (`-p:Version`), üç platformu kapsar ve `sha256sums-*.txt` ile doğrulanabilir.
 - Kök kurulum hâlâ yerel paketi çalıştırmaktadır; ayrıntı ve fark tablosu bkz. bölüm 9.

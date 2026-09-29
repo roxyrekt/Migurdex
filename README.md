@@ -28,7 +28,9 @@ Bu depo, [`Nutaliaxd/Migurdex`](https://github.com/Nutaliaxd/Migurdex) fork'udur
 (download) özelliğini** içerir. Upstream `roxyrekt/Migurdex` `main` dalında bu özellik **henüz yok**;
 bu özellik fork içinde [`PR #1`](https://github.com/Nutaliaxd/Migurdex/pull/1) ile merge edilip
 `v1.10.2` release'ı olarak yayımlandı. Upstream entegrasyonu
-[`roxyrekt/Migurdex PR #1`](https://github.com/roxyrekt/Migurdex/pull/1) üzerinden takip ediliyor.
+[`roxyrekt/Migurdex PR #2`](https://github.com/roxyrekt/Migurdex/pull/2) üzerinden takip ediliyor
+(temiz dal `upstream/download-clean`, tek commit; durum `OPEN` ve `MERGEABLE`). Eski upstream
+[`PR #1`](https://github.com/roxyrekt/Migurdex/pull/1) kapatıldı.
 
 | | Upstream | Bu fork |
 |---|---|---|

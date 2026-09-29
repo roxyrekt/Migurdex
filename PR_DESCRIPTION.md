@@ -5,10 +5,11 @@
 > | Hedef | Durum |
 > |---|---|
 > | Fork `Nutaliaxd/Migurdex` | [PR #1](https://github.com/Nutaliaxd/Migurdex/pull/1) **merge edildi** (29.09.2026 10:05 UTC) → merge commit `44f4010` → etiket `v1.10.2` → [release](https://github.com/Nutaliaxd/Migurdex/releases/tag/v1.10.2) yayımlandı ([CI run](https://github.com/Nutaliaxd/Migurdex/actions/runs/36562344972), sonuç **success**) |
-> | Upstream `roxyrekt/Migurdex` | [PR #1](https://github.com/roxyrekt/Migurdex/pull/1) **açık** ve `MERGEABLE`; fork PR CI'si maintainer onayı bekliyor ([run](https://github.com/roxyrekt/Migurdex/actions/runs/36571814259), `action_required`) |
+> | Upstream `roxyrekt/Migurdex` | [PR #2](https://github.com/roxyrekt/Migurdex/pull/2) **açık** ve `MERGEABLE` (temiz dal `upstream/download-clean`, tek commit `7f1e250`, 37 dosya, +9.879 / −253). Önceki [PR #1](https://github.com/roxyrekt/Migurdex/pull/1) kapatıldı (duplicate) |
 >
 > Fork dalı: `feature/download` → `main` · Base (upstream): `v1.10.1` (`4ecd7d7`) ·
-> Statistik (PR #1, değişmeden): 22 commit, 40 dosya, **+11.559 / −249** ·
+> İstatistik — fork PR #1: 22 commit, 40 dosya, **+11.559 / −249** ·
+> İstatistik — upstream PR #2: 1 commit, 37 dosya, **+9.879 / −253** (kod + testler + `README.md` + `DOWNLOAD.md`) ·
 > Son kod commit'i: `00b2ee7` · Tam commit listesi: `git log --oneline v1.10.1..main`
 
 ## Durum ve release kanıtı (fork)
@@ -424,7 +425,9 @@ Kod hatası değildir, kalıcı etki yoktur.
   [release](https://github.com/Nutaliaxd/Migurdex/releases/tag/v1.10.2) yayımlandı
   ([CI run](https://github.com/Nutaliaxd/Migurdex/actions/runs/36562344972) — `success`).
   Upstream `roxyrekt/Migurdex` `main` dalı hâlâ `v1.10.1` (`4ecd7d7`); upstream hedefi için bu
-  metin aynı base ile kullanılabilir. Ayrıntı: `Durum ve release kanıtı` bölümü.
+  metin aynı base ile kullanılabilir ve açık upstream PR
+  [PR #2](https://github.com/roxyrekt/Migurdex/pull/2) üzerinden yürüyor (`OPEN`, `MERGEABLE`, dal
+  `upstream/download-clean`, tek commit `7f1e250`). Ayrıntı: `Durum ve release kanıtı` bölümü.
 - Upstream v1.10.0 iki commit içerir: `8094425` (altyazı oynatmada isim + link yerine indirme)
   ve `4035f9a` (`feat(providers): add Deokwave`) — sağlayıcı sayısı 13 → 14. Upstream v1.10.1
   üç commit içerir: `e4a32b4` (TurkAnime DB bağlantısı), `914dfdd` (Anizm isimsiz fansub

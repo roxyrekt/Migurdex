@@ -3,13 +3,16 @@
 > Bu dosya, anime indirme özelliğinin **başlangıçtan merge ve release'e kadar** tüm geliştirme,
 > test, hata çözümü, paketleme ve sürüm uyumlama çalışmasını kronolojik ve teknik olarak kaydeder.
 >
-> Son güncelleme: 29 Eylül 2026 · Durum: **PR #1 merged**, **`v1.10.2` published**
+> Son güncelleme: 29 Eylül 2026 · Durum: **fork PR #1 merged**, **`v1.10.2` published**,
+> **upstream PR #2 `OPEN`**
 > Aktif dal: **`main`** · Merge commit: `44f4010` (PR #1: `feature/download` → `main`)
 > Temel: `v1.10.1` (`4ecd7d7`) · Sürüm: `v1.10.2` → `44f4010`
 > PR (fork, merged): https://github.com/Nutaliaxd/Migurdex/pull/1
 > Release: https://github.com/Nutaliaxd/Migurdex/releases/tag/v1.10.2
 > CI run: https://github.com/Nutaliaxd/Migurdex/actions/runs/36562344972 (sonuç: **success**)
-> Upstream PR: https://github.com/roxyrekt/Migurdex/pull/1 (**OPEN**, `MERGEABLE`; CI `action_required`)
+> Upstream PR: https://github.com/roxyrekt/Migurdex/pull/2 (**OPEN**, `MERGEABLE`; temiz dal
+> `upstream/download-clean`, tek commit `7f1e250`) — eski upstream
+> https://github.com/roxyrekt/Migurdex/pull/1 **CLOSED** (duplicate; temiz PR #2 ile değiştirildi)
 
 > **Commit geçmişinde tek doğruluk kaynağı `git log`'dur** (bkz. bölüm 11). Bu dosyadaki commit
 > listeleri okunabilirlik için anlatıcı kayıttır; güncel ve eksiksiz liste için
@@ -74,6 +77,8 @@ Sonuç:
 - Kök kurulum **v1.10.0 + download** olarak yükseltildi
 - **PR #1 merge edildi** (merge commit `44f4010`, 22 commit, 40 dosya, +11.559/−249)
 - **`v1.10.2` yayınlandı** (fork `Nutaliaxd/Migurdex`; CI release koşusu başarılı) — bkz. bölüm 15
+- **Upstream PR #2 açıldı** (temiz dal `upstream/download-clean`, tek commit `7f1e250`, 37 dosya,
+  +9.879/−253, `OPEN` + `MERGEABLE`); önceki upstream PR #1 kapatıldı — bkz. bölüm 15
 
 ---
 
@@ -1021,11 +1026,14 @@ dallar korunuyor: `backup/download-pre-v110` (v1.10.0 öncesi) ve `backup/downlo
 | Alan | Değer |
 |---|---|
 | Repo | `roxyrekt/Migurdex` |
-| PR | https://github.com/roxyrekt/Migurdex/pull/1 |
+| PR | https://github.com/roxyrekt/Migurdex/pull/2 |
 | Başlık | `feat: add anime download support` |
-| Head / base | `Nutaliaxd:main` → `main` |
-| Durum | **OPEN**, `MERGEABLE` |
-| CI | https://github.com/roxyrekt/Migurdex/actions/runs/36571814259 — `action_required` (fork PR onayı bekliyor) |
+| Head / base | `Nutaliaxd:upstream/download-clean` → `roxyrekt:main` |
+| Durum | **OPEN**, `MERGEABLE` (`mergeable_state: unstable`; henüz check run üretilmedi) |
+| Commit | `7f1e250` — `feat: add anime download support` (tek commit, 29.09.2026 13:19 UTC) |
+| İstatistik | 1 commit · 37 dosya · +9.879 / −253 |
+| Kapsam | kod + testler + `README.md` + `DOWNLOAD.md` |
+| Önceki PR | https://github.com/roxyrekt/Migurdex/pull/1 — **CLOSED**, merge edilmedi (duplicate; temiz PR #2 ile değiştirildi) |
 
 Release asset'ları (üç platform matrisi + checksum'lar):
 
@@ -1055,8 +1063,14 @@ Release asset'ları (üç platform matrisi + checksum'lar):
 ### Kapsam notları
 
 - `v1.10.2`, **fork'a** özel bir sürüm numarasıdır; upstream `roxyrekt/Migurdex` `main` dalı
-  hâlâ `v1.10.1` (`4ecd7d7`) durumundadır ve orada bu çalışma için PR açılmamıştır. Upstream
-  hedefi için aynı PR metni `PR_DESCRIPTION.md` içinde hazırdır (base: upstream `main`).
+  hâlâ `v1.10.1` (`4ecd7d7`) durumundadır. Upstream entegrasyonu
+  [PR #2](https://github.com/roxyrekt/Migurdex/pull/2) üzerinden yürüyor (`OPEN`, `MERGEABLE`, temiz
+  dal `upstream/download-clean`); önceki upstream
+  [PR #1](https://github.com/roxyrekt/Migurdex/pull/1) kapatıldı. PR #2 gövdesi kullanıcının
+  saygı/niyet notuyla başlar ve kod + testler + `README.md` + `DOWNLOAD.md` içerir; bu üç internal
+  belge (`DEVELOPMENT_LOG.md`, `TEST_RESULTS.md`, `PR_DESCRIPTION.md`) PR'ye **bilinçli olarak
+  dahil edilmemiştir** ve yalnızca fork `main` dalında durur — PR #2 gövdesinde mutlak bağlantılarıyla
+  işaret edilir.
 - Release paketi, bölüm 9'daki yerel `build.ps1` paketinden farklıdır: CI sürüm damgası basar
   (yerel pakette `--version` → `v0.0.0`, release paketinde → `v1.10.2`), üç platformu kapsar ve
   `sha256sums-*.txt` ile doğrulanabilir. Yerel `migurdex-win-x64.zip` 61.605.017 bayt,
