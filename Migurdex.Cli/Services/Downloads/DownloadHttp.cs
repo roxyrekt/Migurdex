@@ -201,13 +201,15 @@ internal static class DownloadHttp
 
     public static string CreateSourceFingerprint(
         string?                                      sourceUrl,
-        IEnumerable<KeyValuePair<string, string>>? headers)
+        IEnumerable<KeyValuePair<string, string>>? headers,
+        string?                                      sourceDescriptor = null)
     {
         var normalizedHeaders = CopyHeaders(headers);
         normalizedHeaders.Remove("Range");
 
         using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
-        AppendHashField(hash, sourceUrl?.Trim() ?? string.Empty);
+        AppendHashField(hash, NormalizeSourceUrlForFingerprint(sourceUrl));
+        AppendHashField(hash, sourceDescriptor ?? string.Empty);
         foreach (var (name, value) in normalizedHeaders.OrderBy(item => item.Key,
                                                                     StringComparer.OrdinalIgnoreCase))
         {
@@ -215,8 +217,101 @@ internal static class DownloadHttp
             AppendHashField(hash, value);
         }
 
-        return Convert.ToHexString(hash.GetHashAndReset()).ToLowerInvariant()[..24];
+        var digest = Convert.ToHexString(hash.GetHashAndReset()).ToLowerInvariant();
+        return digest[..SourceFingerprintLength];
     }
+
+    /// <summary>
+    /// <see cref="CreateSourceFingerprint"/> çıktısının karakter uzunluğu. Dosya adı
+    /// bütçesi hesaplanırken ve resume artıkları gruplanırken kullanılır.
+    /// </summary>
+    public const int SourceFingerprintLength = 24;
+
+    /// <summary>
+    /// Kaynak URL'ini fingerprint'e uygun, yeniden çözümlemeye kararlı hâle getirir.
+    ///
+    /// İmzalı (signed) medya URL'leri her çözümlemede yeniden üretilir: aynı dosya
+    /// farklı imza, son kullanma zamanı ve istemci bağlama değerleriyle gelir. Gözlemlenen
+    /// örnekler (canlı ölçüm):
+    ///
+    /// <list type="bullet">
+    /// <item>googlevideo: yol içinde <c>expire/ ei/ ip/ ipbits/ sig/ lsig/</c></item>
+    /// <item>videos*.sendvid.com: sorguda <c>validfrom validto hash</c></item>
+    /// <item>c.drive.google.com: sorguda <c>expire ei ip xpc met mh mm mn ms mv mvi
+    /// pl rms cnr mt txp eaua fvip sparams lsparams sig lsig</c></item>
+    /// </list>
+    ///
+    /// Kara liste bu sağlayıcıların üçünde de yetersiz kaldı: liste her yeni sağlayıcıyla
+    /// birlikte büyür ve bir gün kaçırılır. Bu yüzden **beyaz liste** kullanılır: sorgudan
+    /// yalnızca nesneyi tanımlayan alanlar alınır, kalan her şey atılır. Beyaz liste yeni
+    /// sağlayıcı volatile alan eklediğinde bozulmaz.
+    ///
+    /// Yine de dosyanın hangi çözümlemeye ait olduğunu ayırmak için nitelikler gerekir:
+    /// aynı yolda farklı <c>itag</c> farklı dosyadır. Bu yüzden çağıran taraf ayrıca bir
+    /// <paramref name="sourceDescriptor"/> (kalite/hoster/grup/dil) hash'ler.
+    ///
+    /// Bütünlük denetimi bu katmana değil, zaten var olan
+    /// <see cref="Mp4ResumeMetadata.MatchesResponse"/> ETag/Last-Modified
+    /// karşılaştırmasına bırakılmıştır.
+    /// </summary>
+    public static string NormalizeSourceUrlForFingerprint(string? sourceUrl)
+    {
+        if (string.IsNullOrWhiteSpace(sourceUrl))
+        {
+            return string.Empty;
+        }
+
+        var trimmed = sourceUrl.Trim();
+        if (!Uri.TryCreate(trimmed, UriKind.Absolute, out var uri))
+        {
+            return trimmed;
+        }
+
+        var builder = new StringBuilder();
+        builder.Append(uri.Scheme).Append("://").Append(uri.Host);
+        if (!uri.IsDefaultPort)
+        {
+            builder.Append(':').Append(uri.Port);
+        }
+
+        builder.Append(MaskVolatilePathSegments(uri.AbsolutePath));
+
+        if (uri.Query.Length > 1)
+        {
+            var identity = ExtractIdentityQuery(uri.Query);
+            if (identity.Length > 0)
+            {
+                builder.Append('?').Append(identity);
+            }
+        }
+
+        return builder.ToString();
+    }
+
+    // Sorgudan yalnızca nesneyi tanımlayan alanlar alınır. `id` dosya kimliği, `itag`/`quality`
+    // kalite, `clen`/`dur`/`lmt`/`mime` içerik tanımıdır ve hepsi imzadan bağımsızdır.
+    // `sparams`/`lsparams` bilinçli olarak yoktur: imzalanan alanların LİSTESİ çözümleme
+    // değiştikçe değişebilir ve kimlik taşımaz.
+    private static readonly HashSet<string> IdentityQueryKeys = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "id", "videoid", "video", "itag", "quality", "q",
+        "clen", "len", "size", "dur", "duration", "lmt", "mime", "type", "codec",
+        "path", "file", "filename", "name", "v", "playlist", "part", "chunk", "segment"
+    };
+
+    // Yolda maskelenecek alan adları: bazı sağlayıcılar imzayı yola gömer
+    // (googlevideo `.../sig/<deger>/...`). Anahtar korunur, yalnız değer maskelenir.
+    private static readonly HashSet<string> VolatileUrlKeys = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "sig", "lsig", "expire", "ei", "ip", "ipbits", "reqid",
+        "signature", "token", "auth", "authorization", "jwt", "hmac",
+        "policy", "hdnea", "kid", "nonce", "hash",
+        "validfrom", "validto", "valid", "expires", "expiry", "deadline",
+        "starttime", "endtime",
+        "wmsauthsign", "wmsauth", "wmstime", "wmsdur", "wmsversion", "wmscachebust"
+    };
+
+    private const string MaskedUrlValue = "masked";
 
     public static string CreateOpaqueDigest(string? value)
     {
@@ -328,6 +423,96 @@ internal static class DownloadHttp
         System.Buffers.Binary.BinaryPrimitives.WriteInt32LittleEndian(length, bytes.Length);
         hash.AppendData(length);
         hash.AppendData(bytes);
+    }
+
+    private static bool IsVolatileUrlKey(string? name)
+    {
+        if (string.IsNullOrEmpty(name))
+        {
+            return false;
+        }
+
+        return VolatileUrlKeys.Contains(name)
+               || name.StartsWith("x-amz-", StringComparison.OrdinalIgnoreCase)
+               || name.StartsWith("x-goog-", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string MaskVolatilePathSegments(string path)
+    {
+        if (path.Length == 0)
+        {
+            return path;
+        }
+
+        var segments = path.Split('/');
+        for (var index = 1; index < segments.Length; index++)
+        {
+            // Anahtar segmenti korunur, yalnızca onu izleyen değer maskelenir; böylece
+            // "imzalı" ve "imzasız" URL'ler yapısal olarak farklı kalır.
+            if (IsVolatileUrlKey(segments[index - 1]))
+            {
+                segments[index] = MaskedUrlValue;
+            }
+        }
+
+        return string.Join("/", segments);
+    }
+
+
+    /// <summary>
+    /// Sorgudan yalnızca kimlik taşıyan alanları seçer ve ad alanına göre sıralar; sıralama
+    /// kararlılık için şarttır (URL'deki parametre sırası çözümlemeler arasında değişebilir).
+    /// </summary>
+    private static string ExtractIdentityQuery(string query)
+    {
+        var selected = new SortedDictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var pair in query.TrimStart('?').Split('&', StringSplitOptions.RemoveEmptyEntries))
+        {
+            var separator = pair.IndexOf('=');
+            if (separator <= 0)
+            {
+                continue;
+            }
+
+            var name = SafeUnescape(pair[..separator]);
+            if (!IdentityQueryKeys.Contains(name))
+            {
+                continue;
+            }
+
+            // Aynı ad iki kez geçerse ilk değer korunur (sorgu sırası kararsızdır).
+            selected.TryAdd(name, pair[(separator + 1)..]);
+        }
+
+        if (selected.Count == 0)
+        {
+            return string.Empty;
+        }
+
+        var builder = new StringBuilder();
+        foreach (var (name, value) in selected)
+        {
+            if (builder.Length > 0)
+            {
+                builder.Append('&');
+            }
+
+            builder.Append(name).Append('=').Append(value);
+        }
+
+        return builder.ToString();
+    }
+
+    private static string SafeUnescape(string value)
+    {
+        try
+        {
+            return Uri.UnescapeDataString(value);
+        }
+        catch (UriFormatException)
+        {
+            return value;
+        }
     }
 
     private static bool IsRedirect(HttpStatusCode statusCode)

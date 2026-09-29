@@ -18,6 +18,13 @@ public sealed class Mp4Downloader : IMp4Downloader
     private const int ParallelMinSegments = 2;
     private const int ParallelMaxSegments = 4;
 
+    /// <summary>
+    /// Güncel parçaya ek olarak, hedef dosya için tutulacak en fazla eski aday parçası.
+    /// Aday izolasyonu korunur (yakın adaylar resume için saklanır), disk kullanımı ise
+    /// sınırlanır.
+    /// </summary>
+    private const int MaxRetainedResumeParts = 2;
+
     private static readonly Regex ContentRangeRegex = new(
         @"^bytes\s+(\d+)-(\d+)/(\d+|\*)\s*$",
         RegexOptions.Compiled | RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
@@ -59,8 +66,27 @@ public sealed class Mp4Downloader : IMp4Downloader
 
         var headers = DownloadHttp.CopyHeaders(source.Headers);
         headers.Remove("Range");
-        var fingerprint = DownloadHttp.CreateSourceFingerprint(source.Url, headers);
+        var fingerprint = DownloadHttp.CreateSourceFingerprint(source.Url,
+                                                                headers,
+                                                                BuildSourceDescriptor(source));
         return Path.GetFullPath(destinationPath) + "." + fingerprint + ".part";
+    }
+
+    /// <summary>
+    /// Adayı ayırt etmek için fingerprint'e eklenen, URL'de bulunmayan nitelikler.
+    /// Normalizasyon yalnızca URL'nin nesne tanımlayan kısmını korur; aynı yoldaki iki
+    /// farklı kalite (ör. Google Drive <c>itag=37</c> ve <c>itag=22</c>) sorgu parametresiyle
+    /// ayrılır ve bu parametreler beyaz listede tutulur. Yine de sağlayıcı kaliteyi
+    /// yolda bildiriyorsa ayrım kaybolabilir; nitelikler bu boşluğu kapatır.
+    /// </summary>
+    private static string BuildSourceDescriptor(VideoSource source)
+    {
+        return string.Join('',
+                           source.Type.ToString(),
+                           (source.Quality ?? string.Empty).Trim(),
+                           (source.Hoster ?? string.Empty).Trim(),
+                           (source.Group ?? string.Empty).Trim(),
+                           (source.Language ?? string.Empty).Trim());
     }
 
     public async Task<MediaDownloadResult> DownloadAsync(
@@ -107,12 +133,14 @@ public sealed class Mp4Downloader : IMp4Downloader
         var requestHeaders = DownloadHttp.CopyHeaders(source.Headers);
         requestHeaders.Remove("Range");
         var sourceFingerprint = DownloadHttp.CreateSourceFingerprint(source.Url,
-                                                                        requestHeaders);
+                                                                        requestHeaders,
+                                                                        BuildSourceDescriptor(source));
         // Eski sürümün kaynak kimliği taşımayan final.part dosyası bilinçli olarak
         // resume edilmez; yalnız fingerprint + metadata eşleşen parça kullanılır.
         var partPath = finalPath + "." + sourceFingerprint + ".part";
         var metadataPath = partPath + ".meta";
         DownloadPathBuilder.EnsureFullPathBudget(metadataPath, reservedSuffixBytes: 0);
+        DeleteStaleResumeParts(finalPath, sourceFingerprint);
 
         Report(progress, DownloadStage.Preparing, 0, null);
 
@@ -499,6 +527,184 @@ public sealed class Mp4Downloader : IMp4Downloader
         var legacyPart = finalPath + ".part";
         DeleteIfExists(legacyPart);
         Mp4ResumeMetadata.Delete(legacyPart + ".meta");
+    }
+
+    /// <summary>
+    /// Hedef dosyaya ait olup güncel fingerprint ile eşleşmeyen `.part`/`.meta`
+    /// kalıntılarını <b>eskiden yeniye</b> sırayla döndürür; ilk
+    /// <see cref="MaxRetainedResumeParts"/> eşleşme korunur, fazlası atılır.
+    ///
+    /// Gerekçe: kaynak URL'i imzalı olduğunda eski sürümün ham-URL hash'i her
+    /// çalıştırmada yeni fingerprint üretiyordu; her deneme bölüm boyutunda yeni bir
+    /// `.part` bırakıyor ve hiçbiri silinmiyordu. Fingerprint artık kararlı olduğundan
+    /// aynı aday artık aynı parçayı kullanır, ama sürümden önce biriken kalıntılar ve
+    /// farklı adayların bıraktığı parçalar hâlâ diski sınırsız büyütebilir. Bu yüzden
+    /// parçalar tümüyle silinmez — aday izolasyonu sözleşmesi korunur, yalnız sayı
+    /// sınırlanır.
+    /// </summary>
+    public static IReadOnlyList<string> GetStaleResumePartPaths(
+        string destinationPath,
+        string                     currentFingerprint)
+    {
+        var stale = new List<string>();
+        if (string.IsNullOrWhiteSpace(destinationPath))
+        {
+            return stale;
+        }
+
+        var finalPath = Path.GetFullPath(destinationPath);
+        var parent    = Path.GetDirectoryName(finalPath);
+        var fileName  = Path.GetFileName(finalPath);
+        if (string.IsNullOrEmpty(parent)
+            || string.IsNullOrEmpty(fileName)
+            || !Directory.Exists(parent))
+        {
+            return stale;
+        }
+
+        var currentPrefix = fileName + "." + currentFingerprint + ".part";
+        var legacyPart    = fileName + ".part";
+        var prefix        = fileName + ".";
+        const string partMarker = ".part";
+
+        // Glob deseni kullanılmıyor: dosya adı `[`/`]` içerebilir ve bunlar desen
+        // meta karakteridir. Dizin listelenip filtre kod içinde yapılır.
+        var groups = new Dictionary<string, ResumeGroup>(StringComparer.OrdinalIgnoreCase);
+        foreach (var candidate in Directory.EnumerateFiles(parent))
+        {
+            if (!string.Equals(Path.GetDirectoryName(candidate),
+                               parent,
+                               StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            var name = Path.GetFileName(candidate);
+            if (!name.StartsWith(prefix, StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            string? metaPath = null;
+            string groupKey;
+            if (name.EndsWith(partMarker + ".meta", StringComparison.Ordinal))
+            {
+                groupKey = name[..^".meta".Length];
+                metaPath = candidate;
+            }
+            else if (TryGetResumeGroupKey(name, prefix, partMarker, out var key))
+            {
+                groupKey = key;
+            }
+            else
+            {
+                continue;
+            }
+
+            // Eski sürümün fingerprint'siz `final.part` biçimi de ayrı bir gruptur.
+            if (string.Equals(groupKey, legacyPart, StringComparison.Ordinal))
+            {
+                groupKey = legacyPart;
+            }
+
+            if (string.Equals(groupKey, currentPrefix, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            if (!groups.TryGetValue(groupKey, out var group))
+            {
+                group = new ResumeGroup();
+            }
+
+            if (metaPath is not null)
+            {
+                group.MetadataPath = metaPath;
+            }
+            else
+            {
+                group.PartPaths.Add(candidate);
+            }
+
+            var modified = SafeLastWriteTimeUtc(candidate);
+            if (modified > group.ModifiedUtc)
+            {
+                group.ModifiedUtc = modified;
+            }
+
+            groups[groupKey] = group;
+        }
+
+        // Yeni parçaya en yakın adaylar resume için değerlidir; eskiler atılır.
+        foreach (var group in groups.Values.OrderByDescending(entry => entry.ModifiedUtc)
+                                         .Skip(MaxRetainedResumeParts))
+        {
+            if (group.MetadataPath is not null)
+            {
+                stale.Add(group.MetadataPath);
+            }
+
+            stale.AddRange(group.PartPaths);
+        }
+
+        return stale;
+    }
+
+    private sealed class ResumeGroup
+    {
+        public string?             MetadataPath { get; set; }
+        public List<string>        PartPaths    { get; } = [];
+        public DateTime            ModifiedUtc  { get; set; } = DateTime.MinValue;
+    }
+
+    /// <summary>
+    /// `<ad>.&lt;fingerprint&gt;.part` ile `<ad>.&lt;fingerprint&gt;.part.segN`
+    /// adlarını aynı gruba indirger. Düğüm yalnız fingerprint uzunluğunu (24 onaltılık
+    /// karakter) doğrular; eski sürümün fingerprint'siz `final.part` biçimi buraya girmez.
+    /// </summary>
+    private static bool TryGetResumeGroupKey(
+        string name,
+        string prefix,
+        string partMarker,
+        out    string groupKey)
+    {
+        groupKey = string.Empty;
+        var markerIndex = name.IndexOf(partMarker, StringComparison.Ordinal);
+        if (markerIndex < 0)
+        {
+            return false;
+        }
+
+        var fingerprint = name[prefix.Length..markerIndex];
+        if (fingerprint.Length != DownloadHttp.SourceFingerprintLength)
+        {
+            return false;
+        }
+
+        groupKey = prefix + fingerprint + partMarker;
+        return true;
+    }
+
+    private static DateTime SafeLastWriteTimeUtc(string path)
+    {
+        try
+        {
+            return File.GetLastWriteTimeUtc(path);
+        }
+        catch (Exception ex) when (ex is IOException
+                                      or UnauthorizedAccessException
+                                      or NotSupportedException)
+        {
+            return DateTime.MinValue;
+        }
+    }
+
+    private static void DeleteStaleResumeParts(string finalPath, string currentFingerprint)
+    {
+        foreach (var stale in GetStaleResumePartPaths(finalPath, currentFingerprint))
+        {
+            DeleteIfExists(stale);
+        }
     }
 
     private static void ResetPartial(string partPath, string metadataPath)

@@ -1,6 +1,7 @@
 using Migurdex.Cli.Services.Downloads;
 using Migurdex.Shared.Enums;
 using Migurdex.Shared.Models;
+using System.Globalization;
 using System.Net;
 using System.Text;
 using Xunit;
@@ -242,10 +243,298 @@ public sealed class Mp4DownloaderTests
                     [Response(HttpStatusCode.OK, "new-provider")]))
                 .DownloadAsync(second, target, cancellationToken: TestContext.Current.CancellationToken);
 
+            // Farklı fingerprint'a ait parça hiçbir koşulda yanıt gövdesine eklenmez:
+            // sonuç yalnız ikinci kaynağın içeriğidir.
             Assert.Equal("new-provider", await File.ReadAllTextAsync(result.OutputPath,
                                                                          TestContext.Current.CancellationToken));
+            // Aday izolasyonu sözleşmesi: az sayıda aday varken hiçbiri silinmez, böylece
+            // ileride aynı adaya dönüldüğünde kısmi indirme kullanılabilir.
             Assert.Equal("old-provider", await File.ReadAllTextAsync(firstPart,
                                                                          TestContext.Current.CancellationToken));
+        }
+        finally
+        {
+            Directory.Delete(root, true);
+        }
+    }
+
+    [Fact]
+    public void Fingerprint_IsStableAcrossSignedUrlRefresh_ButDistinctPerVideo()
+    {
+        // Aynı dosya, farklı imza/zaman aşımı/IP bağlama değerleriyle çözülür.
+        const string template =
+            "https://manifest.googlevideo.com/api/manifest/hls_playlist/expire/{0}/ei/aCW8atuEHZT3j/ip/{1}/sig/{2}/lsig/{3}/id/o-ABCD1234efgh/itag/137/source/youtube/index/1.m3u8?x-goog-signature={4}";
+        var first = DownloadHttp.CreateSourceFingerprint(
+            string.Format(template, "1790726040", "176.234.88.53", "SIGONE", "LSIGONE", "AAA"),
+            null);
+        var second = DownloadHttp.CreateSourceFingerprint(
+            string.Format(template, "1790729999", "10.0.0.9", "SIGTWO", "LSIGTWO", "BBB"),
+            null);
+
+        Assert.Equal(first, second);
+
+        // Kimlik (`id`) değişirse fingerprint de değişmelidir; aksi hâlde iki farklı
+        // video aynı parçaya yönlenir.
+        var otherVideo = DownloadHttp.CreateSourceFingerprint(
+            "https://manifest.googlevideo.com/api/manifest/hls_playlist/expire/1790726040/ei/aCW8atuEHZT3j/ip/1.2.3.4/sig/A/lsig/B/id/o-ZZZZ9999zzzz/itag/137/source/youtube/index/1.m3u8",
+            null);
+        Assert.NotEqual(first, otherVideo);
+
+        // Kalite (`itag`) değişirse de farklı olmalı.
+        var otherQuality = DownloadHttp.CreateSourceFingerprint(
+            "https://manifest.googlevideo.com/api/manifest/hls_playlist/expire/1790726040/ei/aCW8atuEHZT3j/ip/1.2.3.4/sig/A/lsig/B/id/o-ABCD1234efgh/itag/140/source/youtube/index/1.m3u8",
+            null);
+        Assert.NotEqual(first, otherQuality);
+    }
+
+    [Fact]
+    public void Fingerprint_NonSignedUrlsAreUnchangedInBehaviour()
+    {
+        // İmzasız, sıradan URL'lerde maskeleme hiçbir şeye dokunmamalı: farklı yol,
+        // farklı ana, farklı sorgu -> farklı fingerprint.
+        var a = DownloadHttp.CreateSourceFingerprint("https://cdn.example/files/1.mp4", null);
+        var b = DownloadHttp.CreateSourceFingerprint("https://cdn.example/files/2.mp4", null);
+        var c = DownloadHttp.CreateSourceFingerprint("http://cdn.example/files/1.mp4", null);
+        var d = DownloadHttp.CreateSourceFingerprint("https://cdn.example/files/1.mp4?v=2", null);
+        var e = DownloadHttp.CreateSourceFingerprint("https://other.example/files/1.mp4", null);
+
+        Assert.NotEqual(a, b);
+        Assert.NotEqual(a, c);
+        Assert.NotEqual(a, d);
+        Assert.NotEqual(a, e);
+        Assert.Equal(a, DownloadHttp.CreateSourceFingerprint("https://cdn.example/files/1.mp4", null));
+    }
+
+    [Fact]
+    public void Fingerprint_IsStableForSendvidStyleTimeBoundedLinks()
+    {
+        // CANLI GÖZLEM: videos*.sendvid.com imzayı sorgu dizesinde taşıyor. İlk
+        // düzeltme denemesinde `hash`/`validfrom`/`validto` liste dışı bırakıldığı için
+        // bu sağlayıcıda resume hâlâ bozuktu. Test, canlı URL'den alınan gerçek
+        // biçimi kilitler.
+        const string template =
+            "https://videos2.sendvid.com/{0}/{1}/{2}.mp4?validfrom={3}&validto={4}&rate=250k&hash={5}";
+        var first = DownloadHttp.CreateSourceFingerprint(
+            string.Format(template, "16", "6a", "r5r9j6jf", "1790712300", "1790726700",
+                          "EuvBiUd%2BEiA%2FT8Q%2BFsi1ZQ9uk3c%3D"),
+            null);
+        var refreshed = DownloadHttp.CreateSourceFingerprint(
+            string.Format(template, "16", "6a", "r5r9j6jf", "1790719800", "1790734200",
+                          "ZZzOtherHash%2BValue%3D"),
+            null);
+
+        Assert.Equal(first, refreshed);
+
+        // Farklı dosya yolu -> farklı fingerprint.
+        var otherFile = DownloadHttp.CreateSourceFingerprint(
+            string.Format(template, "9a", "e9", "95xbd5f8", "1790712300", "1790726700",
+                          "NdyT9E9w%2BoYjeuMe9GvUDablqhw%3D"),
+            null);
+        Assert.NotEqual(first, otherFile);
+
+        // Aynı yolda farklı kalite (`rate`) sorgu parametresidir ve kimlik listesinde yoktur;
+        // ayrım artık `VideoSource.Quality` tanımından gelir. Bu yüzden tanım verildiğinde
+        // ayrılır, verilmediğinde aynı yol tek dosya sayılır.
+        var samePathOtherRate = string.Format(template, "16", "6a", "r5r9j6jf", "1790712300",
+                                             "1790726700", "EuvBiUd%2BEiA%2FT8Q%2BFsi1ZQ9uk3c%3D")
+                                 .Replace("rate=250k", "rate=500k");
+        Assert.Equal(first, DownloadHttp.CreateSourceFingerprint(samePathOtherRate, null));
+        Assert.NotEqual(first,
+                        DownloadHttp.CreateSourceFingerprint(samePathOtherRate, null, "1080p"));
+        Assert.NotEqual(DownloadHttp.CreateSourceFingerprint(samePathOtherRate, null, "1080p"),
+                        DownloadHttp.CreateSourceFingerprint(samePathOtherRate, null, "720p"));
+    }
+
+    [Fact]
+    public void Fingerprint_IsStableAcrossGoogleDriveStyleSignedUrls()
+    {
+        // CANLI GÖZLEM: c.drive.google.com/videoplayback her çözümlemede 17+ volatil
+        // parametre yeniliyor (xpc met mh mm mn ms mv mvi pl rms cnr mt txp eaua fvip
+        // sparams lsparams sig lsig expire ei ip). Kara liste bu sağlayıcı için yetersiz
+        // kaldı; beyaz liste (id itag clen dur lmt mime) kararlılık sağlıyor.
+        const string template =
+            "https://rr3---sn-ajnv45-5p.c.drive.google.com/videoplayback?expire={0}&ei={1}&ip={2}" +
+            "&id=001828c3a842e9e4&itag=37&source=webdrive&requiressl=yes&xpc={3}&met={4}," +
+            "&mh=j4&mm=32,26&mn=sn-ajnv45-5p&ms=su,onr&mv=m&mvi=3&pl=21&rms=su,su" +
+            "&ttl=transient&driveid=1VfeTq_uYg4rlmG1tkW02Lahv6g4Q8h_R&mime=video/mp4" +
+            "&dur=1375.540&lmt=1734561105974535&txp={5}&cnr=14&eaua={6}" +
+            "&sparams=expire,ei,ip,id,itag&sig={7}&lsparams=met,mh,mm&lsig={8}";
+
+        var first = DownloadHttp.CreateSourceFingerprint(
+            string.Format(template, "1790730789", "9Te8avn-Gbv6zLUPjur9kAs", "176.234.88.53",
+                          "EghonaK1InoBAQ==", "1790719989", "0011224", "pBlcdwMgf58", "SIGONE", "LSIGONE"),
+            null, "1080p");
+        var refreshed = DownloadHttp.CreateSourceFingerprint(
+            string.Format(template, "1790739999", "ZZzOtherEI-value", "10.0.0.9",
+                          "OTHERxpc==", "1790729988", "0099887", "OTHEReaua", "SIGTWO", "LSIGTWO"),
+            null, "1080p");
+
+        Assert.Equal(first, refreshed);
+
+        // Farklı kalite -> farklı fingerprint (itag sorguda, beyaz listede).
+        var otherItag = DownloadHttp.CreateSourceFingerprint(
+            "https://rr3---sn-ajnv45-5p.c.drive.google.com/videoplayback?expire=1&ei=x&ip=1.2.3.4" +
+            "&id=001828c3a842e9e4&itag=22&mime=video/mp4&dur=1375.540&lmt=1734561105974535" +
+            "&sig=A&lsig=B",
+            null, "1080p");
+        Assert.NotEqual(first, otherItag);
+
+        // Farklı dosya -> farklı fingerprint (id).
+        var otherId = DownloadHttp.CreateSourceFingerprint(
+            "https://rr3---sn-ajnv45-5p.c.drive.google.com/videoplayback?expire=1&ei=x&ip=1.2.3.4" +
+            "&id=2c29d78132173102&itag=37&mime=video/mp4&dur=1375.540&lmt=1734561105974535" +
+            "&sig=A&lsig=B",
+            null, "1080p");
+        Assert.NotEqual(first, otherId);
+    }
+
+    [Fact]
+    public void GetResumePartPath_IsIdenticalForRefreshedSignedUrls()
+    {
+        // Kullanıcıya görünen davranış: imzalı kaynakta URL her çözümlemede yenilendiği
+        // için eski sürümde her deneme YENİ bir .part dosyası üretiyordu. Resume hiç
+        // çalışmıyor, her deneme bölüm boyutunda orphan bırakıyordu.
+        var root = NewTempDir();
+        try
+        {
+            var target = Path.Combine(root, "S01E01 - Ornek.mp4");
+
+            var firstUrl =
+                "https://manifest.googlevideo.com/api/manifest/hls_playlist/expire/1790726040/ei/aCW8atuEHZT3j/ip/176.234.88.53/ipbits/32/sig/SIG-ONE/lsig/LSIG-ONE/id/o-ABCD1234efgh/itag/137/source/youtube/index/1.m3u8";
+            var refreshedUrl =
+                "https://manifest.googlevideo.com/api/manifest/hls_playlist/expire/1790729999/ei/zZZ9xxxOtherEI/ip/10.0.0.9/ipbits/32/sig/SIG-TWO/lsig/LSIG-TWO/id/o-ABCD1234efgh/itag/137/source/youtube/index/1.m3u8";
+
+            var firstPart = Mp4Downloader.GetResumePartPath(target, Source(firstUrl));
+            var refreshedPart = Mp4Downloader.GetResumePartPath(target, Source(refreshedUrl));
+
+            Assert.Equal(firstPart, refreshedPart);
+
+            // Farklı bölüm/farklı video hâlâ ayrı dosya kullanır.
+            var otherEpisode = Mp4Downloader.GetResumePartPath(
+                Path.Combine(root, "S01E02 - Ornek.mp4"),
+                Source(refreshedUrl));
+            Assert.NotEqual(firstPart, otherEpisode);
+        }
+        finally
+        {
+            Directory.Delete(root, true);
+        }
+    }
+
+    [Fact]
+    public void GetStaleResumePartPaths_TrimsOldestGroupsBeyondRetentionLimit()
+    {
+        var root = NewTempDir();
+        try
+        {
+            var target = Path.Combine(root, "episode.mp4");
+            var current = DownloadHttp.CreateSourceFingerprint("https://origin.example/current", null);
+
+            // 5 eski aday; her biri PARALEL indirme biçiminde: .part.meta + 4 segment.
+            var groups = new List<string[]>();
+            for (var index = 0; index < 5; index++)
+            {
+                var fingerprint = DownloadHttp.CreateSourceFingerprint(
+                    "https://origin.example/other-" + index.ToString(CultureInfo.InvariantCulture),
+                    null);
+                var partBase = Path.GetFullPath(target) + "." + fingerprint + ".part";
+                var paths = new[]
+                {
+                    partBase,
+                    partBase + ".seg0",
+                    partBase + ".seg1",
+                    partBase + ".seg2",
+                    partBase + ".seg3",
+                    partBase + ".meta"
+                };
+                foreach (var path in paths)
+                {
+                    File.WriteAllText(path, "x");
+                }
+
+                File.SetLastWriteTimeUtc(partBase, new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc)
+                                                        .AddMinutes(index));
+                groups.Add(paths);
+            }
+
+            // 5 gruptan en yeni 2'si korunur -> 3 grup atılır.
+            var stale = Mp4Downloader.GetStaleResumePartPaths(target, current);
+
+            Assert.Equal(18, stale.Count); // 3 grup x 6 dosya
+            // En eski 3 grup tamamen atılmalı (segmentler dahil, meta dahil).
+            foreach (var path in groups[0].Concat(groups[1]).Concat(groups[2]))
+            {
+                Assert.Contains(path, stale);
+            }
+
+            // En yeni 2 grup korunmalı.
+            foreach (var path in groups[3].Concat(groups[4]))
+            {
+                Assert.DoesNotContain(path, stale);
+            }
+        }
+        finally
+        {
+            Directory.Delete(root, true);
+        }
+    }
+
+    [Fact]
+    public void GetStaleResumePartPaths_IgnoresCurrentGroupAndUnrelatedFiles()
+    {
+        var root = NewTempDir();
+        try
+        {
+            var target = Path.Combine(root, "episode.mp4");
+            var current = DownloadHttp.CreateSourceFingerprint("https://origin.example/current", null);
+            var currentBase = Path.GetFullPath(target) + "." + current + ".part";
+            foreach (var path in new[] { currentBase, currentBase + ".seg0", currentBase + ".meta" })
+            {
+                File.WriteAllText(path, "x");
+            }
+
+            // Komşu dosyalar TUTULMAMALI.
+            var neighbour = Path.Combine(root, "other-episode.mp4.deadbeefdeadbeefdeadbeef.part.seg0");
+            File.WriteAllText(neighbour, "x");
+            // Benzer ama fingerprint uzunluğu yanlış -> eşleşmemeli.
+            var wrongLength = Path.Combine(root, "episode.mp4.tooshort.part");
+            File.WriteAllText(wrongLength, "x");
+
+            var stale = Mp4Downloader.GetStaleResumePartPaths(target, current);
+
+            Assert.Empty(stale);
+        }
+        finally
+        {
+            Directory.Delete(root, true);
+        }
+    }
+
+    [Fact]
+    public void GetStaleResumePartPaths_HandlesGlobMetacharactersInFileName()
+    {
+        var root = NewTempDir();
+        try
+        {
+            // `[` ve `]` Windows dosya adında yasal ama glob desen meta karakteridir;
+            // desen tabanlı tarama bunları yanlış yorumlar.
+            var target = Path.Combine(root, "b[1] bolum.mp4");
+            var current = DownloadHttp.CreateSourceFingerprint("https://origin.example/x", null);
+            var groups = new List<string>();
+            for (var index = 0; index < 4; index++)
+            {
+                var other = DownloadHttp.CreateSourceFingerprint("https://origin.example/y" + index, null);
+                var partBase = Path.GetFullPath(target) + "." + other + ".part";
+                File.WriteAllText(partBase + ".seg0", "x");
+                File.WriteAllText(partBase, "x");
+                File.SetLastWriteTimeUtc(partBase, new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc)
+                                                        .AddMinutes(index));
+                groups.Add(partBase);
+            }
+
+            var stale = Mp4Downloader.GetStaleResumePartPaths(target, current);
+            Assert.Contains(groups[0] + ".seg0", stale);
+            Assert.Contains(groups[1] + ".seg0", stale);
         }
         finally
         {
