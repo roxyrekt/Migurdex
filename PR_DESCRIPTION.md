@@ -6,6 +6,11 @@
 > |---|---|
 > | Fork `Nutaliaxd/Migurdex` | [PR #1](https://github.com/Nutaliaxd/Migurdex/pull/1) **merge edildi** (29.09.2026 10:05 UTC) → merge commit `44f4010` → etiket `v1.10.2` → [release](https://github.com/Nutaliaxd/Migurdex/releases/tag/v1.10.2) yayımlandı ([CI run](https://github.com/Nutaliaxd/Migurdex/actions/runs/36562344972), sonuç **success**) |
 > | Upstream `roxyrekt/Migurdex` | [PR #2](https://github.com/roxyrekt/Migurdex/pull/2) **açık** ve `MERGEABLE` (temiz dal `upstream/download-clean`, 3 commit: `7f1e250` özellik, `f3aaad7` non-TTY help fix, `474a43d` dokümantasyon, 39 dosya, +10.173 / −266). Önceki [PR #1](https://github.com/roxyrekt/Migurdex/pull/1) kapatıldı (duplicate) |
+> | Fork PR #2 (dokümantasyon) | [PR #2](https://github.com/Nutaliaxd/Migurdex/pull/2) **açık** (`docs/api-reference` → `main`, commit `5d59491`, `API.md` + `README.md`, +1315 / −1, yalnız doküman). Ayrıntı: `Fork PR listesi` |
+>
+> **Süreç kuralı (29 Eylül 2026):** Bundan sonraki tüm yeni özellik ve dokümantasyon PR'ları
+> **önce yalnız `Nutaliaxd/Migurdex` fork'una** açılacak ve test edilecek; upstream
+> `roxyrekt/Migurdex` PR'ı yalnızca açık istek üzerine açılacak. Ayrıntı: `Süreç kuralları`.
 >
 > Fork dalı: `feature/download` → `main` · Base (upstream): `v1.10.1` (`4ecd7d7`) ·
 > İstatistik — fork PR #1: 22 commit, 40 dosya, **+11.559 / −249** ·
@@ -44,6 +49,40 @@ Doğrulama: `git rev-list --count v1.10.1..main` → **23** (22 PR commit + merg
 `git rev-list -n1 v1.10.2` → `44f4010` ·
 `git describe --tags` → `v1.10.2`. Release paketinde `migurdex --version` gerçek sürümü
 (`migurdex v1.10.2`) basar; yerel `build.ps1` paketi `v0.0.0` gösterir.
+
+## Fork PR listesi
+
+Fork `Nutaliaxd/Migurdex` üzerindeki tüm PR'lar, en yenisi aşağıda.
+
+| # | Başlık | Dal → hedef | Durum | Commit | Dosya / istatistik | Kapsam |
+|---|---|---|---|---|---|---|
+| 1 | `feat: add anime download support` | `feature/download` → `main` | **merged** (29.09.2026 10:05 UTC) | `44f4010` | 40 dosya · +11.559 / −249 | Kod + test + dokümantasyon; `v1.10.2` release'i |
+| 2 | `docs(api): add full REST API reference` | `docs/api-reference` → `main` | **açık** (`OPEN`) | `5d59491` | 2 dosya · **+1315 / −1** | **Yalnız doküman** |
+
+### Fork PR #2 — `docs(api): add full REST API reference`
+
+| Alan | Değer |
+|---|---|
+| PR | [#2 — docs(api): add full REST API reference](https://github.com/Nutaliaxd/Migurdex/pull/2) |
+| Dal | `docs/api-reference` → `main` |
+| Durum | **OPEN** — merge edilmeyi bekliyor |
+| Commit | `5d59491` — `docs(api): add full REST API reference` |
+| Dosyalar | `API.md` *(yeni — 1309 satır, 51 KB, 19 bölüm)*, `README.md` *(+6 / −1)* |
+| İstatistik | 2 dosya · **+1315 / −1** |
+| Kapsam | **Yalnız doküman.** Hiçbir `.cs`, `.csproj`, `.json` veya iş akışı dosyası değişmedi |
+| Doğrulama | `127.0.0.1:7099`'da 28 uç canlı çağrısı; ayrıntı `TEST_RESULTS.md` → bölüm 13 |
+
+`API.md`, `Migurdex.Api`'nin REST yüzeyinin tam referansıdır: 16 uç, SSE akış protokolü, 11 veri
+modeli, 6 enum'un sayısal karşılıkları, üç ayrı hata gövdesi biçimi, SSRF güvenlik analizi, limit
+tablosu, CLI↔API eşleme tablosu, uçtan uca akışlar, bilinen sınırlar ve canlı doğrulama kaydı.
+
+**Bu çalışmada bulunan 7 kusur düzeltilmedi, yalnız belgelendi:** auth/CORS/rate limiting yokluğu,
+SSRF korumasının tek uçla sınırlı olması, SSE `failed` sayımı tutarsızlığı, boş 400 gövdesi,
+boş OpenAPI gövde şemaları, kullanılmayan SSE `error` olayı ve gözlemlenemeyen 502 biçimi.
+Gerekçe: her biri ayrı kod PR'ı konusudur. Ayrıntı: `DEVELOPMENT_LOG.md` → bölüm 17.5.
+
+**Upstream durumu:** bu PR upstream'e gönderilmedi ve açık istek gelene kadar gönderilmeyecek —
+bkz. `Süreç kuralları`.
 
 ## Özet
 
@@ -487,6 +526,8 @@ Kod hatası değildir, kalıcı etki yoktur.
   [PR #2](https://github.com/roxyrekt/Migurdex/pull/2) üzerinden yürüyor (`OPEN`, `MERGEABLE`, dal
   `upstream/download-clean`, 3 commit: `7f1e250` özellik, `f3aaad7` non-TTY help fix,
   `474a43d` dokümantasyon). Ayrıntı: `Durum ve release kanıtı` bölümü.
+  *(29.09.2026 itibarıyla bu kayıt aynen geçerlidir. Bundan sonraki PR'lar için geçerli olan yeni
+  kural: önce fork, sonra upstream — bkz. `Süreç kuralları`.)*
 - Upstream v1.10.0 iki commit içerir: `8094425` (altyazı oynatmada isim + link yerine indirme)
   ve `4035f9a` (`feat(providers): add Deokwave`) — sağlayıcı sayısı 13 → 14. Upstream v1.10.1
   üç commit içerir: `e4a32b4` (TurkAnime DB bağlantısı), `914dfdd` (Anizm isimsiz fansub
@@ -615,3 +656,51 @@ git rev-list --count origin/main..upstream/download-clean   # 3 commit (2 kod + 
 
 Ayrıntılı kayıtlar: [`DOWNLOAD.md`](DOWNLOAD.md), [`TEST_RESULTS.md`](TEST_RESULTS.md),
 [`DEVELOPMENT_LOG.md`](DEVELOPMENT_LOG.md).
+
+## Süreç kuralları
+
+Bu bölüm, fork ve upstream arasındaki PR akışını ve onay kalıcı kuralları tanımlar.
+
+### Kural 1 — Önce fork, sonra upstream (29 Eylül 2026)
+
+> Bundan sonraki **tüm yeni özellik ve dokümantasyon PR'ları önce yalnız `Nutaliaxd/Migurdex`
+> fork'una** açılacak, orada test edilecek ve merge edilecek. Upstream `roxyrekt/Migurdex` PR'ı
+> **yalnızca kullanıcı açıkça isterse** açılacak.
+
+| Adım | Nerede | Nasıl |
+|---:|---|---|
+| 1 | Fork `Nutaliaxd/Migurdex` | Özellik dalı açılır, PR `main`'e açılır |
+| 2 | Fork | Test edilir (build + offline takım + gerekli canlı smoke) |
+| 3 | Fork | Merge edilir, gerekirse release yayımlanır |
+| 4 | Upstream `roxyrekt/Migurdex` | **Yalnız adım 3 başarıyla bittikten ve kullanıcı açıkça isterse** PR açılır |
+
+Gerekçe: bu kural öncesinde akış tersine çalışıyordu (önce upstream, sonra fork). İlk upstream
+denemesi ([PR #1](https://github.com/roxyrekt/Migurdex/pull/1)) duplicate olarak kapanmak zorunda
+kaldı ve [PR #2](https://github.com/roxyrekt/Migurdex/pull/2) sıfırdan açıldı; iki tur iş
+yaratmıştı. Yeni kural tek doğrulama noktası bırakır.
+
+### Kural 2 — Mevcut upstream PR #2'ye dokunulmaz
+
+- Upstream [PR #2](https://github.com/roxyrekt/Migurdex/pull/2) bu kuralın **öncesinde**
+  açılmıştır. Hâlâ `OPEN` ve `action_required` durumundadır.
+- Bu kural, mevcut PR'ın içeriğini, dalını veya durumunu değiştirmez. PR'a yeni commit
+  **gönderilmeyecek**; yeni işler ayrı dal ve ayrı PR olarak yürütülecektir.
+- **Bir fork PR merge olup test edilmeden upstream'e yeni bir PR açılmayacaktır.**
+
+### Kural 3 — Dokümantasyon commit'leri kod değişikliği içermez
+
+`docs(...)` commit'leri yalnız `.md` dosyalarına dokunur. Bir incelemede bulunan ürün kusuru
+(düzeltilmesi gereken kod hatası) dokümantasyon PR'ına karıştırılmaz; `API.md` veya
+`DOWNLOAD.md` içinde **belgelenir** ve ayrı bir kod PR'ı konusu olarak bırakılır. Somut örnek:
+`docs/api-reference` dalında 7 kusur bulundu, hiçbiri düzeltilmedi, tamamı `API.md` → *Bilinen
+sınırlar* bölümünde belgelendi (bkz. `DEVELOPMENT_LOG.md` → bölüm 17.5).
+
+### Kural 4 — Commit geçmişinde tek doğruluk kaynağı `git log`'dur
+
+Bu dosyadaki commit listeleri ve istatistikler okunabilirlik için anlatıcı kayıttır. Güncel ve
+eksiksiz liste için:
+
+```bash
+git log --oneline main..docs/api-reference     # fork PR #2 (yalnız doküman)
+git diff --shortstat main..docs/api-reference  # 2 dosya, +1315 / -1
+```

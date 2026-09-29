@@ -50,6 +50,10 @@ kanalından yapar, yani fork release'lerini otomatik kurmaz.
 
 ## Belgeler (start here)
 
+*Not: Migurdex'in kendi yerel REST API'sinin tam referansı olan `API.md` şu anda
+`docs/api-reference` dalındadır (fork PR #2, `OPEN`) ve `main`'e merge edildiğinde bu listeye
+bağlantı olarak eklenecektir.*
+
 - **[`DOWNLOAD.md`](DOWNLOAD.md)** — indirme özelliğinin tam dokümantasyonu. **İndirme özelliğini öğrenmek
   için buradan başla:** genel akış, CLI bayrakları, çıkış kodları, JSON çıktısı, `config.json` alanları,
   test kapsamı ve `Bilinen sınırlar ve riskler`.

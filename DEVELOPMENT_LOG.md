@@ -15,6 +15,12 @@
 > `474a43d` dokümantasyon) — eski upstream
 > https://github.com/roxyrekt/Migurdex/pull/1 **CLOSED** (duplicate; temiz PR #2 ile değiştirildi)
 >
+> **Yeni kalıcı süreç kuralı (29 Eylül 2026):** Bundan sonraki tüm yeni özellik ve dokümantasyon
+> PR'ları **önce yalnız `Nutaliaxd/Migurdex` fork'una** açılacak ve test edilecek; upstream
+> `roxyrekt/Migurdex` PR'ı yalnızca kullanıcı açıkça isterse açılacak. Ayrıntı: bölüm 17.2.
+> Fork dokümantasyon PR'sı: [#2](https://github.com/Nutaliaxd/Migurdex/pull/2) (`OPEN`, `5d59491`,
+> `API.md` + `README.md`) — ayrıntı bölüm 17.
+>
 > **Test toplamları hangi ağaca ait:** bölüm 1'deki **275/275** ve **110/110** değerleri `main`
 > dalını (`44f4010`) temsil eder. **293/293** sonucu ise `upstream/download-clean` dalına
 > (`f3aaad7`) aittir; Linux runtime doğrulaması ve non-TTY help fix bölüm 16'dadır.
@@ -43,6 +49,7 @@
 14. [Kullanışlı dosyalar](#14-kullanışlı-dosyalar)
 15. [PR #1 merge ve `v1.10.2` release](#15-pr-1-merge-ve-v1102-release)
 16. [Linux runtime doğrulaması ve non-TTY help fix](#16-linux-runtime-doğrulaması-ve-non-tty-help-fix)
+17. [API dokümantasyon çalışması ve fork-öncelikli süreç kuralı](#17-api-dokümantasyon-çalışması-ve-fork-öncelikli-süreç-kuralı)
 
 ---
 
@@ -1270,3 +1277,179 @@ checksum üretimine AppImage'lerin de eklenmesi gerekir. **Bu PR kapsamında dü
 - Windows ve Linux aynı şekilde fayda görüyor; platforma özgü kod veya `#if` yok.
 - Yeni paket bağımlılığı, yeni `config.json` alanı, hedef çerçive veya `/api/v1` sözleşmesi
   değişikliği yok; breaking change yok.
+
+## 17. API dokümantasyon çalışması ve fork-öncelikli süreç kuralı
+
+Bu bölüm, `Migurdex.Api` için yazılan tam REST API referansının (`API.md`) kapsamını, okuma
+adımlarını, canlı doğrulama koşumunu ve bu çalışma sırasında ortaya çıkan yedi bulguyu kaydeder.
+
+**Dal:** `docs/api-reference` (tabandan `main` @ `83b9044`).
+**Commit:** `5d59491` — `docs(api): add full REST API reference`
+**Fork PR:** https://github.com/Nutaliaxd/Migurdex/pull/2 (base `main`, head `docs/api-reference`)
+
+Bu çalışma **yalnız dokümantasyondur**: hiçbir `.cs`, `.csproj`, `.json` veya iş akışı dosyasına
+dokunulmamıştır. `main` dalındaki bu kayıt da yalnız `.md` dosyalarını değiştirir.
+
+### 17.1 Amaç ve kapsam kararı
+
+| Karar | Değer | Gerekçe |
+|---|---|---|
+| Kapsam | Yalnız doküman (`API.md` + `README.md` bağlantısı) | Migurdex'in REST yüzeyi belgelenmemişti; `README.md` yalnız CLI/TUI akışını anlatıyordu. Harici istemci yazmak isteyen biri için sözleşme kaynağı yoktu |
+| Kod değişikliği | **Yok** | Bulunan yedi kusurun her biri ayrı bir PR konusudur; dokümantasyon PR'ına kod katmak hem incelemeyi hem de fork→upstream aktarımını zorlaştırır |
+| Hedef | **Yalnız fork PR** | Aşağıdaki süreç kuralı (17.2) gereği upstream'e PR açılmadı |
+| Dil | Türkçe | Mevcut tüm belgeler (`README.md`, `DOWNLOAD.md`, `DEVELOPMENT_LOG.md`, `TEST_RESULTS.md`, `PR_DESCRIPTION.md`) Türkçe; tutarlılık korundu |
+| Doğrulama | Canlı uç çağrısı | Kod okuması tek başına yetersizdi: hata biçimleri ve SSE teli yalnız gerçek yanıtlarla teyit edilebiliyordu |
+
+### 17.2 Yeni kalıcı süreç kuralı
+
+> **Kural (29 Eylül 2026, bu çalışmadan itibaren bağlayıcı):**
+> Bundan sonraki **tüm yeni özellik ve dokümantasyon PR'ları önce yalnız `Nutaliaxd/Migurdex`
+> fork'una** açılacak, orada test edilecek ve merge edilecek. Upstream `roxyrekt/Migurdex` PR'ı
+> **yalnızca kullanıcı açıkça isterse** açılacak.
+
+Uygulama:
+
+- Fork PR açılır → merge edilir → release/doğrulama yapılır → **ancak o noktadan sonra** upstream
+  hedefi konuşulur.
+- Mevcut upstream PR #2 (`roxyrekt/Migurdex/pull/2`) bu kuralın öncesinde açılmıştır, hâlâ `OPEN`
+  ve `action_required` durumundadır; **dokunulmadı ve değiştirilmedi.**
+- Bu kayıt `main` dalındadır ve fork PR'ı merge edildiğinde güncellenecektir.
+
+Gerekçe: 29 Eylül'e kadar akış tersine çalışıyordu (önce upstream'e aç, sonra fork'ta geçiştir).
+İlk upstream denemesi (`roxyrekt/Migurdex/pull/1`) duplicate olarak kapanmak zorunda kaldı ve
+`pull/2` yeniden açıldı; bu tur iki kez iş yaratmıştı. Yeni kural, tek doğrulama noktası (fork)
+bırakıp upstream'de yinelenen inceleme yükünü kaldırır.
+
+### 17.3 Okunan kaynak dosyalar
+
+`API.md` yalnızca tahminden yazılmadı; aşağıdaki dosyalar okunarak çıkarıldı.
+
+| # | Dosya | Alınan bilgi |
+|---:|---|---|
+| 1 | `Migurdex.Api/Program.cs` | Uç kaydı sırası, OpenAPI üretimi, JSON serileştirme seçenekleri, `UseExceptionHandler`, host/port yapılandırması; **CORS / auth / rate limiting olmadığı** tespiti |
+| 2 | `Migurdex.Api/Endpoints/AnimeEndpoints.cs` | `search`, `{provider}/{*animeId}`, `groups`, `sources` uçları; `AnimeDetails.Normalize()` dönüşüm kuralları; `MergeSourceMetadata` öncelik sırası; dedupe ve sessiz-atlanma davranışı |
+| 3 | `Migurdex.Api/Endpoints/MetadataEndpoints.cs` | `metadata/search`, `metadata/{source}/{id}`; `anilist`/`jikan`/`mal` kaynak eşlemesi; `mal:`/`anilist:` önekli çapraz arama |
+| 4 | `Migurdex.Api/Endpoints/ExtractorEndpoints.cs` | `GET /extractors`, `POST /extractors/resolve`; 9 adımlı doğrulama sırası; SSRF kontrolünün giriş noktası; 15 sn zaman aşımı |
+| 5 | `Migurdex.Api/Endpoints/TrackerResolveEndpoints.cs` | `tracker/resolve`, `tracker/lookup`, `POST tracker/mapping`; `fromCache` / `ambiguous` / `candidates` semantiği; boş 200 gövde |
+| 6 | `Migurdex.Api/Endpoints/TrackerSeasonEndpoints.cs` | `tracker/seasons`, `tracker/align`, `tracker/episode`; sezon zinciri, `numberingMode`, `isOverflow` |
+| 7 | `Migurdex.Api/Common/ApiErrors.cs` | Biçim A (`{"error":"…"}`) ve Biçim B (RFC 7807 `Results.Problem`) ayrımı |
+| 8 | `Migurdex.Api/Common/SseHelper.cs` | Tel kurgusu (`event:`/`data:` + `\n\n`), `EventSearchResult`/`EventSource`/`EventProviderError`/`EventDone`/`EventError` sabitleri, `X-Accel-Buffering: no` |
+| 9 | `Migurdex.Api/Services/PluginWatcherService.cs` | Plugin yükleme/izleme, `/health` sayaçlarının kaynağı, sağlayıcı kayıt sırası |
+| 10 | `Migurdex.Shared/Models/*` | 11 model: `AnimeDetails`, `Episode`, `SeasonMapping`, `SearchResult`, `VideoSource`, `Subtitle`, `MediaMetadata`, `SeasonChain`(+`SeasonChainEntry`), `EntryAlignment`(+`AlignedSeason`), `TrackerResolveResult`/`TrackerCandidate`/`TrackerMappingEntry`, `TrackerEpisodeMapping` |
+| 11 | `Migurdex.Shared/Enums/*` | 6 enum: `ContentFormat`, `VideoType`, `ProviderType`, `ProviderCapabilities`, `MetadataSource`, `EntryNumberingMode` — **sayısal** karşılıkları dahil |
+| 12 | `Migurdex.Cli/Services/ApiClientService.cs` | CLI'nin gerçekten çağırdığı uç kümesi → **CLI ↔ API eşleme tablosu** |
+| 13 | `Migurdex.Cli/Configuration/CliConfig.cs` | `ApiBaseUrl` varsayılanı (`http://127.0.0.1:7045`), 500 ms health yoklaması, `PreferredHosterOrder` |
+| 14 | `Migurdex.Shared/IProvider.cs`, `IAnimeProvider.cs` | Sağlayıcı sözleşmesi, `ProviderCapabilities` otomatik hesabı |
+| 15 | `Migurdex.Shared/IExtractorManager.cs` | `CanExtract` + çözümleme sözleşmesi, `type == Embed` koşulu |
+| 16 | `Migurdex.Api/Properties/launchSettings.json` | `dotnet run` profilinin `http://localhost:7045` olduğu |
+| 17 | `Migurdex.Api/appsettings.json` | `ASPNETCORE_URLS` ve yapılandırma anahtarları |
+
+### 17.4 Canlı doğrulama
+
+Kod okuması tek başına yeterli görülmedi; yazılan her örnek ve her durum kodu gerçek yanıtla
+teyit edildi.
+
+**Çalıştırma.** `C:\Users\naton\OneDrive\Desktop\migu\api\Migurdex.Api.exe` süreci
+`127.0.0.1:7099` üzerinde başlatıldı (CLI'nin kendi portu `7045`'tir; çakışma olmasın diye `7099`
+seçildi), 28 uç çağrısı yapıldı, sonra sürec **temiz kapatıldı**.
+
+```powershell
+$env:ASPNETCORE_URLS = "http://127.0.0.1:7099"
+.\Migurdex.Api.exe
+```
+
+Ortam: Windows 11 · `/health` → `{"status":"OK","version":"0.0.0","providers":14,"extractors":38,"rust":true}`
+(`0.0.0` yerel build damgasıdır; release'de `1.10.2` görünür.)
+
+| Uç | Sonuç |
+|---|---|
+| `GET /health` | 200 — 14 provider, 38 extractor, `rust: true` |
+| `GET /openapi/v1.json` | 200 — OpenAPI 3.1.1, 16 yol, **gövde şemaları boş** |
+| `GET /api/v1/providers` | 200 — 14 kayıt |
+| `GET /api/v1/extractors` | 200 — 38 kayıt |
+| `GET /api/v1/anime/search` (q yok) | 400 — **boş gövde** (ASP.NET model bağlama seviyesi) |
+| `GET /api/v1/anime/search?q=test&provider=Yok` | 404 — `{"error":"Provider 'Yok' bulunamadı."}` |
+| `GET /api/v1/anime/search?q=naruto&provider=Animexe` | 200 — 6513 bayt |
+| aynı uç `&stream=true` | 200 — `searchResult` × n + `done` (`curl -N` ile doğrulandı) |
+| `GET /api/v1/anime/Animexe/naruto` | 200 — 221 bölüm, 2 sezon eşlemesi |
+| `GET /api/v1/anime/Animexe/groups?episodeId=naruto/1/1` | 200 — `["AniSekai","YuushaSubs"]` |
+| `GET /api/v1/anime/Animexe/sources?episodeId=naruto/1/1` | 200 — 2 kaynak (`type: 1`, `480p`, Tau Video) |
+| aynı uç `&stream=true` | 200 — `source` × 2 + `done {"succeeded":2,"failed":0,"errors":[],"totalItems":2}` |
+| `GET /api/v1/metadata/search?q=naruto&source=anilist` | 200 — 11214 bayt |
+| `GET /api/v1/metadata/anilist/21` | 200 — 2263 bayt, `source: 0` |
+| `GET /api/v1/metadata/mal/20` | 200 — `source: 1` (Jikan) |
+| `GET /api/v1/metadata/anilist/mal:20` | 200 — çapraz arama, `source: 0` (AniList) |
+| `GET /api/v1/metadata/mal/anilist:21` | 200 — çapraz arama, `source: 1` (Jikan) |
+| `GET /api/v1/metadata/bilinmeyen/1` | 404 |
+| `GET /api/v1/tracker/seasons?anilistId=21` | 200 — 2 kalem, `seasonNumber` 0 ve 1 |
+| `GET /api/v1/tracker/lookup?malId=20` | 200 |
+| `GET /api/v1/tracker/resolve?provider=Animexe&id=naruto&title=Naruto&year=2002&format=TV` | 200 — `fromCache: true` |
+| `GET /api/v1/tracker/align?provider=Animexe&id=naruto` | 200 — `numberingMode: 1`, 4 kalemli zincir |
+| `GET /api/v1/tracker/episode?provider=Animexe&id=naruto&season=1&episode=5` | 200 — `{"season":1,"episode":5,"totalEpisodes":220,"isOverflow":false}` |
+| `POST /api/v1/tracker/mapping` | 200 — **boş gövde** |
+| `POST /api/v1/extractors/resolve` (localhost hedefi) | 400 — `{"error":"Bu host'a istek gönderilemez."}` (SSRF koruması) |
+| `POST /api/v1/extractors/resolve` (`Host` başlığı) | 400 — `{"error":"Header 'Host' gönderilemez."}` |
+| `POST /api/v1/extractors/resolve` (doğrudan `.mp4`) | 200 — `{"canExtract":false,"results":[]}` |
+| `GET /api/v1/extractors/resolve` (yanlış yöntem) | 405 — boş gövde |
+
+**Bu bir build/test koşumu değildir.** Kod derlenmedi, test takımı çalıştırılmadı; bölüm 1'deki
+275/275 ve bölüm 16'daki 293/293 sonuçları **değişmedi**. Ayrıntı için bkz. `TEST_RESULTS.md`
+→ bölüm 13.
+
+### 17.5 Bulunan yedi kusur — düzeltilmedi, belgelendi
+
+Yedi bulgunun hiçbiri bu çalışmada düzeltilmedi; tamamı `API.md` içinde belgelendi. Ortak gerekçe:
+**her biri ayrı bir kod PR'ı ve ayrı bir test konusudur.** Dokümantasyon PR'ına karıştırılırsa
+hem değişiklik kapsamı bulanıklaşır hem de fork→upstream aktarımında inceleyicinin odağı dağılır.
+
+| # | Bulgu | Etki | Belgelendiği yer (`API.md`) |
+|---:|---|---|---|
+| 1 | **API'de CORS / auth / rate limiting yok.** `Program.cs` içinde `AddCors` / `UseAuthentication` / `UseRateLimiter` çağrısı yok. Servis `127.0.0.1`'e bağlanıyor ama `0.0.0.0`'e açılırsa ağdaki herkes `POST /api/v1/tracker/mapping` ile **kalıcı** eşleme tablosunu değiştirebilir | Güvenlik | *Güvenlik notları*, *Hızlı başlangıç* |
+| 2 | **SSRF koruması yalnızca `/api/v1/extractors/resolve` ucunda.** Anime sağlayıcı uçlarında (search / groups / sources) koruma yok; koruma, alan adının plugin tarafında sabit kodlanmış olmasına dayanıyor | Güvenlik (derinlik) | *Güvenlik notları* |
+| 3 | **SSE kaynak akışında hata sayımı tutarsız.** Extractor çözümlemesi çöken kaynaklar `providerError` üretmiyor, loglanıp atlanıyor; `done` özeti `failed: 0` veriyor. Upstream'dan 3 kaynak gelip hiçbiri çözülemezse `{"succeeded":0,"failed":0,"errors":[],"totalItems":0}` | Gözlemlenebilirlik | *SSE akışı*, *Bilinen sınırlar* |
+| 4 | **Zorunlu parametre eksikliği boş 400 döndürüyor** (JSON gövde yok) — doğrulama ASP.NET Core model bağlama katmanında yapılıyor ve uç koduna ulaşmıyor. `q` gönderilip boş string verildiğinde ise `{"error":"Arama sorgusu ('q') boş olamaz."}` dönüyor | Sözleşme tutarlılığı; istemci iki biçimi de ele almalı | *Hata kodları* (Biçim C) |
+| 5 | **`/openapi/v1.json` gövde şemaları boş** — modeller için şema üretimi tanımlanmadığı için `components/schemas` dolu değil | Geliştirici deneyimi | *Sağlık ve OpenAPI*, *Bilinen sınırlar* |
+| 6 | **SSE `error` olayı hiç gönderilmiyor** — `SseHelper.EventError` sabiti tanımlı ama tek kullanım yeri tanımın kendisi | Sözleşme ölü kodu | *SSE akışı* (olay türleri tablosu) |
+| 7 | **`502` (RFC 7807 `problem+json`) canlı gözlemlenemedi** — geçersiz bölüm kimlikleri bile 200 + boş liste döndürdü; biçim yalnızca koddan doğrulandı | Doğrulama boşluğu (belge kusuru değil) | *Bilinen sınırlar* (ilk madde) |
+
+Nihai karar: **düzeltme yok, belgeleme var.** 1, 2 ve 5 ürün/kod değişikliği ister; 3, 4 ve 6
+sözleşme/davranış değişikliği ister ve istemci uyumluluğu düşünülmelidir; 7 bir doğrulama
+eksikliğidir ve tekrar koşumla kapatılabilir. Hiçbiri bu PR'ın kapsamına alınmadı.
+
+### 17.6 Neden upstream'e şimdilik gönderilmedi
+
+- 17.2'deki **yeni süreç kuralı**: önce fork, test, merge; upstream yalnızca açık istek üzerine.
+- Upstream PR #2 (`roxyrekt/Migurdex/pull/2`) hâlâ `OPEN` ve `action_required` durumunda. Aynı
+  anda ikinci bir PR açmak, inceleyicinin zaten kararsız duran bir PR'ın üstüne yeni yük bindirmesi
+  anlamına gelir.
+- `API.md` upstream'e bir **dokümantasyon katkısı** olarak kabul edilebilir; ancak yedi bulgunun
+  bir kısmı (özellikle 1 ve 2) upstream'in kendi güvenlik borcunu ilgilendirir. Bunları düzeltmeden
+  göndermek, dokümanın "bilinen sınırlar" bölümünü upstream bakım yükü haline getirir.
+- Bu kayıt `main` dalındadır; fork PR'ı merge edildiğinde karar yeniden değerlendirilecektir.
+
+### 17.7 `API.md` bölüm yapısı
+
+1309 satır, 51 KB, 19 bölüm.
+
+| # | Bölüm | Kapsam |
+|---:|---|---|
+| 1 | Genel bakış | Mimari, plugin yükleme, `rust` köprüsü |
+| 2 | Hızlı başlangıç | Adres/port tablosu, auth yokluğu, `curl` örnekleri |
+| 3 | Konvansiyonlar | Yöntem/rota, içerik tipi, **enum sayısal** serileştirme, adres kodlama, case-insensitivity |
+| 4 | Sağlık ve OpenAPI | `/health` alanları, `/openapi/v1.json` ve 16 yolun parametre listesi |
+| 5 | Sağlayıcı uçları | `/api/v1/providers`, `capabilities` otomatik hesabı |
+| 6 | Anime uçları | `search` (sağlayıcı zarfı), `{*animeId}` + `Normalize()`, `groups`, `sources` + `MergeSourceMetadata` |
+| 7 | **SSE akışı** | Yanıt başlıkları, tel kurgusu, 5 olay türü, `done` semantiği tablosu, iki örnek akış |
+| 8 | Metadata | AniList/Jikan, `mal:`/`anilist:` önekli çapraz arama |
+| 9 | Extractor uçları | `/extractors`, `/extractors/resolve` ve 9 adımlı doğrulama sırası |
+| 10 | Tracker uçları | `resolve`, `lookup`, `mapping`, `seasons`, `align`, `episode` |
+| 11 | **Veri modelleri** | 11 model, alan alan tablolarıyla |
+| 12 | **Enum sözlüğü** | 6 enum'un sayısal karşılıkları |
+| 13 | **Hata kodları** | Üç gövde biçimi (A/B/C) + "HTTP 200 dönen hatalar" |
+| 14 | **Güvenlik notları** | Auth yokluğu, SSRF koruması ve engelli aralıklar, başlık enjeksiyonu engeli, URL sızıntısı, kalıcı veri |
+| 15 | **Limit tablosu** | Uç × alan × limit × aşım davranışı |
+| 16 | Uçtan uca akışlar | Arama→oynatma/indirme, kaynak çözümleme, izleme senkronu |
+| 17 | **CLI ↔ API eşlemesi** | `ApiClientService` tablosu + CLI'nin çağırmadığı uçlar |
+| 18 | Doğrulama kaydı | 29 Eylül 2026 koşumu, 28 uçluk tablo, başlatma komutu |
+| 19 | Bilinen sınırlar | Yedi bulgunun kamuya dönük özeti |
+| — | İlgili belgeler | `DOWNLOAD.md`, `README.md`, `TEST_RESULTS.md`, `DEVELOPMENT_LOG.md` |

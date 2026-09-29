@@ -11,6 +11,9 @@
 > **Test toplamları hangi ağaca ait:** bölüm 1'deki **275/275** ve **110/110** değerleri `main`
 > dalını (`44f4010`) temsil eder. **293/293** sonucu ise `upstream/download-clean` dalına
 > (`f3aaad7`) aittir ve bölüm 12'de kayıtlıdır.
+>
+> **Bölüm 13 (API dokümantasyon doğrulaması)** bir **canlı uç doğrulamasıdır, build/test
+> koşumu değildir**; bu nedenle yukarıdaki test toplamlarının hiçbiri değişmemiştir.
 
 ## 1. Offline doğrulama
 
@@ -775,3 +778,120 @@ süreciyle ilgili ayrı bir konuşma konusudur.
 - Windows ve Linux aynı şekilde fayda görüyor; platforma özgü kod veya `#if` yok.
 - Yeni paket bağımlılığı, yeni `config.json` alanı, hedef çerçive veya `/api/v1` sözleşmesi
   değişikliği yok; breaking change yok.
+
+## 13. API dokümantasyon doğrulaması (29 Eylül 2026)
+
+Bu bölüm, `Migurdex.Api` için yazılan tam REST API referansının (`API.md`, dal
+`docs/api-reference`, commit `5d59491`) dayandığı **canlı uç doğrulamasını** kaydeder.
+
+> **Bu bir build/test koşumu değildir.** Yeni kod derlenmedi, yeni test yazılmadı, test takımı
+> çalıştırılmadı. Bölüm 1'deki **275/275**, bölüm 3'teki **110/110** ve bölüm 12'deki
+> **293/293** sonuçları **hiç değişmedi** ve bu bölümle hiçbir ilişkileri yoktur. Buradaki
+> "doğrulama" sözcüğü, birim/integrasyon testi değil, **dokümanın yazdığı her uç ve her örneğin
+> gerçek bir çalışan servisten alınan yanıtla karşılaştırılması** anlamındadır.
+
+### Ortam
+
+| Öğe | Değer |
+|---|---|
+| Tarih | 29 Eylül 2026 |
+| İşletim sistemi | Windows 11 |
+| Doğrulanan ağaç | `docs/api-reference` (tabandan `main` @ `83b9044`); commit `5d59491` |
+| Çalıştırılan ikili | `C:\Users\naton\OneDrive\Desktop\migu\api\Migurdex.Api.exe` |
+| Dinlenen adres | `http://127.0.0.1:7099` (CLI varsayılanı `7045`'tir; çakışma olmasın diye seçildi) |
+| Sürüm damgası | `0.0.0` (yerel build) — release'de `1.10.2` |
+
+Başlatma komutu:
+
+```powershell
+$env:ASPNETCORE_URLS = "http://127.0.0.1:7099"
+.\Migurdex.Api.exe
+```
+
+Sağlık kontrolü:
+
+```
+GET /health → 200
+{"status":"OK","version":"0.0.0","providers":14,"extractors":38,"rust":true}
+```
+
+`rust: true`, Rust native köprüsünün (`migurdex_native.dll`) başarıyla yüklendiğini doğrular;
+`false` olsaydı kaynak çözümleme uçları çalışmazdı. `providers=14` ve `extractors=38`, bölüm 6/7
+ve bölüm 12 kayıtlarıyla **aynı** değerlerdir.
+
+### 28 uçluk doğrulama tablosu
+
+| # | Uç | Sonuç | Gözlem |
+|---:|---|---|---|
+| 1 | `GET /health` | 200 | 14 provider, 38 extractor, `rust: true` |
+| 2 | `GET /openapi/v1.json` | 200 | OpenAPI 3.1.1, 16 yol; **gövde şemaları boş** |
+| 3 | `GET /api/v1/providers` | 200 | 14 kayıt (`type: 1`, `capabilities` 1 veya 3) |
+| 4 | `GET /api/v1/extractors` | 200 | 38 kayıt, alfabetik |
+| 5 | `GET /api/v1/anime/search` (`q` yok) | 400 | **boş gövde** — model bağlama seviyesi |
+| 6 | `GET /api/v1/anime/search?q=test&provider=Yok` | 404 | `{"error":"Provider 'Yok' bulunamadı."}` |
+| 7 | `GET /api/v1/anime/search?q=naruto&provider=Animexe` | 200 | 6513 bayt; sağlayıcı zarfı `[{provider,data}]` |
+| 8 | aynı uç `&stream=true` | 200 | `searchResult` × n ardından `done` (`curl -N` ile) |
+| 9 | `GET /api/v1/anime/Animexe/naruto` | 200 | 221 bölüm, 2 sezon eşlemesi |
+| 10 | `GET /api/v1/anime/Animexe/groups?episodeId=naruto/1/1` | 200 | `["AniSekai","YuushaSubs"]` |
+| 11 | `GET /api/v1/anime/Animexe/sources?episodeId=naruto/1/1` | 200 | 2 kaynak: `type: 1` (Mp4), `480p`, Tau Video |
+| 12 | aynı uç `&stream=true` | 200 | `source` × 2 + `done {"succeeded":2,"failed":0,"errors":[],"totalItems":2}` |
+| 13 | `GET /api/v1/metadata/search?q=naruto&source=anilist` | 200 | 11214 bayt, düz `MediaMetadata[]` |
+| 14 | `GET /api/v1/metadata/anilist/21` | 200 | 2263 bayt, `source: 0` |
+| 15 | `GET /api/v1/metadata/mal/20` | 200 | `source: 1` (Jikan) |
+| 16 | `GET /api/v1/metadata/anilist/mal:20` | 200 | çapraz arama, `source: 0` (AniList) |
+| 17 | `GET /api/v1/metadata/mal/anilist:21` | 200 | çapraz arama, `source: 1` (Jikan) |
+| 18 | `GET /api/v1/metadata/bilinmeyen/1` | 404 | bilinmeyen kaynak adı |
+| 19 | `GET /api/v1/tracker/seasons?anilistId=21` | 200 | 2 kalem, `seasonNumber` 0 ve 1 |
+| 20 | `GET /api/v1/tracker/lookup?malId=20` | 200 | `MediaMetadata` döndü |
+| 21 | `GET /api/v1/tracker/resolve?provider=Animexe&id=naruto&title=Naruto&year=2002&format=TV` | 200 | `fromCache: true` |
+| 22 | `GET /api/v1/tracker/align?provider=Animexe&id=naruto` | 200 | `numberingMode: 1`, 4 kalemli zincir |
+| 23 | `GET /api/v1/tracker/episode?provider=Animexe&id=naruto&season=1&episode=5` | 200 | `{"season":1,"episode":5,"totalEpisodes":220,"isOverflow":false}` |
+| 24 | `POST /api/v1/tracker/mapping` | 200 | **boş gövde** (yazma onaylandı) |
+| 25 | `POST /api/v1/extractors/resolve` (localhost hedefi) | 400 | `{"error":"Bu host'a istek gönderilemez."}` — SSRF koruması çalıştı |
+| 26 | `POST /api/v1/extractors/resolve` (`Host` başlığı) | 400 | `{"error":"Header 'Host' gönderilemez."}` — başlık enjeksiyonu engeli |
+| 27 | `POST /api/v1/extractors/resolve` (doğrudan `.mp4`) | 200 | `{"canExtract":false,"results":[]}` — normal davranış |
+| 28 | `GET /api/v1/extractors/resolve` (yanlış yöntem) | 405 | **boş gövde** |
+
+### Gözlemlenen hata biçimleri
+
+Doğrulama, API'nin **üç ayrı hata gövdesi biçimi** kullandığını canlı olarak doğruladı:
+
+| Biçim | Ne zaman | Gözlenen örnek |
+|---|---|---|
+| A — `{"error": "..."}` | Uç kodunun kendi validasyonu ve 404'ler | `{"error":"Provider 'Yok' bulunamadı."}`, `{"error":"Bu host'a istek gönderilemez."}` |
+| B — RFC 7807 `application/problem+json` | `Results.Problem(...)` ile üretilen upstream hataları (502/504) | **canlı gözlemlenemedi** (bkz. bulgu 7) |
+| C — çerçeve seviyesi | Zorunlu parametre eksikliği (400) ve yanlış yöntem (405) — **boş gövde** | satır 5 ve satır 28 |
+
+Ayrıca "hata ama HTTP 200" davranışları doğrulandı: `/anime/search` non-stream modunda sağlayıcı
+hatası `{"provider":"X","error":"…"}` olarak zarf içinde döner; `/tracker/resolve` eşleşme
+bulamasa bile `200` + `entry: null` döner; `/anime/*/sources` extractor hatasında kaynağı atlar ve
+`200` + eksik liste döner. **Bir istemci yalnız HTTP durum koduna bakarak hata tespiti yapamaz.**
+
+### Bulunan 7 kusurun özeti
+
+Düzeltilmedi, `API.md` içinde belgelendi. Gerekçe: her biri ayrı kod PR'ı ve ayrı test konusudur.
+
+| # | Kusur | Canlı kanıt |
+|---:|---|---|
+| 1 | API'de CORS / auth / rate limiting yok (`Program.cs`) | Kod okuması; 24. satırda `POST /tracker/mapping` auth'suz 200 döndü |
+| 2 | SSRF koruması yalnız `/api/v1/extractors/resolve` ucunda | 25. satır korumayı doğruladı; anime uçlarında koruma **yok** |
+| 3 | SSE kaynak akışında hata sayımı tutarsız (`failed` her zaman 0) | 12. satır `failed: 0`; çözülen 2 kaynak `succeeded: 2` |
+| 4 | Zorunlu parametre eksikliği **boş 400** döndürüyor | 5. satır boş gövde; `q=""` ise `{"error":"Arama sorgusu ('q') boş olamaz."}` |
+| 5 | `/openapi/v1.json` gövde şemaları boş | 2. satır: `components/schemas` dolu değil |
+| 6 | SSE `error` olayı hiç gönderilmiyor | `SseHelper.EventError` tanımlı, tek kullanım yeri tanımın kendisi |
+| 7 | `502` (RFC 7807) canlı gözlemlenemedi | Geçersiz bölüm kimlikleri bile `200` + boş liste döndürdü; biçim yalnızca koddan doğrulandı |
+
+Ayrıntılı gerekçe ve her kusurun hangi PR konusu olduğu: `DEVELOPMENT_LOG.md` → bölüm 17.5.
+
+### Temizlik
+
+| Öğe | Durum |
+|---|---|
+| API süreci | **durduruldu** (temiz kapatma; port `7099` boş) |
+| Ortam değişkeni | `ASPNETCORE_URLS` yalnız o PowerShell oturumunda ayarlandı, kalıcı ayar yapılmadı |
+| Çalışma ağacı | temiz — `git status` boş, `git diff --check` temiz |
+| Kalıcı veri | 24. satır `POST /tracker/mapping` ile **bir** eşleme (`Animexe` / `naruto` → AniList 20) yazıldı; bu, tracker'ın kendi kalıcı SQLite tablosudur ve kalıcı bir eşlemedir (`main`'deki `TrackerMappingStore` verisi). Silinmedi; sonraki `resolve`/`align` çağrılarında `fromCache: true` beklidir |
+| Değişen dosyalar | Yalnız `.md` — hiçbir `.cs`, `.csproj`, `.json` veya iş akışı dosyası değişmedi |
+
+> **Not:** 24. satır kalıcı bir yazma işlemidir. Uygulamanın normal davranışıdır ve doğrulama için
+> kasıtlı olarak yapılmıştır; `API.md` bölüm 10.3'te bu uç zaten belgelenmiştir.
