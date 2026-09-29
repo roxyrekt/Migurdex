@@ -1,7 +1,7 @@
 # feat: add anime download support
 
 > Dal: `feature/download` · Temel: `v1.10.0` (`4035f9a`) ·
-> 40 dosya, **+11.341 / −246** (`git diff --stat v1.10.0..HEAD`) · Son kod commit'i: `5014025` ·
+> 40 dosya, **~+11,3k / −246** (`git diff --stat v1.10.0..HEAD`) · Son kod commit'i: `5014025` ·
 > Tam commit listesi PR sayfasındadır.
 
 ## Özet
