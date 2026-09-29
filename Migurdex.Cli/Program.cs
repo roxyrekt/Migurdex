@@ -1,5 +1,6 @@
 using Microsoft.Extensions.DependencyInjection;
 using Migurdex.Cli.Services;
+using Migurdex.Cli.Services.Downloads;
 using Migurdex.Cli.Tui;
 using Migurdex.Cli.Tui.Views;
 using Migurdex.Core.Database;
@@ -75,69 +76,101 @@ public static class Program
         }
 
         AppDomain.CurrentDomain.ProcessExit += (s, e) => RestoreCursor();
-        Console.CancelKeyPress += (s, e) =>
+        TuiApplicationCancellation.Reset();
+        ITuiNavigator? activeNavigator = null;
+        var cancelSignalCount = 0;
+        ConsoleCancelEventHandler tuiCancelHandler = (_, eventArgs) =>
         {
-            RestoreCursor();
-            Environment.Exit(0);
-        };
-
-        Console.Title = "Migurdex Terminal Client";
-
-        var services = new ServiceCollection();
-        ConfigureServices(services);
-
-        var serviceProvider = services.BuildServiceProvider();
-
-        AnsiConsole.Clear();
-        AnsiConsole.MarkupLine("[bold cyan]Migurdex[/] [grey]başlatılıyor...[/]");
-        AnsiConsole.WriteLine();
-
-        var apiService = serviceProvider.GetRequiredService<IApiClientService>();
-
-        var isOnline = await AnsiConsole.Status()
-                                        .Spinner(Spinner.Known.Dots)
-                                        .StartAsync("API kontrol ediliyor...",
-                                                    async ctx =>
-                                                    {
-                                                        if (await apiService.IsApiOnlineAsync())
-                                                        {
-                                                            return true;
-                                                        }
-
-                                                        ctx.Status(
-                                                            "API başlatılıyor...");
-                                                        return await apiService.TryStartApiDaemonAsync();
-                                                    });
-
-        if (!isOnline)
-        {
-            AnsiConsole.MarkupLine("[yellow][[!]] API bağlantısı kurulamadı.[/]");
-            AnsiConsole.MarkupLine(
-                "[grey]İstemciyi açıp ayarlardan API adresini değiştirebilirsiniz.[/]");
-            AnsiConsole.MarkupLine("[grey]Devam etmek için bir tuşa basın...[/]");
-            if (!Console.IsInputRedirected)
+            if (Interlocked.Increment(ref cancelSignalCount) == 1)
             {
-                try { Console.ReadKey(true); }
-                catch
+                eventArgs.Cancel = true;
+                TuiApplicationCancellation.RequestCancellation();
+                activeNavigator?.Exit();
+                RestoreCursor();
+            }
+            else
+            {
+                // İkinci Ctrl+C doğal süreç sonlandırmasına bırakılır; Environment.Exit kullanılmaz.
+                eventArgs.Cancel = false;
+            }
+        };
+        Console.CancelKeyPress += tuiCancelHandler;
+
+        try
+        {
+            Console.Title = "Migurdex Terminal Client";
+
+            var services = new ServiceCollection();
+            ConfigureServices(services);
+
+            using var serviceProvider = services.BuildServiceProvider();
+
+            AnsiConsole.Clear();
+            AnsiConsole.MarkupLine("[bold cyan]Migurdex[/] [grey]başlatılıyor...[/]");
+            AnsiConsole.WriteLine();
+
+            var apiService = serviceProvider.GetRequiredService<IApiClientService>();
+            var tuiToken   = TuiApplicationCancellation.Token;
+
+            var isOnline = await AnsiConsole.Status()
+                                            .Spinner(Spinner.Known.Dots)
+                                            .StartAsync("API kontrol ediliyor...",
+                                                        async ctx =>
+                                                        {
+                                                            if (await apiService.IsApiOnlineAsync(tuiToken))
+                                                            {
+                                                                tuiToken.ThrowIfCancellationRequested();
+                                                                return true;
+                                                            }
+
+                                                            ctx.Status(
+                                                                "API başlatılıyor...");
+                                                            var started = await apiService.TryStartApiDaemonAsync(tuiToken);
+                                                            tuiToken.ThrowIfCancellationRequested();
+                                                            return started;
+                                                        });
+
+            if (!isOnline)
+            {
+                AnsiConsole.MarkupLine("[yellow][[!]] API bağlantısı kurulamadı.[/]");
+                AnsiConsole.MarkupLine(
+                    "[grey]İstemciyi açıp ayarlardan API adresini değiştirebilirsiniz.[/]");
+                AnsiConsole.MarkupLine("[grey]Devam etmek için bir tuşa basın...[/]");
+                if (!Console.IsInputRedirected)
                 {
-                    // ignored
+                    try { Console.ReadKey(true); }
+                    catch
+                    {
+                        // ignored
+                    }
                 }
             }
+
+            var navigator = serviceProvider.GetRequiredService<ITuiNavigator>();
+            activeNavigator = navigator;
+            var mainMenu  = serviceProvider.GetRequiredService<MainMenuView>();
+
+            _ = Task.Run(() => serviceProvider.GetRequiredService<WatchSyncService>().FlushQueueAsync());
+
+            var noUpdateCheck = args.Any(a => a.Equals("--no-update-check", StringComparison.OrdinalIgnoreCase));
+            await MaybePromptForUpdateAsync(serviceProvider, noUpdateCheck);
+            tuiToken.ThrowIfCancellationRequested();
+
+            await navigator.StartAsync(mainMenu);
+
+            AnsiConsole.Clear();
+            return 0;
         }
-
-        var navigator = serviceProvider.GetRequiredService<ITuiNavigator>();
-        var mainMenu  = serviceProvider.GetRequiredService<MainMenuView>();
-
-        _ = Task.Run(() => serviceProvider.GetRequiredService<WatchSyncService>().FlushQueueAsync());
-
-        var noUpdateCheck = args.Any(a => a.Equals("--no-update-check", StringComparison.OrdinalIgnoreCase));
-        await MaybePromptForUpdateAsync(serviceProvider, noUpdateCheck);
-
-        await navigator.StartAsync(mainMenu);
-
-        AnsiConsole.Clear();
-        RestoreCursor();
-        return 0;
+        catch (OperationCanceledException) when (TuiApplicationCancellation.Token.IsCancellationRequested)
+        {
+            return 0;
+        }
+        finally
+        {
+            Console.CancelKeyPress -= tuiCancelHandler;
+            RestoreCursor();
+            TuiApplicationCancellation.Reset();
+        }
     }
 
     private static async Task MaybePromptForUpdateAsync(IServiceProvider services, bool noUpdateCheck)
@@ -236,6 +269,16 @@ public static class Program
         services.AddSingleton<IHistoryService>(sp =>
                                                    new HistoryService(sp.GetRequiredService<IConfigurationService>(),
                                                                       sp.GetRequiredService<MigurdexDatabase>()));
+        services.AddDownloadServices(provider =>
+        {
+            var config = provider.GetRequiredService<IConfigurationService>().Config;
+            return new HlsDownloadOptions
+            {
+                Executable  = config.YtDlpPath,
+                MaxAttempts = 3,
+                RetryDelay  = TimeSpan.FromSeconds(1)
+            };
+        });
         services.AddSingleton<IDiscordRpcService, DiscordRpcService>();
         services.AddSingleton<IMpvPlayerService, MpvPlayerService>();
         services.AddSingleton<PlaybackOrchestrator>();

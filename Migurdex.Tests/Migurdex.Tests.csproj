@@ -10,6 +10,7 @@
     <ItemGroup>
         <ProjectReference Include="..\Migurdex.Core\Migurdex.Core.csproj"/>
         <ProjectReference Include="..\Migurdex.Shared\Migurdex.Shared.csproj"/>
+        <ProjectReference Include="..\Migurdex.Cli\Migurdex.Cli.csproj"/>
     </ItemGroup>
 
     <ItemGroup>

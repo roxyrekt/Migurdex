@@ -295,6 +295,47 @@ public static class AnimeEndpoints
         };
     }
 
+    private static VideoSource MergeSourceMetadata(VideoSource extracted, VideoSource raw)
+    {
+        // Extractor sonucu URL/kalite/tip alanlarının sahibidir; provider'dan gelen
+        // kaynak metadata'sı yalnızca extractor sonucu boş bıraktığında devreder.
+        return new VideoSource
+        {
+            Url       = extracted.Url,
+            Quality   = extracted.Quality,
+            Type      = extracted.Type,
+            Hoster    = extracted.Hoster ?? raw.Hoster,
+            Group     = extracted.Group ?? raw.Group,
+            Language  = extracted.Language ?? raw.Language,
+            Headers   = MergeSourceHeaders(extracted.Headers, raw.Headers),
+            Subtitles = extracted.Subtitles is { Count: > 0 } ? extracted.Subtitles : raw.Subtitles
+        };
+    }
+
+    private static Dictionary<string, string>? MergeSourceHeaders(
+        Dictionary<string, string>? extracted,
+        Dictionary<string, string>? raw)
+    {
+        if (raw is not { Count: > 0 })
+        {
+            return extracted;
+        }
+
+        if (extracted is not { Count: > 0 })
+        {
+            return raw;
+        }
+
+        // Çözümlenen medya URL'sine ait başlıklar önceliklidir, eksikler tamamlanır.
+        var merged = new Dictionary<string, string>(raw, StringComparer.OrdinalIgnoreCase);
+        foreach (var (key, value) in extracted)
+        {
+            merged[key] = value;
+        }
+
+        return merged;
+    }
+
     private static async Task<IResult> GetVideoSources(
         string            provider,
         string            episodeId,
@@ -402,8 +443,8 @@ public static class AnimeEndpoints
                                                                                             cancellationToken);
                                                                                 foreach (var ext in extracted)
                                                                                 {
-                                                                                    ext.Group ??= src.Group;
-                                                                                    TryEnqueueSource(ext);
+                                                                                    TryEnqueueSource(
+                                                                                        MergeSourceMetadata(ext, src));
                                                                                 }
                                                                             }
                                                                             else
@@ -462,12 +503,13 @@ public static class AnimeEndpoints
                                                                               src.Url,
                                                                               headers,
                                                                               cancellationToken);
+                                                                      var resolved = new List<VideoSource>(extracted.Count);
                                                                       foreach (var ext in extracted)
                                                                       {
-                                                                          ext.Group ??= src.Group;
+                                                                          resolved.Add(MergeSourceMetadata(ext, src));
                                                                       }
 
-                                                                      return extracted;
+                                                                      return resolved;
                                                                   }
 
                                                                   return (List<VideoSource>) [src];
