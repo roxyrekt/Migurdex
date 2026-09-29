@@ -46,8 +46,12 @@ public class ApiClientService : IApiClientService
         {
             using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             cts.CancelAfter(TimeSpan.FromMilliseconds(500));
-            var response = await _httpClient.GetAsync("health", cts.Token);
+            using var response = await _httpClient.GetAsync("health", cts.Token);
             return response.IsSuccessStatusCode;
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
         }
         catch
         {
@@ -128,6 +132,8 @@ public class ApiClientService : IApiClientService
             apiLogPath = null;
         }
 
+        Process? startedProcess = null;
+        var       apiBecameOnline = false;
         try
         {
             var isDll = apiPath.EndsWith(".dll", StringComparison.OrdinalIgnoreCase);
@@ -151,24 +157,26 @@ public class ApiClientService : IApiClientService
 
             psi.EnvironmentVariables["ASPNETCORE_URLS"] = listenUrl;
 
-            var process = Process.Start(psi);
-            if (process != null)
+            startedProcess = Process.Start(psi);
+            if (startedProcess != null)
             {
-                ChildProcessTracker.Track(process);
+                ChildProcessTracker.Track(startedProcess);
                 if (apiLogPath != null)
                 {
                     var logFile = apiLogPath;
-                    process.OutputDataReceived += (_, e) => AppendApiLog(logFile, e.Data);
-                    process.ErrorDataReceived  += (_, e) => AppendApiLog(logFile, e.Data);
-                    process.BeginOutputReadLine();
-                    process.BeginErrorReadLine();
+                    startedProcess.OutputDataReceived += (_, e) => AppendApiLog(logFile, e.Data);
+                    startedProcess.ErrorDataReceived  += (_, e) => AppendApiLog(logFile, e.Data);
+                    startedProcess.BeginOutputReadLine();
+                    startedProcess.BeginErrorReadLine();
                 }
             }
 
             for (var i = 0; i < 50; i++)
             {
+                cancellationToken.ThrowIfCancellationRequested();
                 if (await IsApiOnlineAsync(cancellationToken))
                 {
+                    apiBecameOnline = true;
                     return true;
                 }
 
@@ -176,9 +184,24 @@ public class ApiClientService : IApiClientService
                 await Task.Delay(delay, cancellationToken);
             }
         }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
         catch
         {
-            // ignored
+            // Aşağıdaki finally, başlatılan süreci sahipsiz bırakmaz.
+        }
+        finally
+        {
+            if (!apiBecameOnline)
+            {
+                StopStartedProcess(startedProcess);
+            }
+            else
+            {
+                startedProcess?.Dispose();
+            }
         }
 
         return false;
@@ -194,6 +217,10 @@ public class ApiClientService : IApiClientService
                                                                        JsonOpts,
                                                                        cancellationToken);
             return ApiResult<IReadOnlyList<ProviderInfo>>.Ok(providers ?? []);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
         }
         catch
         {
@@ -234,6 +261,10 @@ public class ApiClientService : IApiClientService
             }
 
             return ApiResult<IReadOnlyList<SearchResult>>.Ok(items);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
         }
         catch
         {
@@ -307,6 +338,7 @@ public class ApiClientService : IApiClientService
 
                 if (string.Equals(evt, "done", StringComparison.OrdinalIgnoreCase))
                 {
+                    cancellationToken.ThrowIfCancellationRequested();
                     yield break;
                 }
 
@@ -376,6 +408,8 @@ public class ApiClientService : IApiClientService
                 }
             }
         }
+
+        cancellationToken.ThrowIfCancellationRequested();
     }
 
     public async Task<ApiResult<AnimeDetails?>> GetAnimeDetailsAsync(string provider,
@@ -389,6 +423,10 @@ public class ApiClientService : IApiClientService
             return details is not null
                        ? ApiResult<AnimeDetails?>.Ok(details)
                        : ApiResult<AnimeDetails?>.Fail(null, "Anime detayları alınamadı.");
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
         }
         catch
         {
@@ -406,6 +444,10 @@ public class ApiClientService : IApiClientService
                 $"api/v1/anime/{Uri.EscapeDataString(provider)}/groups?episodeId={Uri.EscapeDataString(episodeId)}";
             var groups = await _httpClient.GetFromJsonAsync<List<string>>(url, JsonOpts, cancellationToken);
             return ApiResult<IReadOnlyList<string>>.Ok(groups ?? []);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
         }
         catch
         {
@@ -429,6 +471,10 @@ public class ApiClientService : IApiClientService
 
             var sources = await _httpClient.GetFromJsonAsync<List<VideoSource>>(url, JsonOpts, cancellationToken);
             return ApiResult<IReadOnlyList<VideoSource>>.Ok(sources ?? []);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
         }
         catch
         {
@@ -496,6 +542,7 @@ public class ApiClientService : IApiClientService
 
                 if (string.Equals(evt, "done", StringComparison.OrdinalIgnoreCase))
                 {
+                    cancellationToken.ThrowIfCancellationRequested();
                     yield break;
                 }
 
@@ -531,6 +578,8 @@ public class ApiClientService : IApiClientService
                 }
             }
         }
+
+        cancellationToken.ThrowIfCancellationRequested();
     }
 
     public async Task<ApiResult<IReadOnlyList<string>>> GetExtractorsAsync(CancellationToken cancellationToken =
@@ -544,6 +593,10 @@ public class ApiClientService : IApiClientService
                     JsonOpts,
                     cancellationToken);
             return ApiResult<IReadOnlyList<string>>.Ok(results?.Select(r => r.Name).ToList() ?? []);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
         }
         catch
         {
@@ -586,6 +639,10 @@ public class ApiClientService : IApiClientService
             var result = await _httpClient.GetFromJsonAsync<TrackerResolveResult>(url, JsonOpts, cancellationToken);
             return ApiResult<TrackerResolveResult?>.Ok(result);
         }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
         catch
         {
             return ApiResult<TrackerResolveResult?>.Fail(null, "Tracker ID çözülemedi.");
@@ -617,6 +674,10 @@ public class ApiClientService : IApiClientService
             var meta = await _httpClient.GetFromJsonAsync<MediaMetadata>(url, JsonOpts, cancellationToken);
             return ApiResult<MediaMetadata?>.Ok(meta);
         }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
         catch
         {
             return ApiResult<MediaMetadata?>.Fail(null, "Tracker kaydı bulunamadı.");
@@ -640,6 +701,10 @@ public class ApiClientService : IApiClientService
                               JsonOpts,
                               cancellationToken);
             return ApiResult<TrackerEpisodeMapping?>.Ok(mapping);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
         }
         catch
         {
@@ -669,9 +734,38 @@ public class ApiClientService : IApiClientService
                                                                    cancellationToken);
             return response.IsSuccessStatusCode;
         }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
         catch
         {
             return false;
+        }
+    }
+
+    private static void StopStartedProcess(Process? process)
+    {
+        if (process is null)
+        {
+            return;
+        }
+
+        try
+        {
+            if (!process.HasExited)
+            {
+                process.Kill(entireProcessTree: true);
+                process.WaitForExit(2000);
+            }
+        }
+        catch
+        {
+            // ignored
+        }
+        finally
+        {
+            process.Dispose();
         }
     }
 
@@ -708,6 +802,10 @@ public class ApiClientService : IApiClientService
             {
                 return err.GetString()!;
             }
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
         }
         catch
         {

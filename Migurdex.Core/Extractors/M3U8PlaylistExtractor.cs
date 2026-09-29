@@ -11,6 +11,25 @@ namespace Migurdex.Core.Extractors;
 
 public partial class M3U8PlaylistExtractor : IExtractor
 {
+    private static readonly HashSet<string> _nonTransferableHeaders = new(StringComparer.OrdinalIgnoreCase)
+    {
+        // Bağlantıya özel, gövde uzunluğunu belirleyen veya içeriği sıkıştıran
+        // header'lar playlist isteğinden medya indirmesine taşınmamalıdır.
+        "accept-encoding",
+        "connection",
+        "content-length",
+        "expect",
+        "host",
+        "if-range",
+        "keep-alive",
+        "proxy-connection",
+        "range",
+        "te",
+        "trailer",
+        "transfer-encoding",
+        "upgrade"
+    };
+
     private readonly HttpClient                     _httpClient;
     private readonly ILogger<M3U8PlaylistExtractor> _logger;
 
@@ -32,12 +51,26 @@ public partial class M3U8PlaylistExtractor : IExtractor
         IDictionary<string, string>?                         headers           = null,
         CancellationToken                                    cancellationToken = default)
     {
+        var sources = await ExtractPlaylistAsync(url, headers, cancellationToken);
+
+        foreach (var source in sources)
+        {
+            source.Headers = MergeSourceHeaders(source.Headers, headers);
+        }
+
+        return sources;
+    }
+
+    private async Task<List<VideoSource>> ExtractPlaylistAsync(string url,
+        IDictionary<string, string>?                         headers,
+        CancellationToken                                    cancellationToken)
+    {
         var sources = new List<VideoSource>();
 
         try
         {
             var baseUri = new Uri(url);
-            var request = new HttpRequestMessage(HttpMethod.Get, url);
+            using var request = new HttpRequestMessage(HttpMethod.Get, url);
 
             var userAgent =
                 headers?.TryGetValue("User-Agent", out var customUa) == true
@@ -50,10 +83,10 @@ public partial class M3U8PlaylistExtractor : IExtractor
             request.Headers.Add("Accept-Language", "en-US,en;q=0.9");
             request.AddHeaders(headers);
 
-            var response = await _httpClient.SendAsync(request, cancellationToken);
+            using var response = await _httpClient.SendAsync(request, cancellationToken);
             if (!response.IsSuccessStatusCode)
             {
-                _logger.LogWarning("M3U8 request failed: {Url}", url);
+                _logger.LogWarning("M3U8 playlist request failed.");
 
                 return sources;
             }
@@ -195,9 +228,13 @@ public partial class M3U8PlaylistExtractor : IExtractor
                 });
             }
         }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "failed to parse M3U8 qualities for: {Url}", url);
+            _logger.LogError(ex, "M3U8 playlist parse failed.");
         }
 
         return sources;
@@ -209,13 +246,62 @@ public partial class M3U8PlaylistExtractor : IExtractor
     [GeneratedRegex(@"RESOLUTION=(\d+x\d+)", RegexOptions.IgnoreCase)]
     private static partial Regex ResolutionRegex();
 
+    private static Dictionary<string, string>? MergeSourceHeaders(
+        Dictionary<string, string>?                  sourceHeaders,
+        IDictionary<string, string>?                 requestHeaders)
+    {
+        if (requestHeaders is not { Count: > 0 })
+        {
+            return sourceHeaders;
+        }
+
+        // Her kaynak kendi sözlüğünü alır; çağıranın ya da diğer kaynakların
+        // başlıklarının sonradan değiştirilmesi bu kaynağı etkilemez.
+        var merged = sourceHeaders is { Count: > 0 }
+                         ? new Dictionary<string, string>(sourceHeaders, StringComparer.OrdinalIgnoreCase)
+                         : new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var (key, value) in requestHeaders)
+        {
+            var name  = SanitizeHeaderValue(key);
+            var val   = SanitizeHeaderValue(value);
+            if (name is null || val is null)
+            {
+                continue;
+            }
+
+            if (_nonTransferableHeaders.Contains(name) || merged.ContainsKey(name))
+            {
+                continue;
+            }
+
+            merged[name] = val;
+        }
+
+        return merged.Count > 0 ? merged : sourceHeaders;
+    }
+
+    private static string? SanitizeHeaderValue(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return null;
+        }
+
+        var cleaned = value.Replace("\r", string.Empty)
+                           .Replace("\n", string.Empty)
+                           .Trim();
+
+        return cleaned.Length == 0 ? null : cleaned;
+    }
+
     private async Task<string?> TryDetectQualityFromTsSegmentAsync(string segmentUrl,
         IDictionary<string, string>?                                      headers,
         CancellationToken                                                 cancellationToken = default)
     {
         try
         {
-            var req = new HttpRequestMessage(HttpMethod.Get, segmentUrl);
+            using var req = new HttpRequestMessage(HttpMethod.Get, segmentUrl);
             req.Headers.TryAddWithoutValidation("Range", "bytes=0-65535");
             req.Headers.TryAddWithoutValidation("User-Agent",
                                                 "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36");
@@ -232,9 +318,13 @@ public partial class M3U8PlaylistExtractor : IExtractor
                 }
             }
         }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
         catch (Exception ex)
         {
-            _logger.LogDebug(ex, "could not detect quality from TS segment: {Url}", segmentUrl);
+            _logger.LogDebug(ex, "TS segment quality detection failed.");
         }
 
         return null;
