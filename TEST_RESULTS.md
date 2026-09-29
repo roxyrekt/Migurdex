@@ -1,15 +1,17 @@
 # Migurdex Test ve Doğrulama Raporu
 
 > Bu dosya, `feature/download` dalındaki tüm doğrulama çalışmalarının merkezi kaydıdır.
-> Son güncelleme: 27 Eylül 2026 · Dal: `feature/download` · Temel: `v1.10.0` (`4035f9a`)
+> Son güncelleme: 29 Eylül 2026 · Dal: `feature/download` · Temel: `v1.10.1` (`4ecd7d7`)
 
 ## 1. Offline doğrulama
 
 - `git status`: temiz
 - `git diff --check`: temiz
 - `dotnet restore Migurdex.slnx`: başarılı
-- `dotnet build Migurdex.slnx -c Release --no-restore`: 18 proje, 0 uyarı, 0 hata
+- `dotnet build Migurdex.slnx -c Release --no-restore`: 19 proje, 0 uyarı, 0 hata
 - `dotnet test Migurdex.Tests\Migurdex.Tests.csproj -c Release --no-build --filter "FullyQualifiedName!~ExtractorSmokeTests"`: **275/275 geçti**
+
+Son koşum: 29 Eylül 2026, `v1.10.1` rebase sonrası (portatif .NET SDK 10.0.401).
 
 İndirme/TUI odaklı test grupları ayrıca tek tek koşuldu:
 
@@ -228,11 +230,13 @@ dotnet test Migurdex.Tests/Migurdex.Tests.csproj -c Release --no-build `
 Sonuç: 275/275 geçti
 ```
 
-### Mevcut dal durumu
+### Mevcut dal durumu (kayıt sırasında)
 
 ```text
 v1.10.0..feature/download = 12 commit
 ```
+
+Bu alt bölüm 27 Eylül 2026 kaydıdır; güncel dal durumu için bkz. bölüm 10.
 
 Commit listesi:
 
@@ -407,3 +411,61 @@ C:\Users\naton\OneDrive\Desktop\migu\
 ### Geri alma
 
 Geri alma yolu: `backup-v1.9.2\` klasöründeki dosyaları köke geri kopyalamak.
+
+## 10. v1.10.1 geçişi
+
+Upstream **v1.10.1** yayınlandıktan sonra `feature/download` dalı bu sürüm üzerine
+rebase edildi (29 Eylül 2026).
+
+### Upstream değişiklikleri (v1.10.0 → v1.10.1)
+
+- `e4a32b4` — `fix: update database link for TurkAnime provider`: README'deki HuggingFace
+  DB bağlantısı `mdexturkanime/turkanime-db` → `roxyrekt/turkanime-db`.
+- `914dfdd` — `fix(anizm): handle unnamed anizm fansub groups`: `AnizmProvider.cs`
+  isimsiz fansub gruplarını ele alıyor.
+- `4ecd7d7` — `feat(appimage): zsync update info + AppRun locale wrapper`:
+  `build-release.yml`, `UpdateCommand.cs`, `assets/packaging/AppRun` ve `Program.cs`
+  (encoding guard kaldırma + `ReadKey` guard'ı).
+- Sağlayıcı (14) / extractor (38) sayısı ve `/api/v1` sözleşmesi değişmedi; breaking change yok.
+
+### Rebase sonucu
+
+- Yedek dal: `backup/download-pre-v1101`
+- Rebase hedefi: `v1.10.1` (`4ecd7d7`)
+- 21 feature commit'i yeni tabana taşındı.
+- Tek çakışma: `Migurdex.Cli/Program.cs` (ana özellik commit'i, `be85d61`):
+  - Dal tarafının TUI iptal mimarisi korundu: `TuiApplicationCancellation`, `tuiToken`,
+    `activeNavigator`, `catch (OperationCanceledException)`, `finally` bloğu.
+  - Upstream'in `Console.IsInputRedirected` guard'lı + try/catch `Console.ReadKey(true)`
+    versiyonu alındı; dal tarafındaki sade `ReadKey` çağrısı bırakıldı.
+  - Dosyanın tepesindeki encoding guard kaldırma otomatik merge ile geldi.
+  - Çözüm `git diff backup/download-pre-v1101:Migurdex.Cli/Program.cs` ile doğrulandı:
+    fark, birebir upstream'in v1.10.0→v1.10.1 `Program.cs` değişiklikleri.
+- `README.md` otomatik merge edildi; TurkAnime DB bağlantısının `roxyrekt/turkanime-db`
+  olduğu ve indirme dokümantasyonu bölüm sırasının korunduğu gözle doğrulandı.
+
+### Doğrulama (rebase sonrası, 29 Eylül 2026)
+
+| Komut | Sonuç |
+|---|---|
+| `dotnet restore Migurdex.slnx` | Başarılı (19 projeden 16'sı güncel) |
+| `dotnet build Migurdex.slnx -c Release --no-restore` | **19 proje, 0 uyarı, 0 hata** |
+| `dotnet test ... --filter "FullyQualifiedName!~ExtractorSmokeTests"` | **275/275 geçti** |
+
+### Mevcut dal durumu
+
+```text
+v1.10.1..feature/download = 21 commit (bu kayıt commit'i hariç)
+```
+
+Son kod commit'i: `00b2ee7` — `fix(downloader): report live yt-dlp HLS progress`.
+
+Sık atıf yapılan hash eşlemeleri (v1.10.1 rebase tüm hash'leri yeniden yazdı; eski
+hash'ler `backup/download-pre-v1101` dalında):
+
+| Eski (v1.10.0 tabanlı) | Yeni (v1.10.1 tabanlı) |
+|---|---|
+| `321fe38` — feat: add anime download support | `be85d61` |
+| `bd59ca4` — fix(tui): balance source selection markup | `6c366c9` |
+| `3a3cfc5` — fix(tui): hide search filter on download result | `b3dd5d5` |
+| `5014025` — fix(downloader): report live yt-dlp HLS progress | `00b2ee7` |

@@ -4,7 +4,7 @@
 >
 > Son güncelleme: 29 Eylül 2026  
 > Dal: `feature/download`  
-> Temel: `v1.10.0` (`4035f9a`)  
+> Temel: `v1.10.1` (`4ecd7d7`)  
 > Son teknik hedef: `https://github.com/Nutaliaxd/Migurdex` üzerine PR  
 > PR: https://github.com/Nutaliaxd/Migurdex/pull/1
 
@@ -62,7 +62,7 @@ Sonuç:
 - Canlı API smoke: **21/21 endpoint**
 - TUI canlı akış: **371.406.042 bayt** gerçek indirme
 - CLI canlı akış: **437.668.399 bayt** gerçek MP4 indirmesi
-- v1.10.0 üzerine **temiz rebase**
+- `v1.10.1` üzerine rebase (tek çakışma `Program.cs`, çözüldü)
 - Kök kurulum **v1.10.0 + download** olarak yükseltildi
 
 ---
@@ -149,6 +149,12 @@ v1.10.0 rebase sonrası karşılığı:
 
 ```text
 321fe38 feat: add anime download support
+```
+
+v1.10.1 rebase sonrası karşılığı:
+
+```text
+be85d61 feat: add anime download support
 ```
 
 Bu commit şunları ekledi:
@@ -241,6 +247,12 @@ Rebase sonrası karşılığı:
 bd59ca4 fix(tui): balance source selection markup
 ```
 
+v1.10.1 rebase sonrası karşılığı:
+
+```text
+6c366c9 fix(tui): balance source selection markup
+```
+
 ---
 
 ### 3.4 İndirme sonrası gereksiz `Ara:` filtresi
@@ -282,6 +294,12 @@ Rebase sonrası karşılığı:
 3a3cfc5 fix(tui): hide search filter on download result
 ```
 
+v1.10.1 rebase sonrası karşılığı:
+
+```text
+b3dd5d5 fix(tui): hide search filter on download result
+```
+
 ---
 
 ### 3.5 HLS progress güncellenmeme hatası
@@ -317,6 +335,12 @@ Rebase sonrası karşılığı:
 
 ```text
 5014025 fix(downloader): report live yt-dlp HLS progress
+```
+
+v1.10.1 rebase sonrası karşılığı:
+
+```text
+00b2ee7 fix(downloader): report live yt-dlp HLS progress
 ```
 
 Sonuç:
@@ -418,6 +442,54 @@ migurdex-win-x64.zip
 Geri alma yolu:
 
 - `backup-v1.9.2` içindeki `migurdex.exe` ve `api\` klasörünü köke geri kopyalamak.
+
+---
+
+### 3.8 v1.10.1 rebase
+
+Upstream v1.10.1 yayımlandı:
+
+```text
+e4a32b4 fix: update database link for TurkAnime provider
+914dfdd fix(anizm): handle unnamed anizm fansub groups
+4ecd7d7 feat(appimage): zsync update info + AppRun locale wrapper
+```
+
+Bu sürüm:
+
+- TurkAnime DB bağlantısını güncelledi (`mdexturkanime` → `roxyrekt` HuggingFace dataset'i).
+- Anizm sağlayıcısında isimsiz fansub gruplarını ele aldı.
+- AppImage güncelleme akışına zsync bilgisi ve AppRun locale sarmalayıcısı ekledi.
+- `Program.cs`'te encoding guard'larını kaldırdı ve `!isOnline` bloğundaki `ReadKey`'yi
+  `Console.IsInputRedirected` guard'ı + try/catch ile korudu.
+- Sağlayıcı sayısını (14) ve API sözleşmesini değiştirmedi.
+
+Yedek dal:
+
+```text
+backup/download-pre-v1101
+```
+
+Rebase:
+
+```bash
+git rebase v1.10.1 feature/download
+```
+
+Sonuç:
+
+- 21 feature commit'i yeni tabana taşındı.
+- Tek çakışma `Migurdex.Cli/Program.cs` (ana özellik commit'i):
+  - Dal tarafının TUI iptal mimarisi korundu (`TuiApplicationCancellation`, `tuiToken`,
+    `activeNavigator`, `catch (OperationCanceledException)`, `finally`).
+  - Upstream'in guard'lı + try/catch `ReadKey` versiyonu alındı.
+  - Encoding guard kaldırma otomatik merge ile geldi.
+  - Çözüm, eski dal sürümüyle karşılaştırmalı diff ile doğrulandı: fark birebir
+    upstream'in `Program.cs` değişiklikleri.
+- `README.md` otomatik merge edildi; DB bağlantısı ve bölüm sırası gözle doğrulandı.
+- Restore + Release build (19 proje, 0 uyarı / 0 hata) + offline test 275/275 doğrulandı.
+- Tüm feature commit hash'leri yeniden yazıldı; eski hash'ler `backup/download-pre-v1101`
+  dalında korunuyor.
 
 ---
 
@@ -743,56 +815,69 @@ klasöründe korunuyor.
 
 ## 11. Yapılan commit’ler
 
-Rebase sonrası güncel commit listesi:
+v1.10.1 rebase sonrası güncel commit listesi (`v1.10.1..feature/download`):
 
 | Commit | Konu |
 |---|---|
-| `321fe38` | `feat: add anime download support` |
-| `bd59ca4` | `fix(tui): balance source selection markup` |
-| `81335bc` | `docs: document download feature and operations` |
-| `3a3cfc5` | `fix(tui): hide search filter on download result` |
-| `c8a7d75` | `docs: update download history for result prompt fix` |
-| `8ef695e` | `docs: clarify latest code commit in download guide` |
-| `85f356a` | `docs: record offline validation results` |
-| `febe716` | `docs: record live API smoke results` |
-| `1f82f2d` | `docs: add consolidated test results report` |
-| `5014025` | `fix(downloader): report live yt-dlp HLS progress` |
-| `7763b2d` | `docs: record v1.10.0 rebase and latest verification` |
-| `21d687c` | `docs: document upstream v1.10.0 integration notes` |
-| `615cf64` | `docs: record v1.10.0 packaged build` |
-| `dd09194` | `docs: record Deokwave smoke result` |
-| `6374b5a` | `docs: record root installation upgrade` |
+| `be85d61` | `feat: add anime download support` |
+| `6c366c9` | `fix(tui): balance source selection markup` |
+| `320302e` | `docs: document download feature and operations` |
+| `b3dd5d5` | `fix(tui): hide search filter on download result` |
+| `6135f91` | `docs: update download history for result prompt fix` |
+| `ed397f0` | `docs: clarify latest code commit in download guide` |
+| `f19e2a4` | `docs: record offline validation results` |
+| `fc6747f` | `docs: record live API smoke results` |
+| `ba2665f` | `docs: add consolidated test results report` |
+| `00b2ee7` | `fix(downloader): report live yt-dlp HLS progress` |
+| `38972ce` | `docs: record v1.10.0 rebase and latest verification` |
+| `07d8110` | `docs: document upstream v1.10.0 integration notes` |
+| `7792f47` | `docs: record v1.10.0 packaged build` |
+| `e3345a9` | `docs: record Deokwave smoke result` |
+| `8226b95` | `docs: record root installation upgrade` |
+| `e9d8276` | `docs: add development log and PR description` |
+| `d6774a7` | `docs: record PR link in development log` |
+| `4d56774` | `docs: update PR description with final diff stats` |
+| `9a52271` | `docs: finalize PR commit count` |
+| `8c58e2f` | `docs: make PR description commit count dynamic` |
+| `7ca27de` | `docs: round PR diff stats` |
 
-Rebase öncesi karşılıklar:
+Bu listenin sonrasında `docs: record v1.10.1 rebase and compatibility` commit'i gelir
+(bu kayıt; hash'i push sonrası görünebilir).
 
-| Rebase öncesi | Rebase sonrası |
-|---|---|
-| `c3d307a` | `321fe38` |
-| `e9e01e9` | `bd59ca4` |
-| `73535cb` | `81335bc` |
-| `4cd2ac8` | `3a3cfc5` |
-| `c6dfbaa` | `c8a7d75` |
-| `285efef` | `8ef695e` |
-| `374e7cb` | `85f356a` |
-| `7ffa2c7` | `febe716` |
-| `b95e97b` | `1f82f2d` |
-| `dc344a0` | `5014025` |
-| `7763b2d` | `7763b2d`* |
-| `21d687c` | `21d687c`* |
+Rebase karşılıkları:
 
-\* Bu commit’ler rebase sonrası oluşturulduğu için hash’leri değişmedi.
+| İlk yazılım (v1.9.2 tabanı) | v1.10.0 rebase sonrası | v1.10.1 rebase sonrası |
+|---|---|---|
+| `c3d307a` | `321fe38` | `be85d61` |
+| `e9e01e9` | `bd59ca4` | `6c366c9` |
+| `73535cb` | `81335bc` | `320302e` |
+| `4cd2ac8` | `3a3cfc5` | `b3dd5d5` |
+| `c6dfbaa` | `c8a7d75` | `6135f91` |
+| `285efef` | `8ef695e` | `ed397f0` |
+| `374e7cb` | `85f356a` | `f19e2a4` |
+| `7ffa2c7` | `febe716` | `fc6747f` |
+| `b95e97b` | `1f82f2d` | `ba2665f` |
+| `dc344a0` | `5014025` | `00b2ee7` |
+| — | `7763b2d` | `38972ce` |
+| — | `21d687c` | `07d8110` |
+
+v1.10.0 rebase sonrası oluşturulan commit'ler ilk yazılım sütununda yoktur (—);
+v1.10.0 tabanlı hash'lerin tamamı `backup/download-pre-v1101` dalında korunmaktadır.
 
 ---
 
 ## 12. Dosya etkisi ve istatistikler
 
-v1.10.0 base’ine göre:
+v1.10.1 base’ine göre (`DEVELOPMENT_LOG.md` ve `PR_DESCRIPTION.md` hariç):
 
 ```text
 38 dosya
-+10.059 satır
-−246 satır
++10.181 satır
+−249 satır
 ```
+
+Tam diff (`git diff --shortstat v1.10.1..HEAD`): 40 dosya, ~+11,6k / −249
+(5 doküman dosyası dahil; kesin değer commit sonrası görülebilir).
 
 Ana alanlar:
 

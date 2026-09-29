@@ -6,12 +6,12 @@ TUI'den (bölüm kaynak ekranında `İndir`) diske kaydeder. `Embed` ve `Unknown
 
 | Alan | Değer |
 |---|---|
-| Son güncelleme | 27 Eylül 2026 |
-| Dal | `feature/download` (temel: `v1.10.0` @ `4035f9a`) |
-| Son kod commit’i | `5014025` (`fix(downloader): report live yt-dlp HLS progress`) |
-| Paket | v1.10.0 tabanlı win-x64 paketi üretildi, hash düzeyinde doğrulandı ve kök kuruluma yüklendi (27.09.2026; 14 sağlayıcı / 38 extractor) — bkz. `Yapılan işlemler` → maddeler 12–13 |
-| Temel commit | `321fe38` — feat: add anime download support (rebase öncesi `c3d307a`) |
-| Testler | 81 test metodu / 110 çalışan case, 10 sınıf (bkz. `Test kapsamı`); offline doğrulama: 275/275 geçti (27.09.2026) |
+| Son güncelleme | 29 Eylül 2026 |
+| Dal | `feature/download` (temel: `v1.10.1` @ `4ecd7d7`) |
+| Son kod commit’i | `00b2ee7` (`fix(downloader): report live yt-dlp HLS progress`) |
+| Paket | v1.10.0 tabanlı win-x64 paketi üretildi, hash düzeyinde doğrulandı ve kök kuruluma yüklendi (27.09.2026; 14 sağlayıcı / 38 extractor) — bkz. `Yapılan işlemler` → maddeler 12–13; kaynak dal v1.10.1 tabanlıdır, paket bu sürüm için yeniden üretilmedi |
+| Temel commit | `be85d61` — feat: add anime download support (ilk yazılım `c3d307a`; v1.10.0 rebase karşılığı `321fe38`) |
+| Testler | 81 test metodu / 110 çalışan case, 10 sınıf (bkz. `Test kapsamı`); offline doğrulama: 275/275 geçti (29.09.2026, v1.10.1 rebase sonrası) |
 
 ## Genel akış
 
@@ -775,6 +775,28 @@ kayıdıdır.
       `backup-v1.9.2\`, `install-candidate\` ve `source\` klasörleri.
     - Geri alma yolu: `backup-v1.9.2\` içindeki dosyaları köke geri kopyalamak.
     - Ayrıntılı kayıt: `TEST_RESULTS.md` → bölüm 9.
+14. **v1.10.1 rebase** (29.09.2026): Upstream `v1.10.1` (`4ecd7d7`) getirildi;
+    `feature/download` bu sürüm üzerine rebase edildi. Rebase öncesi
+    `backup/download-pre-v1101` yedek dalı alındı. Upstream'in üç commit'i alındı:
+    `e4a32b4` (TurkAnime DB bağlantı güncellemesi), `914dfdd` (Anizm isimsiz fansub grubu
+    düzeltmesi), `4ecd7d7` (AppImage zsync/AppRun + CLI encoding guard kaldırma ve `ReadKey`
+    guard'ı). 21 feature commit'i yeni tabana taşındı; tek içerik çakışması
+    `Migurdex.Cli/Program.cs`'te çıktı (ana özellik commit'i `be85d61`):
+    - Çözümde dal tarafının TUI iptal mimarisi korundu: `TuiApplicationCancellation`, `tuiToken`
+      (`IsApiOnlineAsync`/`TryStartApiDaemonAsync` iptal akışı), `activeNavigator`,
+      `catch (OperationCanceledException)` ve `finally` bloğu.
+    - Upstream'in `Console.IsInputRedirected` guard'lı + try/catch `Console.ReadKey(true)`
+      versiyonu `!isOnline` bloğuna alındı; dal tarafındaki sade `ReadKey` çağrısı bırakıldı.
+    - Dosyanın tepesindeki encoding guard kaldırma değişikliğine dokunulmadı; otomatik merge
+      ile geldi (`Console.OutputEncoding`/`InputEncoding` koşulsuz set edilir).
+    - Çözümün doğruluğu `git diff backup/download-pre-v1101:Migurdex.Cli/Program.cs` ile
+      teyit edildi: fark, birebir upstream'in v1.10.0→v1.10.1 `Program.cs` değişiklikleri.
+    - `README.md` otomatik merge edildi; TurkAnime DB bağlantısının `roxyrekt/turkanime-db`
+      olduğu ve indirme dokümantasyonu bölüm sırasının korunduğu gözle doğrulandı.
+    - Rebase sonrası portatif .NET SDK 10.0.401 ile `dotnet restore` başarılı; Release
+      derlemesi 19 proje / 0 uyarı / 0 hata; offline test takımı **275/275** geçti.
+    - Rebase tüm feature commit hash'lerini yeniden yazdı; v1.10.0 tabanlı eski hash'ler
+      (`321fe38`…`9711773`) `backup/download-pre-v1101` dalında korunuyor.
 
 ### Upstream v1.10.0 notları
 
@@ -785,6 +807,23 @@ kayıdıdır.
 - Upstream yeni `Deokwave` sağlayıcısını ekledi; sağlayıcı sayısı 13’ten 14’e çıktı.
 - `DownloadSourceResolver` sağlayıcı listesini dinamik okuduğu için Deokwave için ek kod
   değişikliği gerekmez.
+
+### Upstream v1.10.1 notları
+
+- TurkAnime sağlayıcısının HuggingFace veritabanı bağlantısı `mdexturkanime/turkanime-db`
+  yerine `roxyrekt/turkanime-db` oldu (`e4a32b4`); README'deki DB bağlantısı upstream ile
+  hizalandı.
+- Anizm sağlayıcısı isimsiz fansub gruplarını artık düzgün ele alıyor (`914dfdd`); indirme
+  akışındaki `-g/--group` doğrulaması için ek değişiklik gerekmez — grup listesi API'den
+  dinamik gelir.
+- AppImage güncelleme akışına zsync bilgisi ve AppRun locale sarmalayıcısı eklendi
+  (`4ecd7d7`); Windows/CLI indirme akışını etkilemez.
+- `Program.cs`'te encoding atama guard'ları kaldırıldı (output/input encoding koşulsuz set
+  edilir) ve `!isOnline` bloğundaki `ReadKey` çağrısı `Console.IsInputRedirected` guard'ı +
+  try/catch ile korundu; dal tarafındaki TUI iptal mimarimizle birleştirildi (bkz.
+  `Yapılan işlemler` → madde 14).
+- Sağlayıcı (14) ve extractor (38) sayıları ile `/api/v1` sözleşmesi değişmedi; indirme
+  özelliği için breaking change yok.
 
 ### Kullanılan .NET SDK ve test komutları
 
@@ -804,38 +843,49 @@ kayıdıdır.
 
 ### HEAD ve commit listesi
 
-- Dal: `feature/download` (temel: `v1.10.0` @ `4035f9a`).
-- Son kod commit'i: `5014025` — `fix(downloader): report live yt-dlp HLS progress`
-  (2026-09-27, v1.10.0 üzerine rebase sonrası).
-- HEAD (bu kayıt yazılırken): `dd09194` — `docs: record Deokwave smoke result`
-  (2026-09-27 05:38 +0300). Kök kurulum yükseltmesini işleyen
-  `docs: record root installation upgrade` commit'i bu listeden sonraki satırdır.
-- `v1.10.0..feature/download` (14 commit):
-  `321fe38` → `bd59ca4` → `81335bc` → `3a3cfc5` → `c8a7d75` →
-  `8ef695e` → `85f356a` → `febe716` → `1f82f2d` → `5014025` →
-  `7763b2d` → `21d687c` → `615cf64` → `dd09194`.
-- Upstream v1.10.0, iki yeni commit içerir:
-  `8094425` (`fix(cli): altyazi ismi + link yerine indir`) ve
-  `4035f9a` (`feat(providers): add Deokwave`).
+- Dal: `feature/download` (temel: `v1.10.1` @ `4ecd7d7`).
+- Son kod commit'i: `00b2ee7` — `fix(downloader): report live yt-dlp HLS progress`
+  (2026-09-27; v1.10.1 üzerine rebase sonrası karşılığı).
+- HEAD (bu kayıt yazılırken): `7ca27de` — `docs: round PR diff stats`
+  (2026-09-29 03:32 +0300). v1.10.1 rebase kaydını işleyen
+  `docs: record v1.10.1 rebase and compatibility` commit'i bu listeden sonraki satırdır.
+- `v1.10.1..feature/download` (21 commit):
+  `be85d61` → `6c366c9` → `320302e` → `b3dd5d5` → `6135f91` →
+  `ed397f0` → `f19e2a4` → `fc6747f` → `ba2665f` → `00b2ee7` →
+  `38972ce` → `07d8110` → `7792f47` → `e3345a9` → `8226b95` →
+  `e9d8276` → `d6774a7` → `4d56774` → `9a52271` → `8c58e2f` → `7ca27de`.
+- Upstream v1.10.1, üç yeni commit içerir:
+  `e4a32b4` (`fix: update database link for TurkAnime provider`),
+  `914dfdd` (`fix(anizm): handle unnamed anizm fansub groups`) ve
+  `4ecd7d7` (`feat(appimage): zsync update info + AppRun locale wrapper`).
+- Rebase öncesi hash'ler (v1.10.0 tabanlı `321fe38`…`9711773`)
+  `backup/download-pre-v1101` dalında korunuyor.
 
 ## Değişiklik geçmişi
 
 | Commit | Tarih | Konu | Kapsam |
 |---|---|---|---|
-| `321fe38` | 2026-09-26 03:17 +0300 | `feat: add anime download support` | İndirme çekirdeği, CLI/TUI/API entegrasyonu, config alanları, testler — 32 dosya (+8038/−114) |
-| `bd59ca4` | 2026-09-26 09:51 +0300 | `fix(tui): balance source selection markup` | TUI markup dengeleme, `FuzzyPrompt` kaçışlama, `TuiMarkupSafetyTests` — 5 dosya (+188/−20) |
-| `81335bc` | 2026-09-26 12:33 +0300 | `docs: document download feature and operations` | `DOWNLOAD.md` eklendi ve geniş kapsamlı teknik dokümantasyon yazıldı — 1 dosya (+629) |
-| `3a3cfc5` | 2026-09-26 13:23 +0300 | `fix(tui): hide search filter on download result` | İndirme sonuç ekranında tek seçenekli prompt'un gereksiz `Ara:` filtre satırı kaldırıldı; `searchable: false` desteği ve `FuzzyPromptSearchableTests` eklendi — 4 dosya (+457/−132) |
-| `c8a7d75` | 2026-09-26 13:52 +0300 | `docs: update download history for result prompt fix` | `DOWNLOAD.md` tarihçesi güncellendi — 1 dosya (+10/−8) |
-| `8ef695e` | 2026-09-26 13:54 +0300 | `docs: clarify latest code commit in download guide` | `DOWNLOAD.md` meta tablosundaki commit bilgisi netleştirildi — 1 dosya (+1/−1) |
-| `85f356a` | 2026-09-26 20:12 +0300 | `docs: record offline validation results` | `DOWNLOAD.md` ve `README.md` içine offline test sonuçları işlendi — 2 dosya (+53/−1) |
-| `febe716` | 2026-09-26 20:57 +0300 | `docs: record live API smoke results` | `DOWNLOAD.md` ve `README.md` içine canlı API smoke sonuçları işlendi — 2 dosya (+55) |
-| `1f82f2d` | 2026-09-27 01:05 +0300 | `docs: add consolidated test results report` | `TEST_RESULTS.md` eklendi ve tüm canlı/offline doğrulamalar tek dosyada toplandı — 1 dosya (+182) |
-| `5014025` | 2026-09-27 01:27 +0300 | `fix(downloader): report live yt-dlp HLS progress` | yt-dlp argüman listesine `--progress` eklendi, HLS progress parsing testleri genişletildi, dokümanlar güncellendi — 5 dosya (+165/−19) |
-| `7763b2d` | 2026-09-27 02:10 +0300 | `docs: record v1.10.0 rebase and latest verification` | v1.10.0 rebase kaydı işlendi; `DOWNLOAD.md` meta/HEAD/değişiklik geçmişi, `README.md` doğrulama özeti, `TEST_RESULTS.md` v1.10.0 bölümü — 3 dosya (+89/−14) |
-| `21d687c` | 2026-09-27 02:14 +0300 | `docs: document upstream v1.10.0 integration notes` | `DOWNLOAD.md` içine `Upstream v1.10.0 notları` bölümü eklendi — 1 dosya (+10) |
-| `615cf64` | 2026-09-27 03:37 +0300 | `docs: record v1.10.0 packaged build` | v1.10.0 paket üretimi + SHA-256 doğrulaması işlendi; `DOWNLOAD.md` madde 12/meta/HEAD + `TEST_RESULTS.md` bölüm 7 + `README.md` paket özeti — 3 dosya (+118/−14) |
-| `dd09194` | 2026-09-27 05:38 +0300 | `docs: record Deokwave smoke result` | Deokwave upstream 403 bulgusu işlendi; `DOWNLOAD.md` bilinen sınırlar/HEAD/değişiklik geçmişi + `TEST_RESULTS.md` bölüm 8 — 2 dosya (+64/−5) |
+| `be85d61` | 2026-09-26 03:17 +0300 | `feat: add anime download support` | İndirme çekirdeği, CLI/TUI/API entegrasyonu, config alanları, testler — 32 dosya (+8041/−117) |
+| `6c366c9` | 2026-09-26 09:51 +0300 | `fix(tui): balance source selection markup` | TUI markup dengeleme, `FuzzyPrompt` kaçışlama, `TuiMarkupSafetyTests` — 5 dosya (+188/−20) |
+| `320302e` | 2026-09-26 12:33 +0300 | `docs: document download feature and operations` | `DOWNLOAD.md` eklendi ve geniş kapsamlı teknik dokümantasyon yazıldı — 1 dosya (+629) |
+| `b3dd5d5` | 2026-09-26 13:23 +0300 | `fix(tui): hide search filter on download result` | İndirme sonuç ekranında tek seçenekli prompt'un gereksiz `Ara:` filtre satırı kaldırıldı; `searchable: false` desteği ve `FuzzyPromptSearchableTests` eklendi — 4 dosya (+457/−132) |
+| `6135f91` | 2026-09-26 13:52 +0300 | `docs: update download history for result prompt fix` | `DOWNLOAD.md` tarihçesi güncellendi — 1 dosya (+10/−8) |
+| `ed397f0` | 2026-09-26 13:54 +0300 | `docs: clarify latest code commit in download guide` | `DOWNLOAD.md` meta tablosundaki commit bilgisi netleştirildi — 1 dosya (+1/−1) |
+| `f19e2a4` | 2026-09-26 20:12 +0300 | `docs: record offline validation results` | `DOWNLOAD.md` ve `README.md` içine offline test sonuçları işlendi — 2 dosya (+53/−1) |
+| `fc6747f` | 2026-09-26 20:57 +0300 | `docs: record live API smoke results` | `DOWNLOAD.md` ve `README.md` içine canlı API smoke sonuçları işlendi — 2 dosya (+55) |
+| `ba2665f` | 2026-09-27 01:05 +0300 | `docs: add consolidated test results report` | `TEST_RESULTS.md` eklendi ve tüm canlı/offline doğrulamalar tek dosyada toplandı — 1 dosya (+182) |
+| `00b2ee7` | 2026-09-27 01:27 +0300 | `fix(downloader): report live yt-dlp HLS progress` | yt-dlp argüman listesine `--progress` eklendi, HLS progress parsing testleri genişletildi, dokümanlar güncellendi — 5 dosya (+165/−19) |
+| `38972ce` | 2026-09-27 02:10 +0300 | `docs: record v1.10.0 rebase and latest verification` | v1.10.0 rebase kaydı işlendi; `DOWNLOAD.md` meta/HEAD/değişiklik geçmişi, `README.md` doğrulama özeti, `TEST_RESULTS.md` v1.10.0 bölümü — 3 dosya (+89/−14) |
+| `07d8110` | 2026-09-27 02:14 +0300 | `docs: document upstream v1.10.0 integration notes` | `DOWNLOAD.md` içine `Upstream v1.10.0 notları` bölümü eklendi — 1 dosya (+10) |
+| `7792f47` | 2026-09-27 03:37 +0300 | `docs: record v1.10.0 packaged build` | v1.10.0 paket üretimi + SHA-256 doğrulaması işlendi; `DOWNLOAD.md` madde 12/meta/HEAD + `TEST_RESULTS.md` bölüm 7 + `README.md` paket özeti — 3 dosya (+118/−14) |
+| `e3345a9` | 2026-09-27 05:38 +0300 | `docs: record Deokwave smoke result` | Deokwave upstream 403 bulgusu işlendi; `DOWNLOAD.md` bilinen sınırlar/HEAD/değişiklik geçmişi + `TEST_RESULTS.md` bölüm 8 — 2 dosya (+64/−5) |
+| `8226b95` | 2026-09-27 06:32 +0300 | `docs: record root installation upgrade` | Kök kurulum yükseltmesi işlendi; `DOWNLOAD.md` madde 13/meta/HEAD + `TEST_RESULTS.md` bölüm 9 + `README.md` yerel sürüm notu — 3 dosya (+88/−6) |
+| `e9d8276` | 2026-09-29 02:21 +0300 | `docs: add development log and PR description` | `DEVELOPMENT_LOG.md` ve `PR_DESCRIPTION.md` eklendi — 2 dosya (+1281) |
+| `d6774a7` | 2026-09-29 02:42 +0300 | `docs: record PR link in development log` | `DEVELOPMENT_LOG.md` içine PR bağlantısı işlendi — 1 dosya (+2/−1) |
+| `4d56774` | 2026-09-29 02:53 +0300 | `docs: update PR description with final diff stats` | `PR_DESCRIPTION.md` diff istatistikleri güncellendi — 1 dosya (+2/−2) |
+| `9a52271` | 2026-09-29 03:12 +0300 | `docs: finalize PR commit count` | `PR_DESCRIPTION.md` commit sayısı netleştirildi — 1 dosya (+1/−1) |
+| `8c58e2f` | 2026-09-29 03:20 +0300 | `docs: make PR description commit count dynamic` | `PR_DESCRIPTION.md` commit sayısı sabit yerine dinamik ifadeye çekildi — 1 dosya (+3/−2) |
+| `7ca27de` | 2026-09-29 03:32 +0300 | `docs: round PR diff stats` | `PR_DESCRIPTION.md` diff istatistikleri yuvarlandı — 1 dosya (+1/−1) |
 
 Gelecekteki commit'ler için satır formatı:
 

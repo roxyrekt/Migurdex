@@ -76,8 +76,9 @@ chmod +x Migurdex-x86_64.AppImage
 
 > **Yerel sürüm notu (27 Eylül 2026):** Bu depodan üretilen v1.10.0 tabanlı paket (indirme
 > özelliğiyle) yerel kök kurulumuna yüklendi; eski v1.9.2 kurulumu `backup-v1.9.2` altına
-> yedeklendi. Doğrulamalar ve geri alma yolu: [`TEST_RESULTS.md`](TEST_RESULTS.md) →
-> `Kök kurulum yükseltmesi`.
+> yedeklendi. Kaynak dalı 29 Eylül 2026'da `v1.10.1` üzerine rebase edildi; kök kurulumdaki
+> paket hâlâ v1.10.0 tabanlıdır. Doğrulamalar ve geri alma yolu:
+> [`TEST_RESULTS.md`](TEST_RESULTS.md) → `Kök kurulum yükseltmesi`.
 
 ## Gereksinimler
 
@@ -227,7 +228,7 @@ Testler:
 dotnet test
 ```
 
-Son offline doğrulama (27 Eylül 2026, `v1.10.0` üzerine rebase sonrası): çalışma ağacı temiz; Release derlemesi 18+ proje / 0 uyarı / 0 hata; ağ
+Son offline doğrulama (29 Eylül 2026, `v1.10.1` üzerine rebase sonrası): çalışma ağacı temiz; Release derlemesi 19 proje / 0 uyarı / 0 hata; ağ
 bağımlı `ExtractorSmokeTests` hariç **275/275** test geçti. İndirme özelliğiyle ilgili test sınıfları ayrı grup
 koşularında **103/103** geçti. Ayrıntılı sonuçlar: [`DOWNLOAD.md`](DOWNLOAD.md) → `Test kapsamı` ve [`TEST_RESULTS.md`](TEST_RESULTS.md).
 
@@ -239,6 +240,12 @@ redirect’i) tespit edildi. Ayrıntılar: [`DOWNLOAD.md`](DOWNLOAD.md) → `Can
 
 v1.10.0 geçişi: upstream sağlayıcı sayısı 14’e çıktı (Deokwave eklendi), altyazı oynatma davranışı düzeltildi ve
 `feature/download` dalı `v1.10.0` üzerine temiz rebase edildi; çakışma çıkmadı.
+
+v1.10.1 geçişi: TurkAnime veritabanı bağlantısı güncellendi (`roxyrekt/turkanime-db`), Anizm
+isimsiz fansub grupları düzeltildi ve AppImage güncelleme akışına zsync/AppRun iyileştirmeleri
+geldi. `feature/download` dalı `v1.10.1` üzerine rebase edildi; tek çakışma `Program.cs`
+(TUI iptal yapısı korunarak upstream'in `ReadKey` guard'ı alındı) çözüldü. Ayrıntılar:
+[`TEST_RESULTS.md`](TEST_RESULTS.md) → `v1.10.1 geçişi`.
 
 v1.10.0 paketi üretildi ve doğrulandı (27 Eylül 2026): `migurdex-win-x64.zip` (61.605.017 bayt) 14 sağlayıcı /
 38 extractor içeriyor; `install-candidate` kopyasının SHA-256 özetleri dist ile birebir aynı ve smoke kontrolleri

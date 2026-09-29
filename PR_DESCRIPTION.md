@@ -1,7 +1,7 @@
 # feat: add anime download support
 
-> Dal: `feature/download` · Temel: `v1.10.0` (`4035f9a`) ·
-> 40 dosya, **~+11,3k / −246** (`git diff --stat v1.10.0..HEAD`) · Son kod commit'i: `5014025` ·
+> Dal: `feature/download` · Temel: `v1.10.1` (`4ecd7d7`) ·
+> 40 dosya, **~+11,6k / −249** (`git diff --stat v1.10.1..HEAD`) · Son kod commit'i: `00b2ee7` ·
 > Tam commit listesi PR sayfasındadır.
 
 ## Özet
@@ -128,7 +128,7 @@ migurdex download "bleach" -e 1 --debug                        # kuru çalışt�
    `Esc` iptal eder — `.part` dosyası korunur, aynı kaynakla tekrar denendiğinde kaldığı yerden devam eder.
 3. Sonuç ekranı (`ShowDownloadResultAsync`) video/altyazı yollarını ve uyarıları listeler;
    tek seçenekli bilgi ekranıdır — `FuzzyPrompt.Show(..., searchable: false)` ile açıldığından
-   `Ara:` filtre satırı çizilmez (`3a3cfc5`).
+   `Ara:` filtre satırı çizilmez (`b3dd5d5`).
 
 ### Çıktı düzeni
 
@@ -191,7 +191,7 @@ anlaşılır hata döner.
   --add-header <ad>: <değer>                # yalnız allowlist header'lar
   ```
 
-- **`--progress` gerekçesi (canlı smoke bulgusu, düzeltme `5014025`):** yt-dlp'de herhangi bir
+- **`--progress` gerekçesi (canlı smoke bulgusu, düzeltme `00b2ee7`):** yt-dlp'de herhangi bir
   `--print` kullanımı `--quiet` davranışını ima eder; `--print after_move:filepath` tek başına
   verildiğinde progress satırı üretilmiyor, TUI durum satırı `Bağlanıyor • 0 B` değerinde
   kalıyordu. Argüman listesine `--progress` eklenince `--newline` ile satır satır akan progress
@@ -227,7 +227,8 @@ anlaşılır hata döner.
 
 ## Eklenen dosyalar
 
-`git diff --stat v1.10.0..HEAD`: **38 dosya, +10.059 / −246.**
+`git diff --stat v1.10.1..HEAD`: **38 dosya, +10.181 / −249** (çalışma kaydı dokümanları
+`DEVELOPMENT_LOG.md` ve `PR_DESCRIPTION.md` hariç).
 
 **Yeni üretim kodu — `Migurdex.Cli` (14 dosya):**
 
@@ -317,9 +318,10 @@ sonuç ekranı), `FuzzyPrompt.cs` (`searchable: false` + markup kaçışlama),
 | `FuzzyPromptSearchableTests` | 8 | 18 | 18/18 |
 | **Toplam** | **81** | **110** | **110/110** |
 
-**Offline doğrulama** (27 Eylül 2026, temiz ağaç, Release):
+**Offline doğrulama** (29 Eylül 2026, `v1.10.1` rebase sonrası, temiz ağaç, Release):
 
-- `dotnet build Migurdex.slnx -c Release`: 18 proje, **0 uyarı / 0 hata**.
+- `dotnet restore Migurdex.slnx`: başarılı.
+- `dotnet build Migurdex.slnx -c Release --no-restore`: 19 proje, **0 uyarı / 0 hata**.
 - `dotnet test ... --filter "FullyQualifiedName!~ExtractorSmokeTests"`: **275/275 geçti**
   (ağ erişimi gerektiren `ExtractorSmokeTests` bilinçli olarak hariç).
 
@@ -331,7 +333,7 @@ başarılı, 153 sonuç. API loglarında 0 exception / 0 stack trace / 0 seriali
 
 **TUI canlı smoke** (ConPTY, gerçek `naruto` sorgusu): arama → seçim → kaynak → İndir akışı
 uçtan uca koştu; **371.406.042 bayt** video indirildi, `exit=0`. Bu smoke gerçek bir hata buldu —
-HLS progress güncellenmiyordu (bkz. Teknik detaylar → `--progress` gerekçesi) — `5014025` ile
+HLS progress güncellenmiyordu (bkz. Teknik detaylar → `--progress` gerekçesi) — `00b2ee7` ile
 düzeltildi ve testlerle sabitlendi. Düzeltme sonrası: genel 275/275, `HlsDownloaderTests` 8/8,
 indirme/TUI sınıf filtreleri 110/110.
 
@@ -356,11 +358,19 @@ Kod hatası değildir, kalıcı etki yoktur.
 
 ## Sürüm uyumluluğu
 
-- Dal `v1.10.0` (`4035f9a`) üzerine **çakışmasız** rebase edildi; yedek dal:
-  `backup/download-pre-v110`. Rebase sonrası Deokwave plugin'i için `dotnet restore` çalıştırıldı,
-  Release 0 uyarı / 0 hata, offline takım 275/275.
+- Dal önce `v1.10.0` (`4035f9a`) üzerine **çakışmasız** rebase edildi (yedek dal:
+  `backup/download-pre-v110`), ardından `v1.10.1` (`4ecd7d7`) üzerine rebase edildi (yedek
+  dal: `backup/download-pre-v1101`). v1.10.1 rebase'sinde 21 feature commit'i taşındı ve tek
+  çakışma `Program.cs`'ti: dal tarafının TUI iptal mimarisi (`tuiToken`, `activeNavigator`,
+  `catch (OperationCanceledException)`, `finally`) korunurken upstream'in
+  `Console.IsInputRedirected` guard'lı + try/catch `ReadKey` versiyonu alındı; encoding guard
+  kaldırma otomatik merge ile geldi. Rebase sonrası restore başarılı, Release 0 uyarı / 0 hata,
+  offline takım 275/275.
 - Upstream v1.10.0 iki commit içerir: `8094425` (altyazı oynatmada isim + link yerine indirme)
-  ve `4035f9a` (`feat(providers): add Deokwave`) — sağlayıcı sayısı 13 → 14.
+  ve `4035f9a` (`feat(providers): add Deokwave`) — sağlayıcı sayısı 13 → 14. Upstream v1.10.1
+  üç commit içerir: `e4a32b4` (TurkAnime DB bağlantısı), `914dfdd` (Anizm isimsiz fansub
+  grupları) ve `4ecd7d7` (AppImage zsync/AppRun + CLI encoding/`ReadKey` guard) — sağlayıcı
+  sayısı 14, extractor 38, breaking change yok.
 - **Yeni sağlayıcılar için kod değişikliği gerekmez:** `DownloadSourceResolver` sağlayıcı
   listesini API'den dinamik okur; Deokwave otomatik katıldı.
 - **Config uyumu:** Eski `config.json` dosyaları yeni alanlar (`DownloadDirectory`, `YtDlpPath`,
@@ -419,15 +429,15 @@ Kod hatası değildir, kalıcı etki yoktur.
 
 **Dikkat çekmek istediğim noktalar:**
 
-- **`5014025` (`--progress` fix):** yt-dlp'de `--print`'in `--quiet` ima etmesi tuzağı — `--print
+- **`00b2ee7` (`--progress` fix):** yt-dlp'de `--print`'in `--quiet` ima etmesi tuzağı — `--print
   after_move:filepath` + `--progress` birlikteliği `HlsDownloaderTests`'te sabitlendi; ayrıştırma
   kalıplarına (`%`, `MiB/x MiB`) yt-dlp sürüm değişiminde dikkat.
 - **TUI diff'i görece büyük** (`FuzzyPrompt` ~329, `EpisodeSourcesView` ~359 değişiklik satırı)
-  ama iki bağımsız fix içerir: markup dengeleme (`bd59ca4`, 23 yeni test) ve sonuç ekranında
-  `Ara:` satırı gizleme (`3a3cfc5`, `searchable: false`, 18 yeni test).
-- **Kod vs. docs oranı:** 15 commit'in 4'ü kod (`321fe38` ana özellik, `bd59ca4`, `3a3cfc5`,
-  `5014025`), 11'i dokümantasyon (DOWNLOAD.md/TEST_RESULTS.md çalışma kayıtları). Kod incelemesi
-  bu 4 commit'e odaklanabilir.
+  ama iki bağımsız fix içerir: markup dengeleme (`6c366c9`, 23 yeni test) ve sonuç ekranında
+  `Ara:` satırı gizleme (`b3dd5d5`, `searchable: false`, 18 yeni test).
+- **Kod vs. docs oranı:** 22 commit'in 4'ü kod (`be85d61` ana özellik, `6c366c9`, `b3dd5d5`,
+  `00b2ee7`), 18'i dokümantasyon (DOWNLOAD.md/TEST_RESULTS.md/DEVELOPMENT_LOG.md çalışma
+  kayıtları). Kod incelemesi bu 4 commit'e odaklanabilir.
 - **Bilinçli tercihler, tartışmaya açık:** HLS'te resume yokluğu; altyazıda mux yerine sidecar;
   imzalı URL'de fingerprint değişince sıfırdan başlama; `.part`'ın iptalde korunması. Alternatif
   yaklaşım öneriniz varsa lütfen yorumda belirtin.
