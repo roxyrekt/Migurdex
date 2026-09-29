@@ -369,7 +369,9 @@ listelenir. `capabilities` değerinde `Fansubs` (2) biti yoksa bu uç boş liste
    - `headers` → anahtar anahtar birleştirilir, **çözümlenen medya URL'sinin başlıkları önceliklidir**.
    - `subtitles` → extractor sonucu boşsa ham kaynağınki kullanılır.
 4. Sonuçlar URL'e göre büyük/küçük harf duyarsız gruplanıp ilk kayıt tutulur (dedupe).
-5. Bir kaynağın çözümlemesi çökerse o kaynak sessizce atlanır ve loglanır; diğerleri döner.
+5. Bir kaynağın çözümlemesi çökerse o kaynak atlanır ve loglanır; diğerleri döner. `stream=true`
+   modunda bu hata ayrıca `providerError` (`scope: "extract"`) olarak akışa yansır ve `done.failed`
+   sayacına yazılır; non-stream yanıtta gövde düz bir dizi olduğu için hata yalnızca loglanır.
 
 ```bash
 curl "http://127.0.0.1:7045/api/v1/anime/Animexe/sources?episodeId=naruto%2F1%2F1"
@@ -420,12 +422,19 @@ data: <tek satırlık JSON>
 |---|---|---|
 | `searchResult` | `/anime/search` | `{"provider":"<ad>","status":"success","data":{…SearchResult…}}` |
 | `source` | `/anime/*/sources` | `{…VideoSource…}` |
-| `providerError` | `/anime/search`, `/anime/*/sources` | `{"provider":"<ad>","scope":"search"\|"sources","error":"<mesaj>"}` |
+| `providerError` | `/anime/search`, `/anime/*/sources` | `{"provider":"<ad>","scope":"search"\|"sources"\|"extract","error":"<mesaj>"}` |
 | `done` | hepsi | `{"succeeded":<int>,"failed":<int>,"errors":[{…}],"totalItems":<int>}` |
-| `error` | — | `SseHelper.EventError` sabiti tanımlıdır ama **hiçbir kod yolu bunu göndermez** |
+| `error` | — | **Yok.** Sunucu hiçbir uçta bu olayı göndermez; `SseHelper.EventError` sabiti de kaldırılmıştır |
 
-`providerError` içindeki `scope`, hatanın hangi işlemde olduğunu belirtir (`"search"` veya
-`"sources"`). `done` özetindeki `errors` dizisi aynı hataların yapılandırılmış hâlidir
+`providerError` içindeki `scope`, hatanın hangi işlemde olduğunu belirtir:
+
+| `scope` | Anlamı |
+|---|---|
+| `"search"` | Sağlayıcının arama isteği başarısız oldu (tüm sağlayıcı bazında) |
+| `"sources"` | Sağlayıcının kaynak listesi isteği başarısız oldu (tüm sağlayıcı bazında) |
+| `"extract"` | Tek bir kaynağın embed → medya çözümlemesi başarısız oldu (kaynak bazında) |
+
+`done` özetindeki `errors` dizisi aynı hataların yapılandırılmış hâlidir
 (`{"provider","scope","error"}`).
 
 ### Akış sonu semantiği
@@ -433,12 +442,14 @@ data: <tek satırlık JSON>
 | Uç | `succeeded` | `failed` | `totalItems` |
 |---|---|---|---|
 | `/anime/search` | Başarılı provider sayısı | Hata veren provider sayısı | Gönderilen toplam sonuç sayısı |
-| `/anime/*/sources` | Gönderilen kaynak sayısı | Her zaman `0` | `succeeded` ile aynı |
+| `/anime/*/sources` | Gönderilen (benzersiz) kaynak sayısı | Çözümlenemeyen kaynak sayısı | `succeeded + failed` |
 
-> **Kaynak akışında dikkat:** Extractor çözümlemesi başarısız olan kaynaklar bir `providerError`
-> üretmez; loglanıp atlanır. Bu yüzden "upstream'dan 3 kaynak geldi, hiçbiri çözülemedi" durumunda
-> `done` özeti `{"succeeded":0,"failed":0,"errors":[],"totalItems":0}` olur. Sessiz boş sonuç
-> normaldir ve bir hata değildir.
+> **Kaynak akışında dikkat:** Extractor çözümlemesi başarısız olan her kaynak bir `providerError`
+> (`scope: "extract"`) üretir ve `failed` sayacını artırır. "upstream'dan 3 kaynak geldi, hiçbiri
+> çözülemedi" durumunda özet `{"succeeded":0,"failed":3,"errors":[…3 hata…],"totalItems":3}` olur.
+> Bu, stream'li kaynak akışı içindeki davranıştır; `stream=true` **kullanılmayan** non-stream
+> yanıtın gövdesi düz bir kaynak dizisi olduğu için aynı hata orada yalnızca sunucu logunda görünür
+> ve gövde şeklini değiştirmeden bildirilemez.
 
 ### Örnek: arama akışı
 
@@ -1078,7 +1089,10 @@ Bazı hatalar durum kodu taşımaz:
 - `/anime/search` (non-stream): sağlayıcı hatası → `{"provider":"X","error":"Upstream arama hatası."}`
 - `/metadata/search` (tüm sağlayıcılar): sağlayıcı hatası → boş liste, diğer sağlayıcıların sonuçlarıyla birleşir
 - `/tracker/resolve` ve `/tracker/align`: eşleşme bulunamazsa veya belirsizse `200` + `entry: null` / `ambiguous: true`
-- `/anime/*/sources`: extractor hatası → o kaynak atlanır, `200` + eksik liste
+- `/anime/*/sources` (stream'li, `stream=true`): extractor hatası → `200` + akış içinde
+  `event: providerError` (`scope: "extract"`) ve `done.failed` sayacında artış
+- `/anime/*/sources` (non-stream): extractor hatası → o kaynak atlanır, `200` + eksik liste;
+  gövde düz bir dizi olduğu için hata **gövdede bildirilemez**, yalnızca sunucu logunda görünür
 
 ---
 
@@ -1292,10 +1306,13 @@ $env:ASPNETCORE_URLS = "http://127.0.0.1:7099"
 - **Yalnızca iki uç `POST`.** Toplu işlem (batch), abonelik, favoriler ve izleme geçmişi HTTP
   üzerinden **açık değildir**; bunlar CLI/TUI içinde yerel veritabanı üzerinden yürütülür. `Migurdex.Shared`
   içinde `BatchRequest`/`BatchResponse` modelleri bulunur ancak API'ye bağlı değildir.
-- **SSE'de `error` olayı kullanılmıyor.** `SseHelper.EventError` sabiti tanımlı olsa da hiçbir
-  yol onu göndermiyor; hatalar `providerError` ile ifade edilir.
-- **Kaynak akışında hata sayımı tutarsız.** `/anime/*/sources` stream modunda `failed` her zaman `0`
-  döner; extractor hataları `providerError` üretmeden atlanır.
+- **SSE'de `error` olayı yok.** Tüm hatalar `providerError` ile ifade edilir. Ölü olan
+  `SseHelper.EventError` sabiti kaldırılmıştır; istemcilerin bu olayı dinlemesi yalnızca geriye
+  dönük uyumluluk açısından zararsızdır, sunucu hiçbir zaman göndermez.
+- **Kaynak akışında hata sayımı artık tutarlı (düzeltildi).** `/anime/*/sources` stream modunda
+  extractor hatası artık `providerError` (`scope: "extract"`) üretir ve `done.failed` gerçek sayıyı
+  taşır. Kalan sınır: `stream=true` **kullanılmayan** non-stream yanıtın gövdesi düz bir kaynak
+  dizisi olduğu için per-source hata orada bildirilemez (yalnızca loglanır).
 - **Yazma uçları yalnızca tracker eşlemesi.** API üzerinden veri silme/güncelleme ucu yoktur.
 
 ---

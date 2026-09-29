@@ -315,23 +315,30 @@ public static class DownloadCommand
             cancellationToken.ThrowIfCancellationRequested();
         }
 
-        var sourcesResult = await api.GetVideoSourcesAsync(picked.ProviderName,
-                                                            episode.Id,
-                                                            group,
-                                                            cancellationToken);
-        cancellationToken.ThrowIfCancellationRequested();
-        if (!sourcesResult.IsSuccess)
+        // Stream'li çağrı kullanılır: extractor çözümlemesi başarısız olan kaynaklar
+        // providerError olarak raporlandığı için hata sayısı stats üzerinden görünür.
+        // Non-stream yanıt ise per-source hataları hiçbir biçimde bildirmez.
+        var scanStats = new StreamScanStats();
+        var sources   = new List<VideoSource>();
+        await foreach (var source in api.GetVideoSourcesStreamAsync(picked.ProviderName,
+                                                                     episode.Id,
+                                                                     group,
+                                                                     cancellationToken,
+                                                                     scanStats))
         {
-            return await FailAsync(options, sourcesResult.Error ?? "Video kaynakları alınamadı.");
+            sources.Add(source);
         }
 
-        var directCount = sourcesResult.Data.Count(DownloadSourceResolver.IsDirectDownloadable);
+        cancellationToken.ThrowIfCancellationRequested();
+
+        var directCount = sources.Count(DownloadSourceResolver.IsDirectDownloadable);
         if (directCount == 0)
         {
-            return await FailAsync(options, "API'den indirilebilir doğrudan MP4/HLS kaynağı bulunamadı.");
+            return await FailAsync(options,
+                                   DownloadSourceResolver.BuildNoDirectSourceMessage(scanStats.Errors));
         }
 
-        var candidates = DownloadSourceResolver.SelectCandidates(sourcesResult.Data,
+        var candidates = DownloadSourceResolver.SelectCandidates(sources,
                                                                  options.Format,
                                                                  config);
         if (candidates.Count == 0)

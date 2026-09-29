@@ -406,24 +406,15 @@ public static class AnimeEndpoints
                 return Results.Empty;
             }
 
-            var sentUrls  = new ConcurrentDictionary<string, byte>(StringComparer.OrdinalIgnoreCase);
-            var channel   = Channel.CreateUnbounded<SseEnvelope>();
-            var sentCount = 0;
+            var channel = Channel.CreateUnbounded<SseEnvelope>();
+            var report  = new SourceExtractionReport();
 
             bool TryEnqueueSource(VideoSource src)
             {
-                if (string.IsNullOrWhiteSpace(src.Url))
-                {
-                    return false;
-                }
-
-                if (sentUrls.TryAdd(src.Url, 0))
-                {
-                    Interlocked.Increment(ref sentCount);
-                    return channel.Writer.TryWrite(new SseEnvelope(SseHelper.EventSource, src));
-                }
-
-                return false;
+                // Dedupe ve "başarılı gönderim" sayımı raporun sorumluluğunda; akış yalnızca
+                // gerçekten gönderilebilen kaynakları kanal arkasına alır.
+                return report.TryTrackSource(src)
+                    && channel.Writer.TryWrite(new SseEnvelope(SseHelper.EventSource, src));
             }
 
             var extractionTasks = rawSources.Select(src => Task.Run(async () =>
@@ -458,6 +449,19 @@ public static class AnimeEndpoints
                                                                                 "source extraction failed for provider {Provider} url {Url}",
                                                                                 provider,
                                                                                 src.Url);
+
+                                                                            // Sessizce yutmak yerine hata akışa da yansıtılır: aksi hâlde
+                                                                            // 'done' özeti her zaman failed:0 üretir ve istemci
+                                                                            // (CLI dahil) hatalı teşhis yapar.
+                                                                            report.RecordFailure(provider);
+                                                                            await channel.Writer.WriteAsync(
+                                                        new SseEnvelope(
+                                                            SseHelper.EventProviderError,
+                                                            new ProviderErrorPayload(
+                                                                provider,
+                                                                SourceExtractionReport.Scope,
+                                                                SourceExtractionReport.FailureMessage)),
+                                                        cancellationToken);
                                                                         }
                                                                     },
                                                                     cancellationToken))
@@ -469,8 +473,7 @@ public static class AnimeEndpoints
                              {
                                  await Task.WhenAll(extractionTasks);
                                  await channel.Writer.WriteAsync(
-                                     new SseEnvelope(SseHelper.EventDone,
-                                                     new DoneSummary(sentCount, 0, [], sentCount)),
+                                     new SseEnvelope(SseHelper.EventDone, report.ToDoneSummary()),
                                      cancellationToken);
                              }
                              finally
@@ -516,6 +519,10 @@ public static class AnimeEndpoints
                                                               }
                                                               catch (Exception ex)
                                                               {
+                                                                  // Non-stream yanıtının gövdesi düz bir kaynak dizisidir; {provider, data} / {provider, error}
+                                                                  // zarfları yalnızca sağlayıcı düzeyindeki hatalar için kullanılır. Per-source extractor hatasını
+                                                                  // bildirmek gövde şeklini değiştirmeyi gerektirdiğinden bu modda hata yalnızca loglanır;
+                                                                  // stream=true modunda aynı hata 'providerError' olarak raporlanır.
                                                                   logger.LogWarning(ex,
                                                                       "source extraction failed for provider {Provider} url {Url}",
                                                                       provider,
