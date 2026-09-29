@@ -315,25 +315,33 @@ public static class DownloadCommand
             cancellationToken.ThrowIfCancellationRequested();
         }
 
-        var sourcesResult = await api.GetVideoSourcesAsync(picked.ProviderName,
-                                                            episode.Id,
-                                                            group,
-                                                            cancellationToken);
+        var resolved = await DownloadCandidateResolver.ResolveAsync(api,
+                                                                              picked.ProviderName,
+                                                                              episode.Id,
+                                                                              group,
+                                                                              options.Format,
+                                                                              config,
+                                                                              config.DownloadAutoSelectTimeoutSeconds,
+                                                                              cancellationToken);
         cancellationToken.ThrowIfCancellationRequested();
-        if (!sourcesResult.IsSuccess)
+        if (resolved.TimedOut)
         {
-            return await FailAsync(options, sourcesResult.Error ?? "Video kaynakları alınamadı.");
+            return await FailAsync(options,
+                                   "Kaynak taraması zaman aşımına uğradı. config dosyasındaki DownloadAutoSelectTimeoutSeconds değeri yükseltilebilir.");
         }
 
-        var directCount = sourcesResult.Data.Count(DownloadSourceResolver.IsDirectDownloadable);
+        if (resolved.Error is not null)
+        {
+            return await FailAsync(options, resolved.Error);
+        }
+
+        var directCount = resolved.Sources.Count(DownloadSourceResolver.IsDirectDownloadable);
         if (directCount == 0)
         {
             return await FailAsync(options, "API'den indirilebilir doğrudan MP4/HLS kaynağı bulunamadı.");
         }
 
-        var candidates = DownloadSourceResolver.SelectCandidates(sourcesResult.Data,
-                                                                 options.Format,
-                                                                 config);
+        var candidates = resolved.Candidates;
         if (candidates.Count == 0)
         {
             return await FailAsync(options,

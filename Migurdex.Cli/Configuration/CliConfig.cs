@@ -31,6 +31,9 @@ public class CliConfig
     public bool DownloadResume    { get; set; } = true;
     public bool DownloadOverwrite { get; set; } = false;
 
+    public bool   AutoDownloadBestSource           { get; set; } = false;
+    public double DownloadAutoSelectTimeoutSeconds { get; set; } = 5;
+
     public bool    UpdateCheckEnabled { get; set; } = true;
     public string  UpdateChannel      { get; set; } = "stable";
     public string? SkippedVersion     { get; set; }

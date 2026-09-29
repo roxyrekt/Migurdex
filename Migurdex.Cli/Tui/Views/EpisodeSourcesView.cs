@@ -9,6 +9,12 @@ using System.Globalization;
 
 namespace Migurdex.Cli.Tui.Views;
 
+public enum SourceViewMode
+{
+    Play,
+    Download
+}
+
 public class EpisodeSourcesView : BaseView
 {
     private readonly IApiClientService     _apiClient;
@@ -26,6 +32,7 @@ public class EpisodeSourcesView : BaseView
     private          Episode?              _episode;
     private          bool                  _isFallbackMode;
     private          string?               _lastSelectedSearchable;
+    private          SourceViewMode        _mode = SourceViewMode.Play;
     private          string?               _posterUrl;
     private          string?               _provider;
 
@@ -70,7 +77,8 @@ public class EpisodeSourcesView : BaseView
         Episode                     episode,
         List<Episode>               allEpisodes,
         string?                     posterUrl      = null,
-        IReadOnlyList<VideoSource>? adoptedSources = null)
+        IReadOnlyList<VideoSource>? adoptedSources = null,
+        SourceViewMode              mode           = SourceViewMode.Play)
     {
         _provider       = provider;
         _animeId        = animeId;
@@ -79,6 +87,7 @@ public class EpisodeSourcesView : BaseView
         _episode        = episode;
         _allEpisodes    = allEpisodes;
         _isFallbackMode = false;
+        _mode           = mode;
 
         _lastSelectedSearchable = null;
 
@@ -123,31 +132,6 @@ public class EpisodeSourcesView : BaseView
         return selectList;
     }
 
-    internal static string BuildSourceDescription(VideoSource source)
-    {
-        return string.Join(" • ",
-                           new[]
-                           {
-                               source.Group ?? "Bilinmeyen",
-                               source.Hoster ?? "Bilinmeyen",
-                               source.Quality ?? "Auto",
-                               source.Type.ToString()
-                           });
-    }
-
-    internal static List<string> BuildSelectedSourceHeaders(string animeTitle,
-        Episode                                                     episode,
-        VideoSource                                                 source)
-    {
-        // Dinamik anime/bölüm/kaynak metinleri burada escape edilir; [grey] etiketi
-        // dengeli biçimde (tek açılış, tek kapanış) üretilir.
-        return
-        [
-            $"[grey]{Markup.Escape(TuiHelpers.EllipsizedTitle(animeTitle))} › {Markup.Escape(TuiHelpers.FormatEpisodeRef(episode))}[/]",
-            Theme.MutedText(BuildSourceDescription(source))
-        ];
-    }
-
     public override string GetRpcState()
     {
         if (string.IsNullOrWhiteSpace(_animeTitle) || _episode is null)
@@ -187,13 +171,27 @@ public class EpisodeSourcesView : BaseView
 
         var config = _configService.Config;
 
+        if (_mode == SourceViewMode.Download
+            && config.AutoDownloadBestSource
+            && !_isFallbackMode
+            && await TryAutoDownloadAsync(navigator, provider, animeTitle, episode, config))
+        {
+            return;
+        }
+
+        if (_mode == SourceViewMode.Download && _isFallbackMode)
+        {
+            Toast.Show("[yellow][[!]] Otomatik seçim yapılamadı, manuel liste açılıyor...[/]");
+        }
+
         var scanStats = new StreamScanStats();
         var stream = _cachedSources.Count > 0
                          ? ToAsyncEnumerable(_cachedSources)
                          : _apiClient.GetVideoSourcesStreamAsync(provider, episode.Id, stats: scanStats)
                                      .Where(src => src.Type != VideoType.Embed);
 
-        if (config.AutoSelectBestSource && _cachedSources.Count == 0 && !_isFallbackMode)
+        if (_mode == SourceViewMode.Play
+            && config.AutoSelectBestSource && _cachedSources.Count == 0 && !_isFallbackMode)
         {
             AnsiConsole.Clear();
             Theme.WriteHeader($"{animeTitle}", $"Bölüm {episode.Number} • otomatik seçim");
@@ -319,12 +317,12 @@ public class EpisodeSourcesView : BaseView
                     AnsiConsole.MarkupLine(
                         $"[green]✓{exactTag}:[/] {Markup.Escape(bestSource.Hoster ?? "Bilinmeyen")} [grey]({Markup.Escape(bestSource.Quality ?? "Auto")} • {bestSource.Type})[/]");
 
-                    await HandleSelectedSourceAsync(navigator,
-                                                   bestSource,
-                                                   provider,
-                                                   animeId,
-                                                   animeTitle,
-                                                   episode);
+                    await PlaySelectedSourceAsync(navigator,
+                                                    bestSource,
+                                                    provider,
+                                                    animeId,
+                                                    animeTitle,
+                                                    episode);
                     return;
                 }
             }
@@ -356,7 +354,10 @@ public class EpisodeSourcesView : BaseView
             manualStream,
             sources =>
             {
-                var choices = FormatSources(sources, config);
+                var pool = _mode == SourceViewMode.Download
+                               ? sources.Where(DownloadSourceResolver.IsDirectDownloadable).ToList()
+                               : sources;
+                var choices = FormatSources(pool, config);
                 choices.Insert(0, TuiHelpers.Rescan());
                 return choices;
             },
@@ -395,49 +396,67 @@ public class EpisodeSourcesView : BaseView
             return;
         }
 
-        await HandleSelectedSourceAsync(navigator,
-                                        selectedSource,
-                                        provider,
-                                        animeId,
-                                        animeTitle,
-                                        episode);
+        if (_mode == SourceViewMode.Download)
+        {
+            var downloadResult = await DownloadSourceAsync(navigator,
+                                                           selectedSource,
+                                                           animeTitle,
+                                                           episode);
+            if (downloadResult?.Success == true && downloadResult.IsCancelled != true)
+            {
+                navigator.Pop();
+            }
+
+            return;
+        }
+
+        await PlaySelectedSourceAsync(navigator,
+                                      selectedSource,
+                                      provider,
+                                      animeId,
+                                      animeTitle,
+                                      episode);
     }
 
-    private async Task HandleSelectedSourceAsync(ITuiNavigator navigator,
+    private async Task<bool> TryAutoDownloadAsync(ITuiNavigator navigator,
+        string                                                     provider,
+        string                                                     animeTitle,
+        Episode                                                    episode,
+        CliConfig                                                  config)
+    {
+        List<VideoSource> pool = _cachedSources.Count > 0
+                                     ? DownloadSourceResolver.SelectCandidates(_cachedSources,
+                                                                               DownloadSourceFormat.Auto,
+                                                                               config)
+                                     : (await DownloadCandidateResolver.ResolveAsync(
+                                             _apiClient,
+                                             provider,
+                                             episode.Id,
+                                             null,
+                                             DownloadSourceFormat.Auto,
+                                             config,
+                                             config.DownloadAutoSelectTimeoutSeconds,
+                                             TuiApplicationCancellation.Token)
+                                         .ConfigureAwait(false)).Candidates;
+
+        if (pool.Count == 0)
+        {
+            _isFallbackMode = true;
+            return false;
+        }
+
+        await DownloadSourceAsync(navigator, pool[0], animeTitle, episode);
+        navigator.Pop();
+        return true;
+    }
+
+    private async Task PlaySelectedSourceAsync(ITuiNavigator navigator,
         VideoSource                                                       selectedSource,
         string                                                            provider,
         string                                                            animeId,
         string                                                            animeTitle,
         Episode                                                           episode)
     {
-        var actions = new List<FuzzyChoice>
-        {
-            Theme.PlayChoice("Oynat")
-        };
-        if (DownloadSourceResolver.IsDirectDownloadable(selectedSource))
-        {
-            actions.Add(Theme.ActionChoice("İndir", Theme.Primary));
-        }
-
-        actions.Add(TuiHelpers.Back());
-        var action = FuzzyPrompt.Show("Kaynak seçildi",
-                                      actions,
-                                      headerLines: BuildSelectedSourceHeaders(animeTitle, episode, selectedSource));
-
-        if (action == null || action.Searchable == "Geri")
-        {
-            return;
-        }
-
-        if (action.Searchable == "İndir")
-        {
-            await DownloadSourceAsync(navigator,
-                                      selectedSource,
-                                      animeTitle,
-                                      episode);
-            return;
-        }
-
         var historyEntry = _playback.BuildEntry(provider, animeId, animeTitle, episode, _posterUrl);
         AnsiConsole.MarkupLine("[green]✓[/] Oynatıcı başlatıldı.");
         var syncOutcome = await _playback.PlayAndNotifyAsync(selectedSource, historyEntry, false);
@@ -451,17 +470,16 @@ public class EpisodeSourcesView : BaseView
                          syncOutcome);
     }
 
-    private async Task DownloadSourceAsync(ITuiNavigator navigator,
+    private async Task<DownloadResult?> DownloadSourceAsync(ITuiNavigator navigator,
         VideoSource                                                       selectedSource,
         string                                                            animeTitle,
         Episode                                                           episode)
     {
         if (!DownloadSourceResolver.IsDirectDownloadable(selectedSource))
         {
-            await ShowDownloadResultAsync(navigator,
-                                           DownloadResult.Failed(
-                                               "Bu kaynak doğrudan MP4/HLS indirilebilir değil."));
-            return;
+            var rejected = DownloadResult.Failed("Bu kaynak doğrudan MP4/HLS indirilebilir değil.");
+            await ShowDownloadResultAsync(rejected);
+            return rejected;
         }
 
         var config            = _configService.Config;
@@ -539,10 +557,11 @@ public class EpisodeSourcesView : BaseView
 
         if (TuiApplicationCancellation.Token.IsCancellationRequested)
         {
-            return;
+            return null;
         }
 
-        await ShowDownloadResultAsync(navigator, result, unexpectedError);
+        await ShowDownloadResultAsync(result, unexpectedError);
+        return result;
     }
 
     private static async Task AbortDownloadAsync(
@@ -569,9 +588,7 @@ public class EpisodeSourcesView : BaseView
         }
     }
 
-    private static Task ShowDownloadResultAsync(ITuiNavigator navigator,
-        DownloadResult?                                                   result,
-        string?                                                           unexpectedError = null)
+    private static Task ShowDownloadResultAsync(DownloadResult? result, string? unexpectedError = null)
     {
         var title = result is { IsCancelled: true }
                         ? "İndirme iptal edildi"
@@ -615,10 +632,6 @@ public class EpisodeSourcesView : BaseView
                           headerLines: headers,
                           footerHelp: "Enter devam • Esc geri",
                           searchable: false);
-        if (result?.Success == true && result.IsCancelled != true)
-        {
-            navigator.Pop();
-        }
 
         return Task.CompletedTask;
     }

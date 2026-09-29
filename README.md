@@ -98,12 +98,12 @@ AppImage için Linux'ta `libfuse2` gerekir (bkz. [Gereksinimler](#gereksinimler)
 
 ## Kullanım
 
-Akış basit: Arama -> Detay -> Bölüm -> Kaynak -> Oynat / İndir.
+Akış basit: Arama -> Detay -> Bölüm -> Oynat / İndir.
 
 1. Ana menüden aramaya gir, adı yaz (liste fuzzy daralır).
 2. Sonuçtan seçince açıklama ve bölüm listesi gelir.
-3. Bölümü seçince fansub grupları ve kaynaklar (sunucu / kalite / tür) gelir.
-4. Kaynağı seçince `Oynat`, `İndir` veya `Geri` seçilir. Otomatik kaynak seçimi de aynı menüyü açar.
+3. Bölümü seçince `Oynat`, `İndir` veya `Geri` seçilir.
+4. `Oynat` kaynak ekranını açar (otomatik seçim açıksa en iyi kaynak direkt oynar), `İndir` ayara göre otomatik indirir veya kaynak seçim ekranını açar.
 
 `Esc` bir önceki ekrana döner. Yön tuşları + `Enter` ile kullanılıyor. İndirme sırasında `Esc` indirmeyi iptal eder;
 indirme MPV'yi açmaz ve izleme geçmişi/tracker senkronunu tetiklemez.
@@ -173,7 +173,9 @@ Kaydetmeden çıkarsan (`Esc` / İptal) değişiklikler uygulanmaz.
 
 İndirme varsayılanları `config.json` içinden de değiştirilebilir: `DownloadDirectory`, `YtDlpPath`, `DownloadSubtitles`,
 `DownloadResume` ve `DownloadOverwrite`. Sırasıyla platform Downloads/Migurdex dizini, `yt-dlp`, `true`, `true` ve `false`
-varsayılanları kullanılır. Eski config dosyaları yeni alanlar eklenmeden de güvenle yüklenir. Migurdex bu harici araçları
+varsayılanları kullanılır. `AutoDownloadBestSource` (`false`) kapalıyken bölümden İndir kaynak seçim ekranını açar;
+açıkken en iyi aday otomatik indirilir. `DownloadAutoSelectTimeoutSeconds` (`5`) otomatik çözümlemenin bütçesidir,
+tutamazsa manuel listeye düşülür. Eski config dosyaları yeni alanlar eklenmeden de güvenle yüklenir. Migurdex bu harici araçları
 otomatik indirmez.
 
 ## Güvenlik ve kaynak kullanımı
