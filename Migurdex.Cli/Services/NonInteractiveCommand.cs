@@ -56,7 +56,7 @@ public static class NonInteractiveCommand
 
         if (opts.ShowHelp || string.IsNullOrWhiteSpace(opts.Query))
         {
-            Help();
+            PrintHelp();
             return opts.ShowHelp ? 0 : 2;
         }
 
@@ -109,7 +109,7 @@ public static class NonInteractiveCommand
 
         if (opts.ShowHelp)
         {
-            Help();
+            PrintHelp();
             return 0;
         }
 
@@ -187,7 +187,7 @@ public static class NonInteractiveCommand
 
         if (showHelp)
         {
-            Help();
+            PrintHelp();
             return 0;
         }
 
@@ -554,21 +554,32 @@ public static class NonInteractiveCommand
         return 2;
     }
 
-    private static void Help()
+    internal static void PrintHelp(TextWriter? writer = null)
     {
-        Console.WriteLine("Kullanım:");
-        Console.WriteLine("  migurdex search <sorgu> [-p|--provider <ad>] [--json]");
-        Console.WriteLine(
+        writer ??= Console.Out;
+        writer.WriteLine("Kullanım:");
+        WriteCommandLines(writer);
+        WriteFlagLegend(writer);
+    }
+
+    internal static void WriteCommandLines(TextWriter writer)
+    {
+        writer.WriteLine("  migurdex search <sorgu> [-p|--provider <ad>] [--json]");
+        writer.WriteLine(
             "  migurdex play <sorgu> [-e|--episode <n>] [-s|--season <n>] [-p|--provider <ad>] [-g|--group <ad>] [--debug]");
-        Console.WriteLine("  migurdex continue [--debug]");
-        Console.WriteLine(
+        writer.WriteLine("  migurdex continue [--debug]");
+        writer.WriteLine(
             "  migurdex download <sorgu> [-e <n>] [-s <n>] [-p <ad>] [-g <ad>] [-o <dizin>] [--format auto|mp4|hls] [--subs|--no-subs] [--force] [--no-resume] [--debug] [--json]");
-        Console.WriteLine("  migurdex update [--check] [--channel stable|prerelease] [-y] [--no-restart]");
-        Console.WriteLine("  migurdex auth <login|logout|status>");
-        Console.WriteLine("  migurdex --version");
-        Console.WriteLine(
+        writer.WriteLine("  migurdex update [--check] [--channel stable|prerelease] [-y] [--no-restart]");
+        writer.WriteLine("  migurdex auth <login|logout|status>");
+        writer.WriteLine("  migurdex --version");
+    }
+
+    internal static void WriteFlagLegend(TextWriter writer)
+    {
+        writer.WriteLine(
             "Bayraklar: -e bölüm, -s sezon, -p sağlayıcı, -g fansub grubu. Play varsayılanı kaldığın yer; download varsayılanı ilk bölüm.");
-        Console.WriteLine(
+        writer.WriteLine(
             "          --debug oynatmadan/indirmeden çözülen kaynağı yazdırır; --json yalnız makine okunur sonuç verir.");
     }
 
