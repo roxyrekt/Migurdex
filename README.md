@@ -90,6 +90,7 @@ AppImage için Linux'ta `libfuse2` gerekir (bkz. [Gereksinimler](#gereksinimler)
 - [MPV](https://mpv.io/) kurulu ve PATH'te olmalı
 - HLS (`.m3u8`) indirmek için [yt-dlp](https://github.com/yt-dlp/yt-dlp) kurulu olmalı; segmentleri birleştirmek/aktarmak için
   yt-dlp'nin kullanabildiği [ffmpeg](https://ffmpeg.org/) de gerekebilir. MP4 indirme bu araçlara ihtiyaç duymaz.
+  8 MiB üstü MP4'ler sunucu Range destekliyorsa 2-4 paralel parçayla iner, desteklemiyorsa sıralıya düşer.
 - HLS indirme ilerlemesi yt-dlp'nin ürettiği progress satırlarından okunur; Migurdex yt-dlp'ye daima `--progress` verir
   (yt-dlp'de `--print` bayrağı bu çıktıyı kapattığından).
 - Migurdex yt-dlp veya ffmpeg'i otomatik indirmez/kurmaz.
