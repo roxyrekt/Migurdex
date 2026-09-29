@@ -1,6 +1,6 @@
 # feat: add anime download support
 
-> Dal: `feature/download` · Temel: `v1.10.0` (`4035f9a`) · 17 commit (4 kod + 13 docs) ·
+> Dal: `feature/download` · Temel: `v1.10.0` (`4035f9a`) · 18 commit (4 kod + 14 docs) ·
 > 40 dosya, **+11.341 / −246** (`git diff --stat v1.10.0..HEAD`) · Son kod commit'i: `5014025`
 
 ## Özet
