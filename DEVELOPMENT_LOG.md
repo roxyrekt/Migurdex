@@ -9,8 +9,7 @@
 > PR (fork, merged): https://github.com/Nutaliaxd/Migurdex/pull/1
 > Release: https://github.com/Nutaliaxd/Migurdex/releases/tag/v1.10.2
 > CI run: https://github.com/Nutaliaxd/Migurdex/actions/runs/36562344972 (sonuç: **success**)
-> Upstream: `roxyrekt/Migurdex` `main` hâlâ `v1.10.1` (`4ecd7d7`); upstream PR hedefi için aynı
-> metin `PR_DESCRIPTION.md` dosyasında hazırdır.
+> Upstream PR: https://github.com/roxyrekt/Migurdex/pull/1 (**OPEN**, `MERGEABLE`; CI `action_required`)
 
 > **Commit geçmişinde tek doğruluk kaynağı `git log`'dur** (bkz. bölüm 11). Bu dosyadaki commit
 > listeleri okunabilirlik için anlatıcı kayıttır; güncel ve eksiksiz liste için
@@ -1016,6 +1015,17 @@ dallar korunuyor: `backup/download-pre-v110` (v1.10.0 öncesi) ve `backup/downlo
 | Release | https://github.com/Nutaliaxd/Migurdex/releases/tag/v1.10.2 (29.09.2026 11:41 UTC) |
 | CI run | https://github.com/Nutaliaxd/Migurdex/actions/runs/36562344972 — **success** (`workflow_dispatch` @ `v1.10.2`) |
 | Upstream taban | `v1.10.1` (`4ecd7d7`) |
+
+### Upstream PR
+
+| Alan | Değer |
+|---|---|
+| Repo | `roxyrekt/Migurdex` |
+| PR | https://github.com/roxyrekt/Migurdex/pull/1 |
+| Başlık | `feat: add anime download support` |
+| Head / base | `Nutaliaxd:main` → `main` |
+| Durum | **OPEN**, `MERGEABLE` |
+| CI | https://github.com/roxyrekt/Migurdex/actions/runs/36571814259 — `action_required` (fork PR onayı bekliyor) |
 
 Release asset'ları (üç platform matrisi + checksum'lar):
 

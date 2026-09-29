@@ -27,7 +27,8 @@ Terminalden Türkçe anime aramak ve izlemek için araç. TUI + yerel HTTP API +
 Bu depo, [`Nutaliaxd/Migurdex`](https://github.com/Nutaliaxd/Migurdex) fork'udur ve **anime indirme
 (download) özelliğini** içerir. Upstream `roxyrekt/Migurdex` `main` dalında bu özellik **henüz yok**;
 bu özellik fork içinde [`PR #1`](https://github.com/Nutaliaxd/Migurdex/pull/1) ile merge edilip
-`v1.10.2` release'ı olarak yayımlandı. Upstream entegrasyonu ayrıca takip edilir.
+`v1.10.2` release'ı olarak yayımlandı. Upstream entegrasyonu
+[`roxyrekt/Migurdex PR #1`](https://github.com/roxyrekt/Migurdex/pull/1) üzerinden takip ediliyor.
 
 | | Upstream | Bu fork |
 |---|---|---|

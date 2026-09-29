@@ -583,8 +583,10 @@ aynı gün etiketli sürüm yayınlandı. **Aktif dal `main`**'dir.
 ### Kapsam notu
 
 - Bu release **fork'a** aittir. Upstream `roxyrekt/Migurdex` `main` dalı hâlâ `v1.10.1`
-  (`4ecd7d7`) durumundadır ve orada bu çalışma için bir PR açılmamıştır; upstream hedefi için
-  aynı içerik `PR_DESCRIPTION.md` dosyasında hazırdır.
+  (`4ecd7d7`) durumundadır; upstream entegrasyonu
+  [PR #1](https://github.com/roxyrekt/Migurdex/pull/1) üzerinden açılmıştır. PR `OPEN` ve
+  `MERGEABLE` durumdadır; fork PR CI'si maintainer onayı beklediği için
+  [run](https://github.com/roxyrekt/Migurdex/actions/runs/36571814259) `action_required` sonucundadır.
 - Release paketi, bölüm 7'deki yerel `build.ps1` paketinden farklıdır: CI sürüm damgası basar
   (`-p:Version`), üç platformu kapsar ve `sha256sums-*.txt` ile doğrulanabilir.
 - Kök kurulum hâlâ yerel paketi çalıştırmaktadır; ayrıntı ve fark tablosu bkz. bölüm 9.

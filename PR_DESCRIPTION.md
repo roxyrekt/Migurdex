@@ -5,7 +5,7 @@
 > | Hedef | Durum |
 > |---|---|
 > | Fork `Nutaliaxd/Migurdex` | [PR #1](https://github.com/Nutaliaxd/Migurdex/pull/1) **merge edildi** (29.09.2026 10:05 UTC) → merge commit `44f4010` → etiket `v1.10.2` → [release](https://github.com/Nutaliaxd/Migurdex/releases/tag/v1.10.2) yayımlandı ([CI run](https://github.com/Nutaliaxd/Migurdex/actions/runs/36562344972), sonuç **success**) |
-> | Upstream `roxyrekt/Migurdex` | Bu metin **açılmamış**; upstream `main` hâlâ `v1.10.1` (`4ecd7d7`) — aynı içerik, aynı base ile kullanılabilir |
+> | Upstream `roxyrekt/Migurdex` | [PR #1](https://github.com/roxyrekt/Migurdex/pull/1) **açık** ve `MERGEABLE`; fork PR CI'si maintainer onayı bekliyor ([run](https://github.com/roxyrekt/Migurdex/actions/runs/36571814259), `action_required`) |
 >
 > Fork dalı: `feature/download` → `main` · Base (upstream): `v1.10.1` (`4ecd7d7`) ·
 > Statistik (PR #1, değişmeden): 22 commit, 40 dosya, **+11.559 / −249** ·
