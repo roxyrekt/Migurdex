@@ -20,16 +20,29 @@ public sealed class DownloadProgress
     {
     }
 
-    public DownloadProgress(DownloadStage stage, long bytesDownloaded, long? totalBytes = null)
+    public DownloadProgress(DownloadStage stage, long bytesDownloaded, long? totalBytes = null, double? speedBytesPerSecond = null, int? fragmentsDone = null, int? fragmentsTotal = null, TimeSpan? eta = null, double? percent = null, string? track = null, bool isAudioTrack = false)
     {
-        Stage          = stage;
-        BytesDownloaded = bytesDownloaded;
-        TotalBytes      = totalBytes;
+        Stage               = stage;
+        BytesDownloaded     = bytesDownloaded;
+        TotalBytes          = totalBytes;
+        SpeedBytesPerSecond = speedBytesPerSecond;
+        FragmentsDone       = fragmentsDone;
+        FragmentsTotal      = fragmentsTotal;
+        Eta                 = eta;
+        Percent             = percent;
+        Track               = track;
     }
 
     public DownloadStage Stage          { get; init; }
     public long          BytesDownloaded { get; init; }
     public long?         TotalBytes      { get; init; }
+    public double?       SpeedBytesPerSecond { get; init; }
+    public int?          FragmentsDone   { get; init; }
+    public int?          FragmentsTotal  { get; init; }
+    public TimeSpan?     Eta             { get; init; }
+    public double?       Percent         { get; init; }
+    public string?       Track           { get; init; }
+    public bool          IsAudioTrack    { get; init; }
 
     public long  Bytes => BytesDownloaded;
     public long? Total => TotalBytes;
@@ -147,18 +160,20 @@ public sealed class DownloadResult
 
 public sealed class MediaDownloadResult
 {
-    public MediaDownloadResult(string outputPath, long bytes = 0, long? totalBytes = null, bool resumed = false)
+    public MediaDownloadResult(string outputPath, long bytes = 0, long? totalBytes = null, bool resumed = false, IReadOnlyList<string>? warnings = null)
     {
         OutputPath  = outputPath;
         Bytes       = bytes;
         TotalBytes  = totalBytes;
         WasResumed  = resumed;
+        Warnings    = warnings ?? [];
     }
 
     public string OutputPath { get; }
     public long   Bytes      { get; }
     public long?  TotalBytes { get; }
     public bool   WasResumed { get; }
+    public IReadOnlyList<string> Warnings { get; }
 
     public string Path => OutputPath;
 }
@@ -179,6 +194,7 @@ public sealed class HlsDownloadOptions
     public string Executable   { get; set; } = "yt-dlp";
     public int    MaxAttempts { get; set; } = 3;
     public TimeSpan RetryDelay { get; set; } = TimeSpan.FromSeconds(1);
+    public int ConcurrentFragments { get; set; } = 5;
 }
 
 public sealed class DownloadPath

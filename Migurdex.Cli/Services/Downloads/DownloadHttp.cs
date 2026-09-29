@@ -7,16 +7,16 @@ namespace Migurdex.Cli.Services.Downloads;
 
 public sealed class DownloadHttpClientFactory : IDownloadHttpClientFactory
 {
+    private static readonly SocketsHttpHandler _sharedHandler = new()
+    {
+        AllowAutoRedirect = false,
+        UseCookies         = false,
+        UseProxy           = true
+    };
+
     public HttpClient CreateClient()
     {
-        var handler = new SocketsHttpHandler
-        {
-            AllowAutoRedirect = false,
-            UseCookies         = false,
-            UseProxy           = true
-        };
-
-        return new HttpClient(handler, true)
+        return new HttpClient(_sharedHandler, false)
         {
             Timeout = Timeout.InfiniteTimeSpan
         };

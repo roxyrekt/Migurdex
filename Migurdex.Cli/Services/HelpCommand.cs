@@ -17,7 +17,6 @@ public static class HelpCommand
         "download"
     ];
 
-    /// <summary>Argümanın üst düzey yardım bayrağı olup olmadığını döndürür.</summary>
     public static bool IsHelpToken(string arg)
     {
         return arg.Equals("--help", StringComparison.OrdinalIgnoreCase)
@@ -25,11 +24,6 @@ public static class HelpCommand
                || arg.Equals("help", StringComparison.OrdinalIgnoreCase);
     }
 
-    /// <summary>
-    /// Yardım isteğinin TUI'ye düşmeden üst düzey komut yönlendirmesinde
-    /// yakalanması gerekip gerekmediğini belirler. Alt komutlar kendi
-    /// <c>--help</c> çıktısını ürettiği için ilk argüman bir komutsa bu rota devre dışı kalır.
-    /// </summary>
     public static bool IsTopLevelRequest(string[] args)
     {
         ArgumentNullException.ThrowIfNull(args);
@@ -51,7 +45,6 @@ public static class HelpCommand
         return args.Any(IsHelpToken);
     }
 
-    /// <summary>Yardım metnini <paramref name="output"/>'a yazar ve başarı kodu döndürür.</summary>
     public static int Run(TextWriter? output = null)
     {
         PrintHelp(output ?? Console.Out);

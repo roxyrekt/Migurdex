@@ -254,10 +254,10 @@ public static class DownloadCommand
                 return await FailAsync(options, providersResult.Error ?? "Sağlayıcı listesi alınamadı.");
             }
 
-            if (!DownloadSourceResolver.TryResolveProvider(providersResult.Data,
-                                                           options.Provider,
-                                                           out provider,
-                                                           out var providerError))
+            if (!MediaSelection.TryResolveProvider(providersResult.Data,
+                                                       options.Provider,
+                                                       out provider,
+                                                       out var providerError))
             {
                 return await FailAsync(options, providerError!);
             }
@@ -272,7 +272,7 @@ public static class DownloadCommand
             return await FailAsync(options, search.Error ?? "Arama yapılamadı.");
         }
 
-        var picked = DownloadSourceResolver.PickSearchResult(search.Data, options.Query!);
+        var picked = MediaSelection.PickSearchResult(search.Data, options.Query!);
         if (picked is null)
         {
             return await FailAsync(options, "Sonuç bulunamadı.");
@@ -289,7 +289,7 @@ public static class DownloadCommand
         }
 
         var details = detailsResult.Data;
-        var episode = DownloadSourceResolver.PickEpisode(details, options.Season, options.Episode);
+        var episode = MediaSelection.PickEpisode(details, options.Season, options.Episode);
         if (episode is null)
         {
             return await FailAsync(options, "Bölüm bulunamadı.");
@@ -306,7 +306,7 @@ public static class DownloadCommand
                 return await FailAsync(options, groupsResult.Error ?? "Fansub grupları alınamadı.");
             }
 
-            if (!DownloadSourceResolver.TryResolveGroup(groupsResult.Data, options.Group, out group))
+            if (!MediaSelection.TryResolveGroup(groupsResult.Data, options.Group, out group))
             {
                 return await FailAsync(options,
                                        $"'{options.Group}' grubu bulunamadı ({string.Join(", ", groupsResult.Data)}).");
@@ -426,7 +426,7 @@ public static class DownloadCommand
                     }
                 }
 
-                return 130;
+                return 3;
             }
 
             if (result.IsCancelled)
@@ -500,6 +500,7 @@ public static class DownloadCommand
         Console.WriteLine("      --no-resume         Kısmi MP4 dosyasından devam etme.");
         Console.WriteLine("      --debug             İndirmeden güvenli kaynak özetini gösterir.");
         Console.WriteLine("      --json              Yalnız makine okunur sonucu stdout'a yazar.");
+        Console.WriteLine("  Çıkış kodları: 0 başarı, 1 çalışma hatası, 2 kullanım hatası, 3 altyazı iptali.");
     }
 
     private static async Task<bool> EnsureApiOnlineAsync(IApiClientService api, CancellationToken cancellationToken)
@@ -698,27 +699,79 @@ public static class DownloadCommand
 
     private sealed class ConsoleDownloadProgress : IProgress<DownloadProgress>
     {
+        private readonly DownloadSpeedometer _speed = new();
+        private string? _lastLine;
+        private DateTimeOffset _lastPrint = DateTimeOffset.MinValue;
+
         public void Report(DownloadProgress value)
         {
-            var stage = value.Stage switch
-            {
-                DownloadStage.Preparing  => "Hazırlanıyor",
-                DownloadStage.Requesting => "Bağlanıyor",
-                DownloadStage.Downloading => "İndiriliyor",
-                DownloadStage.Finalizing  => "Tamamlanıyor",
-                DownloadStage.Subtitle    => "Altyazı indiriliyor",
-                DownloadStage.Completed   => "Tamamlandı",
-                DownloadStage.Failed      => "Başarısız",
-                DownloadStage.Cancelled   => "İptal edildi",
-                _                         => "İşleniyor"
-            };
+            _speed.Sample(value.BytesDownloaded, DateTimeOffset.UtcNow);
+            var stage = DownloadStageLabel.For(value.Stage, value.Track, value.IsAudioTrack);
             var size = FormatBytes(value.BytesDownloaded);
-            if (value.TotalBytes is > 0)
+            string line;
+            if (!string.IsNullOrWhiteSpace(value.Track))
             {
-                size += $" / {FormatBytes(value.TotalBytes.Value)}";
+                line = $"{stage}: {value.Track}";
+            }
+            else
+            {
+                line = $"{stage}:";
             }
 
-            Console.Error.WriteLine($"{stage}: {size}");
+            if (value is { Stage: DownloadStage.Downloading, FragmentsTotal: > 0, FragmentsDone: not null })
+            {
+                line += value.Percent is not null
+                           ? $" %{value.Percent.Value.ToString("0.#", CultureInfo.InvariantCulture)} (frag {value.FragmentsDone.Value}/{value.FragmentsTotal.Value})"
+                           : $" frag {value.FragmentsDone.Value}/{value.FragmentsTotal.Value}";
+                var speed = value.SpeedBytesPerSecond ?? _speed.BytesPerSecond;
+                if (speed > 0)
+                {
+                    line += $" • {FormatBytes((long)speed)}/s";
+                }
+
+                if (value.Eta is not null)
+                {
+                    line += $" • {DownloadSpeedometer.FormatEta(value.Eta.Value)}";
+                }
+            }
+            else if (value is { Stage: DownloadStage.Downloading, TotalBytes: > 0 })
+            {
+                var pct = Math.Min(100, (double)value.BytesDownloaded * 100 / value.TotalBytes.Value);
+                line += $" %{pct.ToString("0.#", CultureInfo.InvariantCulture)} ({size} / {FormatBytes(value.TotalBytes.Value)})";
+                var speed = value.SpeedBytesPerSecond ?? _speed.BytesPerSecond;
+                if (speed > 0)
+                {
+                    line += $" • {FormatBytes((long)speed)}/s";
+                    var eta = _speed.EstimateRemaining(value.BytesDownloaded,
+                                                       value.TotalBytes,
+                                                       value.SpeedBytesPerSecond);
+                    if (eta is not null)
+                    {
+                        line += $" • {DownloadSpeedometer.FormatEta(eta.Value)}";
+                    }
+                }
+            }
+            else
+            {
+                if (value.TotalBytes is > 0)
+                {
+                    size += $" / {FormatBytes(value.TotalBytes.Value)}";
+                }
+
+                line += $" {size}";
+            }
+
+            var now = DateTimeOffset.UtcNow;
+            if (string.Equals(line, _lastLine, StringComparison.Ordinal)
+                || (value.Stage == DownloadStage.Downloading
+                    && now - _lastPrint < TimeSpan.FromSeconds(1)))
+            {
+                return;
+            }
+
+            _lastLine  = line;
+            _lastPrint = now;
+            Console.Error.WriteLine(line);
         }
 
         private static string FormatBytes(long bytes)

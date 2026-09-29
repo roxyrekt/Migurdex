@@ -109,9 +109,8 @@ public sealed class DownloadService : IDownloadService
 
             var subtitlePaths = new List<string>();
             var warnings       = new List<string>();
+            warnings.AddRange(media.Warnings);
 
-            // Altyazı tarafı da aynı hedef kilidini kullanır: iki eşzamanlı indirme
-            // aynı .srt.part dosyasını yarış halinde ezmesin.
             using var subtitleLock = await TryAcquireSubtitleLockAsync(destination,
                                                                         cancellationToken)
                                              .ConfigureAwait(false);
@@ -251,7 +250,6 @@ public sealed class DownloadService : IDownloadService
         }
         catch (ConcurrentDownloadException)
         {
-            // Başka bir süreç aynı hedefi kullanıyor; altyazılar atlanır, video sonucu korunur.
             return null;
         }
         catch (Exception exception) when (exception is ArgumentException

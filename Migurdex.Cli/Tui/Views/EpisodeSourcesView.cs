@@ -171,7 +171,11 @@ public class EpisodeSourcesView : BaseView
             || _episode == null)
         {
             AnsiConsole.MarkupLine("[red]Hata: Gerekli parametreler eksik.[/]");
-            Console.ReadKey(true);
+            if (!TuiConsole.WaitForKey())
+            {
+                return;
+            }
+
             navigator.Pop();
             return;
         }
@@ -471,6 +475,7 @@ public class EpisodeSourcesView : BaseView
 
         try
         {
+            using var modal = TuiApplicationCancellation.BeginModal(cancellation);
             downloadTask = _downloadService.DownloadAsync(
                                                     new DownloadRequest
                                                     {
@@ -486,26 +491,33 @@ public class EpisodeSourcesView : BaseView
                                                         Progress          = progressTracker
                                                     },
                                                     cancellation.Token);
-            AnsiConsole.Status()
-                       .Spinner(Spinner.Known.Dots)
-                       .Start("İndiriliyor...",
-                              context =>
-                              {
-                                  while (!downloadTask.IsCompleted)
-                                  {
-                                      if (Console.KeyAvailable
-                                          && Console.ReadKey(true).Key == ConsoleKey.Escape)
-                                      {
-                                          userCancelled = true;
-                                          cancellation.Cancel();
-                                          break;
-                                      }
+            await AnsiConsole.Progress()
+                             .AutoClear(false)
+                             .HideCompleted(false)
+                             .Columns(
+                                 new PercentageColumn(),
+                                 new ProgressBarColumn(),
+                                 new TaskDescriptionColumn(),
+                                 new SpinnerColumn())
+                             .StartAsync(async progressContext =>
+                             {
+                                 var task = progressContext.AddTask("Hazırlanıyor", maxValue: 100);
+                                 while (!downloadTask.IsCompleted)
+                                 {
+                                     if (Console.KeyAvailable
+                                         && Console.ReadKey(true).Key == ConsoleKey.Escape)
+                                     {
+                                         userCancelled = true;
+                                         cancellation.Cancel();
+                                         break;
+                                     }
 
-                                      var progress = progressTracker.Current;
-                                      context.Status(FormatDownloadProgress(progress));
-                                      Thread.Sleep(80);
-                                  }
-                              });
+                                     UpdateDownloadTask(task, progressTracker);
+                                     await Task.Delay(100);
+                                 }
+
+                                 UpdateDownloadTask(task, progressTracker);
+                             });
 
             result = await downloadTask;
         }
@@ -611,32 +623,75 @@ public class EpisodeSourcesView : BaseView
         return Task.CompletedTask;
     }
 
-    private static string FormatDownloadProgress(DownloadProgress? progress)
+    private static void UpdateDownloadTask(ProgressTask task, DownloadProgressTracker tracker)
     {
+        var progress = tracker.Current;
         if (progress is null)
         {
-            return "İndiriliyor...";
+            task.IsIndeterminate = true;
+            task.Description      = "Hazırlanıyor • Esc: iptal";
+            return;
         }
 
-        var stage = progress.Stage switch
+        var stage = DownloadStageLabel.For(progress.Stage, progress.Track, progress.IsAudioTrack);
+
+        if (progress is { Stage: DownloadStage.Downloading })
         {
-            DownloadStage.Preparing  => "Hazırlanıyor",
-            DownloadStage.Requesting => "Bağlanıyor",
-            DownloadStage.Downloading => "İndiriliyor",
-            DownloadStage.Finalizing  => "Tamamlanıyor",
-            DownloadStage.Subtitle    => "Altyazı indiriliyor",
-            DownloadStage.Completed   => "Tamamlandı",
-            DownloadStage.Failed      => "Başarısız",
-            DownloadStage.Cancelled   => "İptal edildi",
-            _                         => "İşleniyor"
-        };
-        var bytes = FormatBytes(progress.BytesDownloaded);
-        if (progress.TotalBytes is > 0)
-        {
-            bytes += $" / {FormatBytes(progress.TotalBytes.Value)}";
+            var detail = stage;
+            if (!string.IsNullOrWhiteSpace(progress.Track))
+            {
+                detail += $" • {Markup.Escape(progress.Track)}";
+            }
+
+            if (progress is { FragmentsTotal: > 0, FragmentsDone: not null })
+            {
+                detail += $" • frag {progress.FragmentsDone.Value}/{progress.FragmentsTotal.Value}";
+            }
+            else if (progress.TotalBytes is > 0)
+            {
+                detail += $" • {FormatBytes(progress.BytesDownloaded)} / {FormatBytes(progress.TotalBytes.Value)}";
+            }
+
+            if (progress.Percent is not null)
+            {
+                task.IsIndeterminate = false;
+                task.MaxValue         = 100;
+                task.Value            = Math.Clamp(progress.Percent.Value, 0, 100);
+            }
+            else if (progress is { FragmentsTotal: > 0, FragmentsDone: not null })
+            {
+                task.IsIndeterminate = false;
+                task.MaxValue         = progress.FragmentsTotal.Value;
+                task.Value            = Math.Min(progress.FragmentsDone.Value, progress.FragmentsTotal.Value);
+            }
+            else if (progress.TotalBytes is > 0)
+            {
+                task.IsIndeterminate = false;
+                task.MaxValue         = progress.TotalBytes.Value;
+                task.Value            = Math.Min(progress.BytesDownloaded, progress.TotalBytes.Value);
+            }
+            else
+            {
+                task.IsIndeterminate = true;
+            }
+
+            var speed = tracker.CurrentSpeed;
+            if (speed > 0)
+            {
+                detail += $" • {FormatBytes((long)speed)}/s";
+                var eta = tracker.CurrentEta;
+                if (eta is not null)
+                {
+                    detail += $" • {DownloadSpeedometer.FormatEta(eta.Value)}";
+                }
+            }
+
+            task.Description = detail + " • Esc: iptal";
+            return;
         }
 
-        return $"{stage} • {bytes} • Esc: iptal";
+        task.IsIndeterminate = true;
+        task.Description      = $"{stage} • Esc: iptal";
     }
 
     private static string FormatBytes(long bytes)
@@ -658,6 +713,7 @@ public class EpisodeSourcesView : BaseView
     private sealed class DownloadProgressTracker : IProgress<DownloadProgress>
     {
         private readonly Lock _sync = new();
+        private readonly DownloadSpeedometer _speed = new();
         private          DownloadProgress? _current;
 
         public DownloadProgress? Current
@@ -671,10 +727,50 @@ public class EpisodeSourcesView : BaseView
             }
         }
 
+        public double CurrentSpeed
+        {
+            get
+            {
+                lock (_sync)
+                {
+                    return _current?.SpeedBytesPerSecond ?? _speed.BytesPerSecond;
+                }
+            }
+        }
+
+        public TimeSpan? CurrentEta
+        {
+            get
+            {
+                lock (_sync)
+                {
+                    if (_current is null)
+                    {
+                        return null;
+                    }
+
+                    if (_current.Eta is not null)
+                    {
+                        return _current.Eta;
+                    }
+
+                    if (_current.Eta is not null)
+                    {
+                        return _current.Eta;
+                    }
+
+                    return _speed.EstimateRemaining(_current.BytesDownloaded,
+                                                    _current.TotalBytes,
+                                                    _current.SpeedBytesPerSecond);
+                }
+            }
+        }
+
         public void Report(DownloadProgress value)
         {
             lock (_sync)
             {
+                _speed.Sample(value.BytesDownloaded, DateTimeOffset.UtcNow);
                 _current = value;
             }
         }

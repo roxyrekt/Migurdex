@@ -57,10 +57,10 @@ public sealed class HlsDownloaderTests
             Assert.Contains("--no-playlist", captured.ArgumentList);
             Assert.Contains("--add-header", captured.ArgumentList);
             Assert.Contains("Referer: https://origin.example/page", captured.ArgumentList);
-            // --print yt-dlp'de --quiet'i ima eder; progress çıktısı --progress ile geri açılır.
             Assert.Contains("--progress", captured.ArgumentList);
-            Assert.Contains("--print", captured.ArgumentList);
-            Assert.Equal("after_move:filepath", ValueAfter(captured.ArgumentList, "--print"));
+            // --print, [download] Destination satırlarını bastırıp track takibini kör eder.
+            Assert.DoesNotContain("--print", captured.ArgumentList);
+            Assert.Equal("5", ValueAfter(captured.ArgumentList, "--concurrent-fragments"));
             Assert.DoesNotContain(captured.ArgumentList,
                                   value => value.Contains("Authorization", StringComparison.OrdinalIgnoreCase)
                                            || value.Contains("X-Api-Key", StringComparison.OrdinalIgnoreCase));
@@ -91,6 +91,8 @@ public sealed class HlsDownloaderTests
                 Directory.CreateDirectory(jobDirectory);
                 File.WriteAllText(Path.Combine(jobDirectory, "media.mp4"), "hls-media");
                 onStandardOutput?.Invoke("[download]  42.3% of   ~10.00MiB at  1.00MiB/s ETA 00:07");
+                onStandardOutput?.Invoke("[download]   0.0% of ~ 324.23MiB at    585.91B/s ETA Unknown (frag 0/64)");
+                onStandardOutput?.Invoke("[download]   9.0% of ~   1.19GiB at   12.67MiB/s ETA 01:24 (frag 12/142)");
                 onStandardOutput?.Invoke("[download] 10.50MiB / 24.00MiB");
                 return Task.FromResult(new ExternalProcessResult(0));
             });
@@ -109,12 +111,29 @@ public sealed class HlsDownloaderTests
             Assert.EndsWith(".mp4", result.OutputPath, StringComparison.OrdinalIgnoreCase);
             Assert.Contains(progress.Items,
                             item => item.Stage == DownloadStage.Downloading
-                                    && item.BytesDownloaded == 42
-                                    && item.TotalBytes == 100);
+                                    && item.BytesDownloaded == 4435476
+                                    && item.TotalBytes == 10485760
+                                    && item.SpeedBytesPerSecond == 1048576
+                                    && item.Eta == TimeSpan.FromSeconds(7));
             Assert.Contains(progress.Items,
                             item => item.Stage == DownloadStage.Downloading
                                     && item.BytesDownloaded == 11010048
                                     && item.TotalBytes == 25165824);
+            Assert.Contains(progress.Items,
+                            item => item.Stage == DownloadStage.Downloading
+                                    && item.BytesDownloaded == 0
+                                    && item.TotalBytes == 339979796
+                                    && item.FragmentsDone == 0
+                                    && item.FragmentsTotal == 64);
+            Assert.Contains(progress.Items,
+                            item => item.Stage == DownloadStage.Downloading
+                                    && item.BytesDownloaded == 114997749
+                                    && item.TotalBytes == 1277752770
+                                    && item.SpeedBytesPerSecond == 13285457
+                                    && item.FragmentsDone == 12
+                                    && item.FragmentsTotal == 142
+                                    && item.Percent == 9.0
+                                    && item.Eta == TimeSpan.FromMinutes(1) + TimeSpan.FromSeconds(24));
         }
         finally
         {
@@ -361,6 +380,129 @@ public sealed class HlsDownloaderTests
 
             Assert.Contains("yt-dlp", exception.Message, StringComparison.OrdinalIgnoreCase);
             Assert.DoesNotContain("secret-token", exception.Message, StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(root, true);
+        }
+    }
+
+    [Fact]
+    public async Task Download_FailedAttemptWarnsAndRetriesWithCause()
+    {
+        var root = NewTempDir();
+        try
+        {
+            var destination = new DownloadPathBuilder().Build(root, "Anime", "Episode", 1, 1);
+            Directory.CreateDirectory(destination.AnimeDirectory);
+            var calls = 0;
+            var runner = new FakeProcessRunner((startInfo, onStandardOutput, _) =>
+            {
+                calls++;
+                var jobDirectory = ValueAfter(startInfo.ArgumentList, "--paths");
+                Directory.CreateDirectory(jobDirectory);
+                if (calls == 1)
+                {
+                    onStandardOutput?.Invoke("ERROR: https://cdn.example/frag12.ts: HTTP Error 403: Forbidden");
+                    return Task.FromResult(new ExternalProcessResult(1));
+                }
+
+                File.WriteAllText(Path.Combine(jobDirectory, "media.mp4"), "hls-media");
+                return Task.FromResult(new ExternalProcessResult(0));
+            });
+
+            var result = await new YtDlpHlsDownloader(runner, maxAttempts: 2, retryDelay: TimeSpan.Zero)
+                .DownloadAsync(new VideoSource
+                    {
+                        Url = "https://origin.example/master.m3u8",
+                        Type = VideoType.M3U8
+                    },
+                    destination,
+                    cancellationToken: TestContext.Current.CancellationToken);
+
+            Assert.Equal(2, calls);
+            Assert.EndsWith(".mp4", result.OutputPath, StringComparison.OrdinalIgnoreCase);
+            var warning = Assert.Single(result.Warnings);
+            Assert.Contains("Deneme 1/2", warning, StringComparison.Ordinal);
+            Assert.Contains("403", warning, StringComparison.Ordinal);
+            Assert.DoesNotContain("cdn.example", warning, StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(root, true);
+        }
+    }
+
+    [Fact]
+    public async Task Download_DestinationLineSwitchesTrackAndResetsBytes()
+    {
+        var root = NewTempDir();
+        try
+        {
+            var destination = new DownloadPathBuilder().Build(root, "Anime", "Episode", 1, 1);
+            Directory.CreateDirectory(destination.AnimeDirectory);
+            var runner = new FakeProcessRunner((startInfo, onStandardOutput, _) =>
+            {
+                var jobDirectory = ValueAfter(startInfo.ArgumentList, "--paths");
+                Directory.CreateDirectory(jobDirectory);
+                File.WriteAllText(Path.Combine(jobDirectory, "media.mp4"), "hls-media");
+                onStandardOutput?.Invoke("[download] Destination: /home/roxy/Downloads/Migurdex/One Piece/.migurdex-job-abc123/master.f5471.mp4");
+                onStandardOutput?.Invoke("[download]  50.0% of 10.00MiB at 1.00MiB/s ETA 00:05 (frag 5/10)");
+                onStandardOutput?.Invoke("[download] Destination: /home/roxy/Downloads/Migurdex/One Piece/.migurdex-job-abc123/master.faud2-English.mp4");
+                return Task.FromResult(new ExternalProcessResult(0));
+            });
+            var progress = new RecordingProgress();
+
+            var result = await new YtDlpHlsDownloader(runner, maxAttempts: 1, retryDelay: TimeSpan.Zero)
+                .DownloadAsync(new VideoSource
+                    {
+                        Url = "https://origin.example/master.m3u8",
+                        Type = VideoType.M3U8
+                    },
+                    destination,
+                    progress: progress,
+                    cancellationToken: TestContext.Current.CancellationToken);
+
+            Assert.EndsWith(".mp4", result.OutputPath, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains(progress.Items,
+                            item => item.Track == "master.f5471.mp4"
+                                    && item.BytesDownloaded == 5242880);
+            var reset = progress.Items.FirstOrDefault(item => item.Track == "master.faud2-English.mp4");
+            Assert.NotNull(reset);
+            Assert.Equal(0, reset!.BytesDownloaded);
+        }
+        finally
+        {
+            Directory.Delete(root, true);
+        }
+    }
+
+    [Fact]
+    public async Task Download_AllAttemptsFailingSurfacesLastCause()
+    {
+        var root = NewTempDir();
+        try
+        {
+            var destination = new DownloadPathBuilder().Build(root, "Anime", "Episode", 1, 1);
+            Directory.CreateDirectory(destination.AnimeDirectory);
+            var runner = new FakeProcessRunner((_, onStandardOutput, _) =>
+            {
+                onStandardOutput?.Invoke("ERROR: https://cdn.example/frag3.ts: HTTP Error 404: Not Found");
+                return Task.FromResult(new ExternalProcessResult(1));
+            });
+
+            var exception = await Assert.ThrowsAsync<HlsDownloadException>(() =>
+                new YtDlpHlsDownloader(runner, maxAttempts: 2, retryDelay: TimeSpan.Zero)
+                    .DownloadAsync(new VideoSource
+                        {
+                            Url = "https://origin.example/master.m3u8",
+                            Type = VideoType.M3U8
+                        },
+                        destination,
+                        cancellationToken: TestContext.Current.CancellationToken));
+
+            Assert.Contains("404", exception.Message, StringComparison.Ordinal);
+            Assert.DoesNotContain("cdn.example", exception.Message, StringComparison.Ordinal);
         }
         finally
         {

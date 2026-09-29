@@ -176,10 +176,10 @@ public sealed class DownloadCommandTests
             ]
         };
 
-        Assert.Equal("s1e1", DownloadSourceResolver.PickEpisode(details, null, null)?.Id);
-        Assert.Equal("s2e1", DownloadSourceResolver.PickEpisode(details, 2, null)?.Id);
-        Assert.Equal("s1e3", DownloadSourceResolver.PickEpisode(details, null, 3)?.Id);
-        Assert.Null(DownloadSourceResolver.PickEpisode(details, 3, null));
+        Assert.Equal("s1e1", MediaSelection.PickEpisode(details, null, null)?.Id);
+        Assert.Equal("s2e1", MediaSelection.PickEpisode(details, 2, null)?.Id);
+        Assert.Equal("s1e3", MediaSelection.PickEpisode(details, null, 3)?.Id);
+        Assert.Null(MediaSelection.PickEpisode(details, 3, null));
     }
 
     [Fact]
@@ -191,25 +191,25 @@ public sealed class DownloadCommandTests
             new() { Name = "AniHub" }
         };
 
-        Assert.True(DownloadSourceResolver.TryResolveProvider(providers,
+        Assert.True(MediaSelection.TryResolveProvider(providers,
                                                              "turkanime",
                                                              out var provider,
                                                              out var providerError));
         Assert.Equal("TurkAnime", provider);
         Assert.Null(providerError);
-        Assert.True(DownloadSourceResolver.TryResolveProvider(providers,
+        Assert.True(MediaSelection.TryResolveProvider(providers,
                                                              "Turk",
                                                              out var partialProvider,
                                                              out _));
         Assert.Equal("TurkAnime", partialProvider);
-        Assert.False(DownloadSourceResolver.TryResolveProvider(providers,
+        Assert.False(MediaSelection.TryResolveProvider(providers,
                                                               "xyz",
                                                               out _,
                                                               out _));
 
-        Assert.True(DownloadSourceResolver.TryResolveGroup(["Fansub", "Duals"], "fansub", out var group));
+        Assert.True(MediaSelection.TryResolveGroup(["Fansub", "Duals"], "fansub", out var group));
         Assert.Equal("Fansub", group);
-        Assert.False(DownloadSourceResolver.TryResolveGroup(["Fansub"], "dual", out _));
+        Assert.False(MediaSelection.TryResolveGroup(["Fansub"], "dual", out _));
     }
 
     [Fact]

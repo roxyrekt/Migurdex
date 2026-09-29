@@ -349,10 +349,10 @@ public static class NonInteractiveCommand
             return input;
         }
 
-        if (!DownloadSourceResolver.TryResolveProvider(providersResult.Data,
-                                                       input,
-                                                       out var provider,
-                                                       out var error))
+        if (!MediaSelection.TryResolveProvider(providersResult.Data,
+                                                  input,
+                                                  out var provider,
+                                                  out var error))
         {
             Console.Error.WriteLine($"Hata: {error}");
             return null;
@@ -368,7 +368,7 @@ public static class NonInteractiveCommand
 
     private static SearchResult? PickResult(IReadOnlyList<SearchResult> results, string query)
     {
-        return DownloadSourceResolver.PickSearchResult(results, query);
+        return MediaSelection.PickSearchResult(results, query);
     }
 
     private static Episode? PickEpisode(AnimeDetails details,

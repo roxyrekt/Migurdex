@@ -190,7 +190,7 @@ public class ApiClientService : IApiClientService
         }
         catch
         {
-            // Aşağıdaki finally, başlatılan süreci sahipsiz bırakmaz.
+            // ignored
         }
         finally
         {
