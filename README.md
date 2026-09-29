@@ -187,25 +187,6 @@ otomatik olarak indirmez. Yalnız HTTP/HTTPS kaynakları kullanılır ve farklı
 kaydedin; DRM/paywall korumasını aşmaya çalışan kaynakları indirmeyin. `--debug` çıktısı güvenlik için URL, header ve token
 içermez.
 
-## Bilinen sınırlar
-
-- **HLS için harici araçlar gerekir.** `.m3u8` kaynaklarda [yt-dlp](https://github.com/yt-dlp/yt-dlp) zorunludur;
-  segmentleri birleştirmek/aktarmak için çoğu durumda [ffmpeg](https://ffmpeg.org/) de gerekir. Migurdex bu
-  araçları otomatik indirmez/kurmaz. `MP4` indirme bu araçlara ihtiyaç duymaz.
-- **HLS'de resume yoktur.** MP4'te `.part` + `.meta` ile kaldığı yerden devam edilir; HLS'de yt-dlp her
-  denemeyi geçici iş dizininde baştan yapar. `--no-resume` yalnız MP4'ü etkiler.
-- **AppImage otomatik güncellemesi yalnız `latest` etiketini izler.** Build workflow'u AppImage'ın zsync
-  güncelleme bilgisini sabit olarak `gh-releases-zsync|roxyrekt|Migurdex|latest|...` olarak gömer; bu nedenle
-  AppImageUpdate veya benzeri bir araç pre-release kanalını takip etmez.
-- **Altyazı mux edilmez.** Altyazılar videonun yanına ayrı `.srt` / `.ass` / `.vtt` **sidecar** dosyası olarak
-  iner; videoya gömülmez. Altyazının oynatılması için oynatıcının sidecar'ı otomatik bulması gerekir.
-- **Deokwave sağlayıcısı boş sonuç verebilir.** `deokwave.com` tüm uç noktalarında Cloudflare
-  `"Just a moment..."` JS challenge'iyle HTTP 403 döndürdüğü için arama şu anda boş liste dönüyor ve bu
-  sağlayıcı üzerinden indirme kaynak çözümlemesine ulaşamadan hata veriyor. Uygulama hatası değil, upstream
-  erişim sorunu; diğer sağlayıcılar etkilenmiyor.
-- **İndirme, izleme kaydı üretmez.** İndirme MPV açmaz, izleme geçmişine yazmaz ve AniList/MAL tracker
-  senkronunu tetiklemez.
-
 ## Dosyalar
 
 Linux'ta `~/.config/migurdex/` altında tutulur:
