@@ -50,6 +50,10 @@ kanalından yapar, yani fork release'lerini otomatik kurmaz.
 
 ## Belgeler (start here)
 
+- **[`API.md`](API.md)** — Migurdex'in kendi yerel REST API'sinin tam referansı. Tüm uçlar
+  (`/health`, `/api/v1/anime/*`, `/api/v1/metadata/*`, `/api/v1/extractors/*`, `/api/v1/tracker/*`),
+  SSE akış protokolü, veri modelleri, enum karşılıkları, hata biçimleri, SSRF koruması ve canlı
+  doğrulama kaydı. **Harici istemci yazacaksan buradan başla.**
 - **[`DOWNLOAD.md`](DOWNLOAD.md)** — indirme özelliğinin tam dokümantasyonu. **İndirme özelliğini öğrenmek
   için buradan başla:** genel akış, CLI bayrakları, çıkış kodları, JSON çıktısı, `config.json` alanları,
   test kapsamı ve `Bilinen sınırlar ve riskler`.
@@ -292,7 +296,8 @@ Akış: `TUI/CLI -> API -> plugin (+ Rust HTTP) -> kaynak listesi -> MPV veya in
 `migurdex_native.dll`) API ile birlikte gelir, eksikse API başlamaz.
 
 Built-in extractor'lar `Migurdex.Core/Extractors` altında. API tarafında `GET /api/v1/extractors` ve
-`POST /api/v1/extractors/resolve` ile de çağrılabiliyor.
+`POST /api/v1/extractors/resolve` ile de çağrılabiliyor. Tüm HTTP uçlarının, SSE protokolünün ve veri
+modellerinin referansı için [`API.md`](API.md).
 
 TurkAnime sağlayıcısı, kapanan sitenin arşivinin temizlenip doğrulanmış halini kullanır (ölü kayıtlar atıldı, başlıklar
 onarıldı, AniList/MAL eşleştirmeleri eklendi; canlı Turso veritabanı üzerinden sorgulanır). Ham SQLite dosyası:
