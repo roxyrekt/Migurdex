@@ -48,6 +48,12 @@ public static class Program
             return 0;
         }
 
+        if (HelpCommand.IsTopLevelRequest(args))
+        {
+            // TTY yokken TUI'yi açmak Console.ReadKey ile çöktürür; yardım yalnızca yazma yapar.
+            return HelpCommand.Run();
+        }
+
         if (args.Length > 0 && args[0].Equals("update", StringComparison.OrdinalIgnoreCase))
         {
             var updateServices = new ServiceCollection();
@@ -213,7 +219,10 @@ public static class Program
                 }
 
                 AnsiConsole.MarkupLine("[grey]Mevcut sürümle devam etmek için bir tuşa basın...[/]");
-                Console.ReadKey(true);
+                if (!Console.IsInputRedirected)
+                {
+                    Console.ReadKey(true);
+                }
             }
             else if (choice == "Bu sürümü atla")
             {
