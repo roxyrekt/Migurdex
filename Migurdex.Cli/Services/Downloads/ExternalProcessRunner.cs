@@ -550,6 +550,31 @@ internal static class LinuxOrphanGuard
             // Çıktı yönlendirmesini boşalt; izleyici sessiz olmalı.
             watcher.BeginOutputReadLine();
             watcher.BeginErrorReadLine();
+              watcher.BeginErrorReadLine();
+
+              // Izleyici normalde Migurdex'ten daha uzun yasar; nesne burada
+              // birakilirsa IKI sizinti olur:
+              //   1) `SafeProcessHandle` sonlandiriciya kalir -> native tanitici sizintisi.
+              //   2) Linux'ta .NET cocugu YALNIZCA `WaitForExit*` cagrisinda reap eder;
+              //      cagrilmazsa izleyici ciktiktan sonra **kalsici zombie** olur ve
+              //      TUI oturumu boyunca `<defunct>` olarak birikir. `ps` ciktisi da
+              //      tam da yetim sorununu tanilamaz hale gelir.
+              // Bekleme arka planda yapilir; `Attach` indirmeyi bloklamaz.
+              _ = Task.Run(async () =>
+              {
+                  try
+                  {
+                      await watcher.WaitForExitAsync().ConfigureAwait(false);
+                  }
+                  catch
+                  {
+                      // ignored
+                  }
+                  finally
+                  {
+                      watcher.Dispose();
+                  }
+              });
         }
         catch
         {
@@ -661,19 +686,33 @@ internal static class LinuxOrphanGuard
                     return 0;
                 }
 
-                // Ebeveyn hâlâ yaşıyor mu? `IsProcessAlive` zombie'ı da ölü sayar;
-                // yalnız starttime'a bakmak **reap edilene kadar** yanlış olurdu
-                // (ölçüm: 24 sn gecikme, `wait()` sonrası 1 sn).
+                // Ebeveyn hâlâ yaşıyor mu? `IsProcessAlive` zombie'ı da ölü sayar.
+                //
+                // DÜZELTME (ölçüldü): önceki koşul yalnız **zombie** dalında
+                // tetikleniyordu (`ReadStartTime != 0` gerekiyordu). Ebeveyn **reap
+                // edildiğinde** `/proc/<pid>` tamamen kaybolur, `ReadStatField` `0`
+                // döner ve `break` hiç çalışmıyordu — izleyici
+                // `MaxWatchMilliseconds` (**6 saat**) boyunca yoklamaya devam ediyor,
+                // hedefi öldürmüyordu.
+                //
+                // Kontrol deneyi (WSL2, aynı harness, iki ebeveyn türü):
+                //   ebeveyn reap EDİLMEDİ (zombie) -> hedef 0,16 sn'de öldü    OK
+                //   ebeveyn reap EDİLDİ  (normal) -> 20 sn sonra hâlâ yaşıyor  HATA
+                // Yanlış tetikleme kontrolü iki durumda da geçti.
+                //
+                // `kill -9 migurdex` yapan her ebeveyn (bash, systemd, supervisor)
+                // **reap eden** daldadır; yani koruma en yaygın senaryoda işlevsizdi
+                // ve önceki doğrulama yalnız zombie dalını ölçüyordu.
+                //
+                // Doğru kural basittir: `IsProcessAlive` bu noktada zaten `false`
+                // döndürdüğü için ebeveyn ölmüştür (zombie, gitti ya da hiç yok).
+                // PID geri dönüşü bu dalı **ilgilendirmez**: geri dönen bir süreç
+                // yaşıyor olurdu ve `IsProcessAlive` `true` dönerdi, buraya giremezdi.
+                // Başlangıç zamanı doğrulaması döngü **sonundaki** hedef kontrolünde
+                // zaten var; burada gereksiz ve hatalıydı.
                 if (!IsProcessAlive(parentPid))
                 {
-                    // Numara geri dönmüş olabilir: başlangıç zamanı eşleşmiyorsa
-                    // ebeveyn yaşıyor demektir, tetiklemeyelim.
-                    var currentParentStartTime = ReadStartTime(parentPid);
-                    if (currentParentStartTime != 0
-                        && (parentStartTime == 0 || currentParentStartTime == parentStartTime))
-                    {
-                        break;
-                    }
+                    break;
                 }
 
                 Thread.Sleep(PollIntervalMilliseconds);

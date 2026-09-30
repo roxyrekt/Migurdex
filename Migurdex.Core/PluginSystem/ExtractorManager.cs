@@ -112,6 +112,15 @@ public class ExtractorManager : IExtractorManager
 
                 sources.AddRange(result);
             }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                // Kullanıcı iptali bir extractor hatası DEĞİLDİR. Genel `catch` bunu
+                // yutup döngüyü sonraki extractor'a devam ettiriyor; sonuçta
+                // `ExtractAsync` normal dönüyor ve çağıran taraf "kullanıcı vazgeçti"
+                // ile "kaynak bulunamadı"yı birbirine karıştırıyor. Üstelik iptal
+                // gecikmeli çalışıyor: her plugin sırayla çağrılıyor.
+                throw;
+            }
             catch (Exception ex)
             {
                 _logger.LogError(ex,

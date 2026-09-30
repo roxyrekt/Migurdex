@@ -1077,22 +1077,30 @@ public sealed class Mp4Downloader : IMp4Downloader
         Report(progress, DownloadStage.Requesting, sharedTotal[0], total);
         var progressLock = new Lock();
         var lastReportTime = Stopwatch.GetTimestamp();
+        var reportedFloor = 0L;
+
         void ReportAggregated()
         {
-            var current = Interlocked.Read(ref sharedTotal[0]);
-            bool shouldReport;
+            // `current` kilit DIŞINDA okunup `Report` kilit DIŞINDA çağrılıyordu; iki
+            // segment şu şekilde iç içe geçebiliyordu: T1 40 MB okur, T2 80 MB okur,
+            // T2 raporlar, T1 raporlar -> arayüz bayt sayacını geriye götürür. HLS
+            // yolunda bu sınıf düzeltilmişti (E9/C1b) ama `ParallelMaxSegments`
+            // yolunda (8 MB üzeri ve `Accept-Ranges` olan **her gerçek** MP4) hiç
+            // monotonluk koruması yoktu.
             lock (progressLock)
             {
-                shouldReport = ShouldReport(lastReportTime, current, total);
-                if (shouldReport)
+                var current = Interlocked.Read(ref sharedTotal[0]);
+                if (current < reportedFloor)
+                {
+                    current = reportedFloor;
+                }
+
+                reportedFloor = current;
+                if (ShouldReport(lastReportTime, current, total))
                 {
                     lastReportTime = Stopwatch.GetTimestamp();
+                    Report(progress, DownloadStage.Downloading, current, total);
                 }
-            }
-
-            if (shouldReport)
-            {
-                Report(progress, DownloadStage.Downloading, current, total);
             }
         }
 
