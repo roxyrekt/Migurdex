@@ -84,6 +84,20 @@ public class MigurdexDatabase
                                "migurdex");
 
         Directory.CreateDirectory(_configDirectory);
+
+        // Dizin 0700 olmadan **hiçbir dosya oluşturulmamalı**.
+        //
+        // Ölçüldü (WSL2, umask 022, temiz kurulum): yan dosyalar (`-wal`, `-shm`)
+        // ana veritabanının izin **modunu** miras alıyor — ana dosya 0600 ise yan
+        // dosyalar da 0600 doğuyor. Ama **ilk** çalıştırmada ana dosya henüz yokken
+        // yan dosyalar umask'a göre **0644** doğuyor ve `oauth_tokens` içindeki
+        // `access_token` / `refresh_token` **açık metin** olarak dünya-okunur
+        // dosyada kalıyordu. `kill -9` sonrasında da öyle kalıyor.
+        //
+        // Yani sorun kalıcı bir özellik değil, **sıralama hatası**: chmod yan dosyalar
+        // doğmadan sonra çalışıyordu. Yalnızca chmod eklemek yetmez, sıra da
+        // düzeltilmeli — bu yüzden çağrı `CreateConnection()`'dan ÖNCE geliyor.
+        RestrictDirectoryPermissions();
         var dbPath = Path.Combine(_configDirectory, "migurdex.db");
 
         var builder = new SqliteConnectionStringBuilder
@@ -198,20 +212,55 @@ public class MigurdexDatabase
 
     private void RestrictDbFilePermissions()
     {
+        RestrictDirectoryPermissions();
+
         if (OperatingSystem.IsLinux() || OperatingSystem.IsMacOS())
         {
             try
             {
-                var dbPath = Path.Combine(_configDirectory, "migurdex.db");
-                if (File.Exists(dbPath))
+                const UnixFileMode fileMode = UnixFileMode.UserRead | UnixFileMode.UserWrite;
+
+                // Yan dosyalar da kapsama alındı. `journal_mode = WAL` zorlandığı için
+                // **her yazma önce `-wal` dosyasına düşüyor**; `migurdex.db`'yi chmod etmek
+                // tek başına token'ları korumuyordu. Ölçülen: ilk çalıştırmada
+                // `migurdex.db-wal` 0644 ve içinde token açık metin.
+                foreach (var name in new[] { "migurdex.db", "migurdex.db-wal", "migurdex.db-shm" })
                 {
-                    File.SetUnixFileMode(dbPath, UnixFileMode.UserRead | UnixFileMode.UserWrite);
+                    var path = Path.Combine(_configDirectory, name);
+                    if (File.Exists(path))
+                    {
+                        File.SetUnixFileMode(path, fileMode);
+                    }
                 }
             }
             catch
             {
                 // ignored
             }
+        }
+    }
+
+    /// <summary>
+    /// Yapılandırma dizinini <c>0700</c> yapar. Asıl koruyucu katman budur: 0700
+    /// sınırı, yan dosyaların modundan bağımsız olarak geçerlidir **ve** dizindeki
+    /// diğer dosyaları da korur — <c>MigrateExistingJsonFiles</c>'ın ürettiği, izleme
+    /// geçmişi taşıyan <c>.bak</c> JSON dosyaları hiçbir zaman chmod edilmiyordu.
+    /// </summary>
+    private void RestrictDirectoryPermissions()
+    {
+        if (!(OperatingSystem.IsLinux() || OperatingSystem.IsMacOS()))
+        {
+            return;
+        }
+
+        try
+        {
+            File.SetUnixFileMode(_configDirectory,
+                                 UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        }
+        catch
+        {
+            // ignored
         }
     }
 
