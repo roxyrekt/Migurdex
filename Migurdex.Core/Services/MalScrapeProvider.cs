@@ -15,6 +15,9 @@ public partial class MalScrapeProvider : IMetadataProvider
 
     private static readonly TimeSpan MinGap = TimeSpan.FromMilliseconds(500);
 
+    private const int MaxEnrich = 5;
+    private static readonly SemaphoreSlim _enrichGate = new(5, 5);
+
     private readonly HttpClient _httpClient;
 
     public MalScrapeProvider(ISharedBridge bridge)
@@ -47,7 +50,8 @@ public partial class MalScrapeProvider : IMetadataProvider
 
         try
         {
-            return await SearchHtmlAsync(q, cancellationToken);
+            var light = await SearchHtmlAsync(q, cancellationToken);
+            return await EnrichTopAsync(light, cancellationToken);
         }
         catch (OperationCanceledException)
         {
@@ -57,6 +61,60 @@ public partial class MalScrapeProvider : IMetadataProvider
         {
             return [];
         }
+    }
+
+    private async Task<List<MediaMetadata>> EnrichTopAsync(
+        List<MediaMetadata> light, CancellationToken ct)
+    {
+        if (light.Count == 0)
+        {
+            return light;
+        }
+
+        var tasks = light
+            .Take(MaxEnrich)
+            .Select(async m =>
+            {
+                await _enrichGate.WaitAsync(ct);
+                try
+                {
+                    await Task.Delay(Random.Shared.Next(100, 400), ct);
+                    return await GetMetadataByIdAsync(m.ExternalId, ct);
+                }
+                catch (OperationCanceledException)
+                {
+                    throw;
+                }
+                catch
+                {
+                    return null;
+                }
+                finally
+                {
+                    _enrichGate.Release();
+                }
+            })
+            .ToArray();
+
+        MediaMetadata?[] details;
+        try
+        {
+            details = await Task.WhenAll(tasks);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+
+        for (var i = 0; i < details.Length; i++)
+        {
+            if (details[i] is not null)
+            {
+                light[i] = details[i]!;
+            }
+        }
+
+        return light;
     }
 
     public async Task<MediaMetadata?> GetMetadataByIdAsync(string id, CancellationToken cancellationToken = default)

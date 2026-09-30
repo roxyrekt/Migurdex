@@ -53,9 +53,9 @@ public sealed class MalScrapeProviderTests
         </body></html>
         """;
 
-    private static MalScrapeProvider Create(ScriptedHandler handler)
+    private static MalScrapeProvider Create(Func<string, HttpResponseMessage> route)
     {
-        return new MalScrapeProvider(new StubBridge(new HttpClient(handler)));
+        return new MalScrapeProvider(new StubBridge(new HttpClient(new RoutingHandler(route))));
     }
 
     private static HttpResponseMessage Ok(string body, string mediaType = "text/html")
@@ -66,10 +66,15 @@ public sealed class MalScrapeProviderTests
         };
     }
 
+    private static HttpResponseMessage Fail(HttpStatusCode code = HttpStatusCode.InternalServerError)
+    {
+        return new HttpResponseMessage(code);
+    }
+
     [Fact]
     public async Task Search_HtmlTable_MapsFields()
     {
-        var provider = Create(new ScriptedHandler([Ok(SearchHtml)]));
+        var provider = Create(url => url.Contains("anime.php") ? Ok(SearchHtml) : Fail());
 
         var list = await provider.SearchMetadataAsync("frieren", cancellationToken: TestContext.Current.CancellationToken);
 
@@ -89,12 +94,31 @@ public sealed class MalScrapeProviderTests
     }
 
     [Fact]
+    public async Task Search_Enrich_MergesDetail()
+    {
+        var provider = Create(url => url.Contains("anime.php")
+            ? Ok(SearchHtml)
+            : url.Contains("/anime/52991")
+                ? Ok(DetailHtml)
+                : Fail());
+
+        var list = await provider.SearchMetadataAsync("frieren", cancellationToken: TestContext.Current.CancellationToken);
+
+        Assert.Equal(2, list.Count);
+        var first = list[0];
+        Assert.Equal("Frieren: Beyond Journey's End", first.EnglishTitle);
+        Assert.Equal("葬送のフリーレン", first.JapaneseTitle);
+        Assert.Equal(2023, first.Year);
+        Assert.Contains("Frieren at the Funeral", first.Synonyms);
+        Assert.Contains("Adventure", first.Genres);
+        Assert.Equal("Naruto", list[1].Title);
+        Assert.Null(list[1].EnglishTitle);
+    }
+
+    [Fact]
     public async Task Search_HtmlError_ReturnsEmpty()
     {
-        var provider = Create(new ScriptedHandler(
-        [
-            new HttpResponseMessage(HttpStatusCode.InternalServerError)
-        ]));
+        var provider = Create(_ => Fail());
 
         var list = await provider.SearchMetadataAsync("frieren", cancellationToken: TestContext.Current.CancellationToken);
 
@@ -104,7 +128,7 @@ public sealed class MalScrapeProviderTests
     [Fact]
     public async Task GetById_ParsesDetail()
     {
-        var provider = Create(new ScriptedHandler([Ok(DetailHtml)]));
+        var provider = Create(_ => Ok(DetailHtml));
 
         var meta = await provider.GetMetadataByIdAsync("52991", TestContext.Current.CancellationToken);
 
@@ -127,8 +151,8 @@ public sealed class MalScrapeProviderTests
     [Fact]
     public async Task GetById_NonNumeric_NoRequest()
     {
-        var handler = new ScriptedHandler([]);
-        var provider = Create(handler);
+        var handler = new RoutingHandler(_ => Fail());
+        var provider = new MalScrapeProvider(new StubBridge(new HttpClient(handler)));
 
         var meta = await provider.GetMetadataByIdAsync("not-a-number", TestContext.Current.CancellationToken);
 
@@ -139,8 +163,8 @@ public sealed class MalScrapeProviderTests
     [Fact]
     public async Task Search_EmptyQuery_NoRequest()
     {
-        var handler = new ScriptedHandler([]);
-        var provider = Create(handler);
+        var handler = new RoutingHandler(_ => Fail());
+        var provider = new MalScrapeProvider(new StubBridge(new HttpClient(handler)));
 
         var list = await provider.SearchMetadataAsync("   ", cancellationToken: TestContext.Current.CancellationToken);
 
@@ -151,7 +175,7 @@ public sealed class MalScrapeProviderTests
     [Fact]
     public async Task Search_Cancelled_Propagates()
     {
-        var provider = Create(new ScriptedHandler([]));
+        var provider = Create(_ => Fail());
         using var cts = new CancellationTokenSource();
         cts.Cancel();
 
@@ -159,13 +183,13 @@ public sealed class MalScrapeProviderTests
             provider.SearchMetadataAsync("frieren", cancellationToken: cts.Token));
     }
 
-    private sealed class ScriptedHandler : HttpMessageHandler
+    private sealed class RoutingHandler : HttpMessageHandler
     {
-        private readonly Queue<HttpResponseMessage> _responses;
+        private readonly Func<string, HttpResponseMessage> _route;
 
-        public ScriptedHandler(IEnumerable<HttpResponseMessage> responses)
+        public RoutingHandler(Func<string, HttpResponseMessage> route)
         {
-            _responses = new Queue<HttpResponseMessage>(responses);
+            _route = route;
         }
 
         public int Calls { get; private set; }
@@ -175,9 +199,7 @@ public sealed class MalScrapeProviderTests
         {
             Calls++;
             cancellationToken.ThrowIfCancellationRequested();
-            return Task.FromResult(_responses.Count > 0
-                ? _responses.Dequeue()
-                : new HttpResponseMessage(HttpStatusCode.ServiceUnavailable));
+            return Task.FromResult(_route(request.RequestUri?.ToString() ?? string.Empty));
         }
     }
 
