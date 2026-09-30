@@ -598,6 +598,151 @@ public sealed class TrackerIdResolverTests
         Assert.Empty(list);
     }
 
+    [Fact]
+    public async Task AniList_Search_SendsPageVariables()
+    {
+        var handler = new CapturingHandler(new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StringContent(AniListPageJson)
+        });
+        var provider = new AniListProvider(new StubBridge(new HttpClient(handler)));
+
+        var list = await provider.SearchMetadataAsync("one piece",
+                                                      limit: 5,
+                                                      offset: 10,
+                                                      cancellationToken: TestContext.Current.CancellationToken);
+
+        Assert.Single(list);
+        Assert.NotNull(handler.Body);
+        Assert.Contains("\"page\":3", handler.Body);
+        Assert.Contains("\"perPage\":5", handler.Body);
+    }
+
+    [Fact]
+    public async Task Jikan_Search_SendsLimitAndPage()
+    {
+        var handler = new CapturingHandler(new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StringContent("""{"data":[]}""")
+        });
+        var provider = new JikanProvider(new StubBridge(new HttpClient(handler)));
+
+        var list = await provider.SearchMetadataAsync("frieren",
+                                                      limit: 5,
+                                                      offset: 5,
+                                                      cancellationToken: TestContext.Current.CancellationToken);
+
+        Assert.Empty(list);
+        Assert.NotNull(handler.Uri);
+        Assert.Contains("limit=5", handler.Uri);
+        Assert.Contains("page=2", handler.Uri);
+    }
+
+    private sealed class CapturingHandler : HttpMessageHandler
+    {
+        private readonly HttpResponseMessage _response;
+
+        public CapturingHandler(HttpResponseMessage response)
+        {
+            _response = response;
+        }
+
+        public string? Body { get; private set; }
+        public string? Uri { get; private set; }
+
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            Uri = request.RequestUri?.ToString();
+            if (request.Content is not null)
+            {
+                Body = await request.Content.ReadAsStringAsync(cancellationToken);
+            }
+
+            return _response;
+        }
+    }
+
+    [Fact]
+    public async Task Resolve_FallbackPrefersScraperOverJikan()
+    {
+        var malMeta = Meta("52991", "Sousou no Frieren", "52991", 2023);
+        malMeta.AniListId = "154587";
+        malMeta.Source = MetadataSource.MyAnimeList;
+        var mal = new CountingProvider("MyAnimeList", [malMeta]);
+        var jikanMeta = Meta("99999", "Sousou no Frieren");
+        jikanMeta.AniListId = "99999";
+        var jikan = new CountingProvider("Jikan", [jikanMeta]);
+        var ani = new CountingProvider("AniList", []);
+        var store = new TrackerMappingStore(NewTempDir());
+        var resolver = new TrackerIdResolver(
+            new IMetadataProvider[] { ani, jikan, mal },
+            store,
+            NullLogger<TrackerIdResolver>.Instance);
+
+        var result = await resolver.ResolveFromProviderAsync("Deokwave",
+                                                             "frieren",
+                                                             ["Sousou no Frieren", "zzzqqq"],
+                                                             cancellationToken: TestContext.Current.CancellationToken);
+
+        Assert.NotNull(result.Entry);
+        Assert.Equal("154587", result.Entry.AniListId);
+        Assert.Equal(0, jikan.Calls);
+        Assert.True(mal.Calls >= 1);
+    }
+
+    [Fact]
+    public async Task Lookup_PrefersScraperOverJikan()
+    {
+        var malMeta = Meta("20", "Naruto", "20", 2002);
+        malMeta.Source = MetadataSource.MyAnimeList;
+        var mal = new CountingProvider("MyAnimeList", [malMeta], byId: malMeta);
+        var jikan = new CountingProvider("Jikan", [], byId: Meta("20", "Naruto"));
+        var store = new TrackerMappingStore(NewTempDir());
+        var resolver = new TrackerIdResolver(
+            new IMetadataProvider[] { jikan, mal },
+            store,
+            NullLogger<TrackerIdResolver>.Instance);
+
+        var meta = await resolver.ResolveFromTrackerAsync(null, "20", TestContext.Current.CancellationToken);
+
+        Assert.NotNull(meta);
+        Assert.Equal(MetadataSource.MyAnimeList, meta.Source);
+        Assert.Equal(0, jikan.Calls);
+    }
+
+    private sealed class CountingProvider : IMetadataProvider
+    {
+        private readonly List<MediaMetadata> _data;
+        private readonly MediaMetadata? _byId;
+
+        public CountingProvider(string name, List<MediaMetadata> data, MediaMetadata? byId = null)
+        {
+            Name = name;
+            _data = data;
+            _byId = byId;
+        }
+
+        public string Name { get; }
+        public int Calls { get; private set; }
+
+        public Task<List<MediaMetadata>> SearchMetadataAsync(string title,
+            ContentFormat expectedFormat = ContentFormat.Unknown,
+            int limit = 10,
+            int offset = 0,
+            CancellationToken cancellationToken = default)
+        {
+            Calls++;
+            return Task.FromResult(_data);
+        }
+
+        public Task<MediaMetadata?> GetMetadataByIdAsync(string id, CancellationToken cancellationToken = default)
+        {
+            Calls++;
+            return Task.FromResult(_byId ?? _data.FirstOrDefault(m => m.ExternalId == id));
+        }
+    }
+
     private sealed class FakeMetadataProvider : IMetadataProvider
     {
         private readonly List<MediaMetadata> _data;
@@ -611,6 +756,8 @@ public sealed class TrackerIdResolverTests
 
         public Task<List<MediaMetadata>> SearchMetadataAsync(string title,
             ContentFormat                                           expectedFormat    = ContentFormat.Unknown,
+            int                                                     limit             = 10,
+            int                                                     offset            = 0,
             CancellationToken                                       cancellationToken = default)
         {
             return Task.FromResult(_data);
@@ -628,6 +775,8 @@ public sealed class TrackerIdResolverTests
 
         public Task<List<MediaMetadata>> SearchMetadataAsync(string title,
             ContentFormat                                           expectedFormat    = ContentFormat.Unknown,
+            int                                                     limit             = 10,
+            int                                                     offset            = 0,
             CancellationToken                                       cancellationToken = default)
         {
             return Task.FromException<List<MediaMetadata>>(new TaskCanceledException());

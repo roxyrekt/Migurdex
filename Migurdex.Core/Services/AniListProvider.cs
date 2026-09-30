@@ -26,12 +26,16 @@ public partial class AniListProvider : IMetadataProvider
 
     public async Task<List<MediaMetadata>> SearchMetadataAsync(string title,
         ContentFormat                                                 expectedFormat    = ContentFormat.Unknown,
+        int                                                           limit             = 10,
+        int                                                           offset            = 0,
         CancellationToken                                             cancellationToken = default)
     {
+        limit = Math.Clamp(limit, 1, 50);
+        offset = Math.Max(0, offset);
         const string query = """
 
-                                     query ($search: String, $type: MediaType) {
-                                       Page(page: 1, perPage: 10) {
+                                     query ($search: String, $type: MediaType, $page: Int, $perPage: Int) {
+                                       Page(page: $page, perPage: $perPage) {
                                          media(search: $search, type: $type) {
                                            id
                                            idMal
@@ -60,7 +64,9 @@ public partial class AniListProvider : IMetadataProvider
         var variables = new
         {
             search = title,
-            type   = expectedFormat == ContentFormat.Manga ? "MANGA" : "ANIME"
+            type   = expectedFormat == ContentFormat.Manga ? "MANGA" : "ANIME",
+            page   = offset / limit + 1,
+            perPage = limit
         };
 
         return await FetchListFromAniList(query, variables, cancellationToken);

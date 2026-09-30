@@ -44,6 +44,12 @@ public sealed class TrackerIdResolver : ITrackerIdResolver
                                           "Jikan",
                                           StringComparison.OrdinalIgnoreCase));
 
+    private IMetadataProvider? Mal =>
+        _providers.FirstOrDefault(p =>
+                                      p.Name.Equals(
+                                          "MyAnimeList",
+                                          StringComparison.OrdinalIgnoreCase));
+
     public async Task<TrackerResolveResult> ResolveFromProviderAsync(
         string                        providerName,
         string                        providerId,
@@ -169,19 +175,33 @@ public sealed class TrackerIdResolver : ITrackerIdResolver
             }
         }
 
-        if (candidates.Count == 0 && Jikan is not null)
+        if (candidates.Count == 0)
         {
-            try
+            foreach (var fallback in new[] { Mal, Jikan })
             {
-                foreach (var m in await Jikan.SearchMetadataAsync(distinctTitles[0],
-                                                                  cancellationToken: cancellationToken))
+                if (fallback is null)
                 {
-                    candidates.TryAdd($"jikan:{m.ExternalId}", m);
+                    continue;
                 }
-            }
-            catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
-            {
-                _logger.LogWarning(ex, "tracker resolve: jikan search failed for '{Title}'", distinctTitles[0]);
+
+                try
+                {
+                    foreach (var m in await fallback.SearchMetadataAsync(distinctTitles[0],
+                                                                         cancellationToken: cancellationToken))
+                    {
+                        candidates.TryAdd($"mal:{m.ExternalId}", m);
+                    }
+                }
+                catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
+                {
+                    _logger.LogWarning(ex, "tracker resolve: {Provider} search failed for '{Title}'",
+                                       fallback.Name, distinctTitles[0]);
+                }
+
+                if (candidates.Count > 0)
+                {
+                    break;
+                }
             }
         }
 
@@ -307,15 +327,24 @@ public sealed class TrackerIdResolver : ITrackerIdResolver
                 }
             }
 
-            if (Jikan is not null)
+            foreach (var fallback in new[] { Mal, Jikan })
             {
+                if (fallback is null)
+                {
+                    continue;
+                }
+
                 try
                 {
-                    return await Jikan.GetMetadataByIdAsync(malId.Trim(), cancellationToken);
+                    var byId = await fallback.GetMetadataByIdAsync(malId.Trim(), cancellationToken);
+                    if (byId is not null)
+                    {
+                        return byId;
+                    }
                 }
                 catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
                 {
-                    _logger.LogWarning(ex, "tracker lookup: jikan id failed '{Id}'", malId);
+                    _logger.LogWarning(ex, "tracker lookup: {Provider} id failed '{Id}'", fallback.Name, malId);
                 }
             }
         }
@@ -333,7 +362,8 @@ public sealed class TrackerIdResolver : ITrackerIdResolver
         var anilistId = top.Metadata.AniListId
                         ?? (top.Metadata.Source == MetadataSource.AniList ? top.Metadata.ExternalId : null);
         var malId = top.Metadata.MyAnimeListId
-                    ?? (top.Metadata.Source == MetadataSource.Jikan ? top.Metadata.ExternalId : null);
+                    ?? (top.Metadata.Source is MetadataSource.Jikan or MetadataSource.MyAnimeList
+                        ? top.Metadata.ExternalId : null);
 
         if (string.IsNullOrWhiteSpace(anilistId)
             && !string.IsNullOrWhiteSpace(malId)
