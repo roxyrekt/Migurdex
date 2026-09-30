@@ -46,7 +46,7 @@ public static class MetadataEndpoints
 
         if (!string.IsNullOrEmpty(source))
         {
-            var providerName = source.Equals("mal", StringComparison.OrdinalIgnoreCase) ? "Jikan" : source;
+            var providerName = source.Equals("mal", StringComparison.OrdinalIgnoreCase) ? "MyAnimeList" : source;
             var targetProvider =
                 metadataProviders.FirstOrDefault(x => x.Name.Equals(providerName, StringComparison.OrdinalIgnoreCase));
 
@@ -114,7 +114,7 @@ public static class MetadataEndpoints
         }
 
         source = source.Trim();
-        var providerName = source.Equals("mal", StringComparison.OrdinalIgnoreCase) ? "Jikan" : source;
+        var providerName = source.Equals("mal", StringComparison.OrdinalIgnoreCase) ? "MyAnimeList" : source;
         var metadataProviders = providers as IMetadataProvider[] ?? providers.ToArray();
         var p = metadataProviders.FirstOrDefault(x => x.Name.Equals(providerName, StringComparison.OrdinalIgnoreCase));
 
@@ -153,7 +153,9 @@ public static class MetadataEndpoints
                 }
             }
 
-            if (providerName.Equals("Jikan", StringComparison.OrdinalIgnoreCase) && hasAniListPrefix)
+            if ((providerName.Equals("Jikan", StringComparison.OrdinalIgnoreCase)
+                 || providerName.Equals("MyAnimeList", StringComparison.OrdinalIgnoreCase))
+                && hasAniListPrefix)
             {
                 if (metadataProviders.FirstOrDefault(x => x.Name.Equals("AniList", StringComparison.OrdinalIgnoreCase))
                     is AniListProvider aniList)
