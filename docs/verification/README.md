@@ -16,10 +16,11 @@ bulunur.
 | [`DUZELTMELER.md`](DUZELTMELER.md) | **Ana teknik kayıt.** C1 (SSRF), Grup A/B/C/D ve E1–E12 dahil her düzeltmenin problemi, kök nedeni, çözümü ve testi |
 | [`CI-TEST-ADIMI.md`](CI-TEST-ADIMI.md) | CI'a eklenen test adımı ve **yayımlama kapısı**, BULGU 29 (kendi yarattığım kırılganlık) ve BULGU 30 (Linux toplu SQLite çökmesi) |
 | [`BILINEN-SORUNLAR.md`](BILINEN-SORUNLAR.md) | E1–E12 ve BULGU 29/30/31/32/33/34 özet tablosu — ne düzeltildi, ne açık kaldı |
-| [`DERSLER.md`](DERSLER.md) | 46 ders. Süreç hataları da teknik hatalar kadar kayıt altına alındı |
+| [`DERSLER.md`](DERSLER.md) | 50 ders. Süreç hataları da teknik hatalar kadar kayıt altına alındı |
 | [`DONGU-3-KALAN-HATALAR.md`](DONGU-3-KALAN-HATALAR.md) | 3. döngü: kalan hata taraması, Linux yetim korumanın **reap edilen ebeveynde** çalışmaması (kritik), ajan bulgularının doğrulanması |
 | [`DONGU-4-TANI-KAYBI.md`](DONGU-4-TANI-KAYBI.md) | 4. döngü: altyazı hatalarının 29 sebebe indirgenmesi, plugin'lerin sessizce kaybolması, SQLite ölçüm adımı |
 | [`DONGU-5-OAUTH-IZINLERI.md`](DONGU-5-OAUTH-IZINLERI.md) | 5. döngü: OAuth token'larının dünya-okunur WAL dosyasında kalması (güvenlik) ve `busy_timeout` iddiasının çürütülmesi |
+| [`DONGU-6-PLUGIN-API-UPDATE.md`](DONGU-6-PLUGIN-API-UPDATE.md) | 6. döngü: `OpenAnime`'de yeniden denemenin semaforu **yeniden giriş kilitlemesi** (kritik, kontrol deneyiyle kanıtlandı), kendini güncellemenin kurulumu brick etmesi, `System.Text.Json`'nin doldurmadığı 3 DTO alanı |
 | [`linux/`](linux/) | WSL2 doğrulama turları: yetim/zombie öldürme, torun öldürme, toplu SQLite çökmesi, merge sonrası Windows CI kırılması (BULGU 33) |
 ## Ölçüm yöntemi
 
@@ -37,6 +38,7 @@ göstermek gerekir. Her "ölçüldü" satırının bir karşılığı vardır:
 | SSRF koruması | `127.0.0.1`'e **hiç** bağlantı denenmedi | koruma olmadan bağlanıyordu |
 | Test paketi temizliği (BULGU 30) | süpürücü kapalı ×3 → **0** hata | süpürücü açık ×3 → **47** hata |
 | BULGU 29 regresyon testi | düzeltilmiş hâlde yeşil | düzeltme geri alınınca **kırmızı**, 3 koşuda 40 hata |
+| BULGU 1 semafor kilitlenmesi | 5 eşzamanlı 401 → **0/6 başarısız** | düzeltme geri alınınca **3/3 başarısız**, 30 sn'de (asılmadan) |
 
 ### 2. Ayırıcı deneyde **tüm** değişiklikleri geri al
 
@@ -127,10 +129,16 @@ ifadesi bu ölçümle desteklenmiyor; desteklenen ifade **"keşif 600, koşu 599
 
 ## Son durum
 
+`main` = `d2987eb` (PR #1–#9 merge edildi). 6. döngü `fix/plugin-deadlock-and-serialization`
+dalında.
+
 | | |
 |---|---|
-| Windows tam süit | **10/10** koşu temiz |
-| Linux tam süit | **8/8** koşu temiz |
-| Build (iki platform) | 0 hata / 0 uyarı |
+| Windows tam süit | **9/10** koşu temiz (1 koşuda `TestPipelineException`, özet yine 605/605) |
+| Linux tam süit | **4/4** koşu temiz, 605 test |
+| Build (Linux) | 0 hata / 0 uyarı |
+| Build (Windows) | 0 hata / 1 uyarı — `DatabaseFilePermissionTests.cs` CA1416, bu dönüşte dokunulmadı |
 | CI | 5/5 iş yeşil (`Test ubuntu` ✓, `Test windows` ✓, 3 build ✓) |
+| BULGU 1 kontrol deneyi | düzeltmeli **0/6**, düzeltmesiz **3/3** başarısız (30 sn, asılmadan) |
+| Zombie süreç | yok |
 | Trim/AOT uyarıları | 10 adet, **tamamı** `Migurdex.Core/*` ve `IProvider.cs` içinde — bu PR'da değişen dosya değil; `main`'de de aynıları var |

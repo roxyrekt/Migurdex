@@ -184,7 +184,7 @@ public partial class StreamcashExtractor : IExtractor
     private sealed class StreamcashSubtitle
     {
         [JsonPropertyName("src")]
-        public string Src { get; } = string.Empty;
+        public string Src { get; set; } = string.Empty;
 
         [JsonPropertyName("srclang")]
         public string? Srclang { get; set; }

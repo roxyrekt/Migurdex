@@ -1,6 +1,6 @@
 # Dersler
 
-46 ders. **Süreç hataları da teknik hatalar kadar kayıt altına alındı** — çünkü bu
+50 ders. **Süreç hataları da teknik hatalar kadar kayıt altına alındı** — çünkü bu
 listede en pahalı kayıtlar onlar.
 
 Kaynak: görev sırasında tutulan işlem günlüğü. Her satır bir olayı, bir ölçümü ve
@@ -56,6 +56,11 @@ o olaydan çıkarılan kuralı içerir.
 | 44 | **Dizin silme yardımcısı `GC.Collect()` + `WaitForPendingFinalizers()` çağırıyordu**; canlı dizin silinemeyince üç kez küresel sonlandırma zorluyordu | BULGU 30 | Bir yardımcının **süreç çapında** yan etkisi olmamalı. Paralel testlerde özellikle tehlikeli; etkisi sessiz ve teşhisi zor |
 | 45 | Linux izleyici testi, **kardeş testlerin ürettiği global sayacı** ölçüyordu (`before=1`, sonra `0`) — 3/3 kararsız, üretim kodunda hata yoktu | `ChildProcessTrackerLinuxTests` | Ölçümü **teste özel bir kimliğe** bağla (hedef PID imzası gibi). "Şu an kaç tane var" türü sayaçlar komşu testlerden kirletilir |
 | 46 | `DirectoryNotFoundException`, `IOException` türevidir; `catch (IOException)` altında **"başka bir indirme kullanıyor"** diye raporlanıyordu | `DownloadTargetLock` | Türetilmiş istisnaları genel kollarda yutmadan önce sırala. Kullanıcıya **yanlış sebep** söylemek, hata vermekten kötüdür |
+
+| 47 | **`Copy-Item` yedeğin eski `LastWriteTime`'ını taşıdı.** Kaynak 18:03:32, DLL 18:13:54 → artımlı derleme kaynağı "yeni" sayıp **atladı**, test eski DLL'e baktı ve "düzeltme işe yaramadı" hükmü doğdu | BULGU 1 kontrol deneyi | Geri yükleme sonrası `LastWriteTime`'ı tazele **ve** kontrol deneyinde `--no-incremental` kullan. Bu tuzak ters yönde daha sinsi: derleme atlanırsa düzeltmeyi geri alınca test **yanlışlıkla yeşil** kalır, "kontrol deneyim tutmuyor" sanılır |
+| 48 | PowerShell komut satırına yazdığım `'Başarılı!'` deseni **Türkçe karakterlerden bozuldu**, hiç eşleşmedi ve **12/12 başarısız** raporladım — o koşuların hepsi yeşildi | Döngü 6 ölçümü | Komut içine yazılan desenlerde Türkçe harf **kullanma**. Güvenilir ölçüt `$LASTEXITCODE` ya da ASCII örüntü (`'Ba.Ar.s.z!'`). Daha kötüsü: aynı ölçümü `$LASTEXITCODE` ile yapınca 12/12 **gerçekten** başarısızdı — iki ölçüm çelişti, ayırıcı deney zorunluydu |
+| 49 | Testimin randevu (barrier) kapısı 5 isteğin **hepsinin aynı anda gelmesini** bekliyordu; havuz doyunca kapı hiç açılmadı, istekler `HttpClient.Timeout`'a (100 sn) kaldı ve **düzeltmeli durumda** kırmızı üretti | BULGU 1 | Eşzamanlılık testlerinde kesin koordinasyon **kendi kırılganlığındır**. Kapıya süre toleransı koy: ya N geldi ya da süre doldu. Test, kendi kuyruğunda asılı kalıp **düzeltmeli durumu** kırmızı yapmamalı |
+| 50 | Ajan "3 eşzamanlı 401 kilitler" dedi; ölçüm **5**'i gösterdi (3'te ikinci dalga yalnız 2 istek, bir permit bulur) | Döngü 6 · BULGU 1 | Ajanın **sayılarını** da doğrula, sadece teşhisini değil. Eşik, semafor kapasitesine **eşit** olmalıydı: arz ancak 5'i geçince tükenir |
 
 ---
 

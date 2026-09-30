@@ -142,7 +142,7 @@ public static class TrackerResolveEndpoints
                 ProviderId    = request.ProviderId.Trim(),
                 AniListId     = request.AniListId.Trim(),
                 MyAnimeListId = string.IsNullOrWhiteSpace(request.MyAnimeListId) ? null : request.MyAnimeListId.Trim(),
-                MatchedTitle  = request.MatchedTitle.Trim(),
+                MatchedTitle  = request.MatchedTitle?.Trim() ?? string.Empty,
                 Score         = 1.0
             });
             return Results.Ok();

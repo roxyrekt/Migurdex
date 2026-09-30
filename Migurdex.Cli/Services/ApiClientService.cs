@@ -849,12 +849,12 @@ public class ApiClientService : IApiClientService
 
     private class ExtractorResponse
     {
-        public string Name { get; } = string.Empty;
+        public string Name { get; set; } = string.Empty;
     }
 
     private class SearchResultWrapper
     {
-        public string              Provider { get; } = string.Empty;
+        public string              Provider { get; set; } = string.Empty;
         public List<SearchResult>? Data     { get; set; }
         public string?             Error    { get; set; }
     }
