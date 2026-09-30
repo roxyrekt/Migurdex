@@ -18,9 +18,7 @@ public sealed class WatchSyncServiceTests
 
     private static string NewTempDir(string prefix)
     {
-        var dir = Path.Combine(Path.GetTempPath(), prefix + Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(dir);
-        return dir;
+        return TestTempDirectory.Create(prefix);
     }
 
     private static TrackerEpisodeMapping Mapping(double episode  = 5,

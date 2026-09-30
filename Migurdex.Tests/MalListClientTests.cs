@@ -17,9 +17,7 @@ public sealed class MalListClientTests
 
     private static string NewTempDir()
     {
-        var dir = Path.Combine(Path.GetTempPath(), "migurdex-mallisttest-" + Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(dir);
-        return dir;
+        return TestTempDirectory.Create("migurdex-mallisttest-");
     }
 
     private static OAuthToken FreshToken()

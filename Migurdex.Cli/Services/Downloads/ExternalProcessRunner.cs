@@ -98,8 +98,12 @@ public sealed class ExternalProcessRunner : IExternalProcessRunner
             throw new ExternalProcessStartException("Dış araç bulunamadı veya başlatılamadı.");
         }
 
+        // `ChildProcessTracker.Track` artık Linux'ta da `LinuxOrphanGuard.Attach`
+        // çağırıyor. İkisi de burada çağrılırsa her `yt-dlp` çalıştırmasında **iki**
+        // izleyici süreci doğar — aynı işi yapan iki izleyici zararsız olsa da boşuna
+        // süreç ve iki kat yoklama yükü demektir. Tek kavşak yeterli: `Track`.
         ChildProcessTracker.Track(process);
-        LinuxOrphanGuard.Attach(process);
+
         using var cancellationRegistration = cancellationToken.Register(() => TryKillProcessTree(process));
         using var pipeCancellation          = new CancellationTokenSource();
         var standardOutputTask = CaptureAsync(process.StandardOutput,
@@ -618,14 +622,16 @@ internal static class LinuxOrphanGuard
         if (string.Equals(Path.GetFileNameWithoutExtension(host), "dotnet",
                           StringComparison.OrdinalIgnoreCase))
         {
-            var entryAssembly = System.Reflection.Assembly.GetEntryAssembly()?.Location;
-            if (string.IsNullOrWhiteSpace(entryAssembly))
+            var entryDll = ResolveEntryAssemblyPath();
+            if (entryDll is null)
             {
+                // `dotnet <dll>` çağrısı kurulamıyor (ör. gerçek single-file
+                // yayım). Koruma kurulamaz; indirme normal devam eder.
                 return null;
             }
 
             startInfo.FileName = host;
-            startInfo.ArgumentList.Add(entryAssembly);
+            startInfo.ArgumentList.Add(entryDll);
         }
         else
         {
@@ -892,6 +898,45 @@ internal static class LinuxOrphanGuard
         }
 
         return killed;
+    }
+
+    /// <summary>
+    /// Giriş assembly'sinin dosya yolu, <c>dotnet &lt;dll&gt;</c> ile yeniden
+    /// başlatmak için.
+    ///
+    /// <b>IL3000 neden bu şekilde yazıldı.</b> CI ilk sürümde uyarı verdi:
+    /// <c>Assembly.Location</c> <em>single-file yayımlanmış</em> assembly'lerde boş
+    /// string döner. Davranışsal olarak o dal hiç çalışmıyordu (single-file'da
+    /// <c>Environment.ProcessPath</c> apphost'tur, yani <c>dotnet</c> dalına girilmez),
+    /// ama uyarı meşrudu ve kod kırılgandı: <c>Location</c> boş dönerse
+    /// <c>dotnet ""</c> gibi bozuk bir komut satırı üretilebilirdi.
+    ///
+    /// Çözüm: <c>Assembly.Location</c> <b>hiç kullanılmıyor</b>. Onun yerine
+    /// <see cref="AppContext.BaseDirectory"/> + dosya adı kullanılıyor — framework-dependent
+    /// yayımda, <c>dotnet run</c>'da ve geliştirmede aynı yolu verir, ama IL3000
+    /// üretmez. Dosya gerçekten var mı diye doğrulanır; yoksa <c>null</c> döner ve
+    /// izleyici kurulmaz (indirme normal devam eder).
+    ///
+    /// Gerçek single-file yayımda ayrı bir DLL dosyası <em>yoktur</em> — doğru
+    /// davranış zaten korumayı atlamaktır.
+    /// </summary>
+    private static string? ResolveEntryAssemblyPath()
+    {
+        try
+        {
+            var name = System.Reflection.Assembly.GetEntryAssembly()?.GetName().Name;
+            if (string.IsNullOrWhiteSpace(name))
+            {
+                return null;
+            }
+
+            var candidate = Path.Combine(AppContext.BaseDirectory, name + ".dll");
+            return File.Exists(candidate) ? candidate : null;
+        }
+        catch
+        {
+            return null;
+        }
     }
 
     private static Dictionary<int, List<int>> BuildParentMap()

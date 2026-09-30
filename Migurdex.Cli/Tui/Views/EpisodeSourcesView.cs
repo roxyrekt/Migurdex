@@ -238,15 +238,13 @@ public class EpisodeSourcesView : BaseView
                               {
                                   while (!streamTask.IsCompleted && !cts.IsCancellationRequested)
                                   {
-                                      if (Console.KeyAvailable)
+                                      // Yönlendirilmiş stdin'de tuş okunamaz; tarama süreç bitene kadar sürer.
+                                      if (TuiConsole.TryReadKey(out var scanKey)
+                                          && scanKey.Key == ConsoleKey.Escape)
                                       {
-                                          var key = Console.ReadKey(true);
-                                          if (key.Key == ConsoleKey.Escape)
-                                          {
-                                              userCancelled = true;
-                                              cts.Cancel();
-                                              break;
-                                          }
+                                          userCancelled = true;
+                                          cts.Cancel();
+                                          break;
                                       }
 
                                       int currentCount;
@@ -522,8 +520,8 @@ public class EpisodeSourcesView : BaseView
                                  var task = progressContext.AddTask("Hazırlanıyor", maxValue: 100);
                                  while (!downloadTask.IsCompleted)
                                  {
-                                     if (Console.KeyAvailable
-                                         && Console.ReadKey(true).Key == ConsoleKey.Escape)
+                                     if (TuiConsole.TryReadKey(out var progressKey)
+                                         && progressKey.Key == ConsoleKey.Escape)
                                      {
                                          userCancelled = true;
                                          cancellation.Cancel();

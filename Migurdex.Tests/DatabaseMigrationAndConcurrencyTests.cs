@@ -9,9 +9,7 @@ public sealed class DatabaseMigrationAndConcurrencyTests
 {
     private static string NewTempDir()
     {
-        var dir = Path.Combine(Path.GetTempPath(), "migurdex-dbtest-" + Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(dir);
-        return dir;
+        return TestTempDirectory.Create("migurdex-dbtest-");
     }
 
     [Fact]

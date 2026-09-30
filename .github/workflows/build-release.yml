@@ -176,8 +176,69 @@ jobs:
                         migurdex-${{ matrix.runtime }}.zip
                         sha256sums-${{ matrix.runtime }}.txt
 
+    test:
+        name: Test (${{ matrix.os }})
+        runs-on: ${{ matrix.os }}
+        # NİÇİN KAPICI DEĞİL — bilinçli karar, keyfî görünmesin diye yazıldı.
+        #
+        # Tam süit ölçüldü: 12 koşunun 5'inde, 15 koşunun 3'inde **aralıklı** olarak
+        # `DatabaseMigrationAndConcurrencyTests.TrackerMappings_And_SyncQueue_Roundtrip`
+        # -> `SQLite Error 14: unable to open database file` ile kırılıyor.
+        #
+        # Ayırıcı ölçümler:
+        #   • Bu sınıf TEK BAŞINA koşunca      0/12 başarısız
+        #   • 6 SQLite sınıfı birlikte koşunca 0/10 başarısız
+        #   • TÜM süit koşunca                 3/10 – 5/12 başarısız
+        #   → sınıflar-arası ortak kaynak çakışması; kendi içinde yarış değil.
+        #   • `%TEMP%`'deki 12.864 birikmiş dizin temizlendi, oran DEĞİŞMEDİ (3/15)
+        #     → birikim neden değil.
+        #   • `TestTempDirectory` olmadan (Group H öncesi hâl) de 3/12 kırılıyordu
+        #     → **bu kırılganlık upstream'ten geliyor, bu PR'ın getirdiği bir hata değil.**
+        #
+        # Bu yüzden `dotnet test` KAPICI DEĞİL: ~%20 oranında kırmızı olan bir kapı,
+        # kırmızı/yeşilin anlamını yok eder ve insanları CI'a güvenmemeye iter.
+        # Sinyal görünür kalsın diye `continue-on-error` ile ekleniyor; kırılganlığın
+        # kök nedeni ayrı bir iş olarak kaydedildi (bkz. test-reports/KNOWN-ISSUES.md).
+        continue-on-error: true
+        strategy:
+            fail-fast: false
+            matrix:
+                os: [ ubuntu-22.04, windows-latest ]
+
+        steps:
+            -   uses: actions/checkout@v7
+
+            -   name: Setup .NET
+                uses: actions/setup-dotnet@v6
+                with:
+                    dotnet-version: ${{ env.DOTNET_VERSION }}
+
+            # `build` işi yalnızca derliyor ve paketliyor; test **çalıştırmıyordu**.
+            # Yeşil tik "derleniyor" demekti, "testler geçiyor" demek değildi — testler
+            # kırılmış olsa bile PR yeşil kalıyordu.
+            #
+            # Bu iş Rust kurulumu gerektirmez: native kütüphaneyi yükleyen tek şey
+            # `ExtractorFixture`, o da yalnız `ExtractorSmokeTests` tarafından
+            # kullanılıyor ve aşağıda filtreleniyor. (Doğrulandı: native DLL test
+            # çıktı klasöründe yokken 598 test geçiyor.)
+            #
+            # `ExtractorSmokeTests` ağ bağımlı canlı URL testleridir ve
+            # non-deterministiktir (ölçülen: Windows 26-28/35, Linux 9/10-14/20 —
+            # koşular arası toplam test sayısı bile değişiyor). Filtresiz
+            # çalıştırılsaydı CI düzenli olarak kırılırdı; bu bir regresyon
+            # göstergesi değil, ağ bağımlılığıdır.
+            -   name: Test
+                run: >
+                    dotnet test Migurdex.Tests/Migurdex.Tests.csproj
+                    -c Release
+                    --filter "FullyQualifiedName!~ExtractorSmokeTests"
+
     release:
         name: Create Release
+        # `test` bilinçli olarak listede **değil**: test işi `continue-on-error`
+        # olduğu için listede olması anlamsız olurdu, ama "testler yeşil olmadan
+        # yayımlama" gibi **yanlış bir güvence** de verirdi. Kırılganlığın kök nedeni
+        # çözülene kadar kapıya bağlanmayacak.
         needs: build
         if: startsWith(github.ref, 'refs/tags/v')
         runs-on: ubuntu-latest

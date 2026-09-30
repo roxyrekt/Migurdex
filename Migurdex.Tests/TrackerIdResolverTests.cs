@@ -91,9 +91,7 @@ public sealed class TrackerIdResolverTests
 
     private static string NewTempDir()
     {
-        var dir = Path.Combine(Path.GetTempPath(), "migurdex-test-" + Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(dir);
-        return dir;
+        return TestTempDirectory.Create("migurdex-test-");
     }
 
     private static MediaMetadata Meta(string id, string title, string? malId = null, int? year = null)

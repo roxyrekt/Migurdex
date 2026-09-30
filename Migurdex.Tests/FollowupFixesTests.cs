@@ -252,21 +252,11 @@ public sealed class FollowupFixesTests
 
     private static string NewTempDir()
     {
-        var path = Path.Combine(Path.GetTempPath(),
-                                "migurdex-tests-" + Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(path);
-        return path;
+        return TestTempDirectory.Create("migurdex-tests-");
     }
 
     private static void TryDeleteDirectory(string path)
     {
-        try
-        {
-            Directory.Delete(path, true);
-        }
-        catch
-        {
-            // ignored
-        }
+        TestTempDirectory.TryDelete(path);
     }
 }
