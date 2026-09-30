@@ -295,6 +295,7 @@ public partial class MalScrapeProvider : IMetadataProvider
             MyAnimeListId = malId,
             Source = MetadataSource.MyAnimeList,
             Title = title,
+            RomajiTitle = title,
             EnglishTitle = string.IsNullOrWhiteSpace(english) ? null : english,
             JapaneseTitle = string.IsNullOrWhiteSpace(japanese) ? null : japanese,
             OriginalTitle = string.IsNullOrWhiteSpace(japanese) ? null : japanese,

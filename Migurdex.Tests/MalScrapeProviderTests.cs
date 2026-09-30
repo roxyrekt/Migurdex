@@ -136,6 +136,7 @@ public sealed class MalScrapeProviderTests
         Assert.Equal("52991", meta.ExternalId);
         Assert.Equal("52991", meta.MyAnimeListId);
         Assert.Equal("Sousou no Frieren", meta.Title);
+        Assert.Equal("Sousou no Frieren", meta.RomajiTitle);
         Assert.Equal("Frieren: Beyond Journey's End", meta.EnglishTitle);
         Assert.Equal("葬送のフリーレン", meta.JapaneseTitle);
         Assert.Equal(2023, meta.Year);
