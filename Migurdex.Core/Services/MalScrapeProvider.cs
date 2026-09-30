@@ -3,7 +3,6 @@ using Migurdex.Shared.Enums;
 using Migurdex.Shared.Interfaces;
 using Migurdex.Shared.Models;
 using System.Globalization;
-using System.Text.Json;
 using System.Text.RegularExpressions;
 
 namespace Migurdex.Core.Services;
@@ -44,22 +43,6 @@ public partial class MalScrapeProvider : IMetadataProvider
         if (q.Length > 200)
         {
             q = q[..200];
-        }
-
-        try
-        {
-            var fast = await SearchPrefixJsonAsync(q, cancellationToken);
-            if (fast.Count > 0)
-            {
-                return fast;
-            }
-        }
-        catch (OperationCanceledException)
-        {
-            throw;
-        }
-        catch
-        {
         }
 
         try
@@ -106,117 +89,6 @@ public partial class MalScrapeProvider : IMetadataProvider
         {
             return null;
         }
-    }
-
-    private async Task<List<MediaMetadata>> SearchPrefixJsonAsync(string q, CancellationToken ct)
-    {
-        await ThrottleAsync(ct);
-        using var response = await _httpClient.GetAsync(
-            $"https://myanimelist.net/search/prefix.json?type=anime&keyword={Uri.EscapeDataString(q)}&v=1", ct);
-        if (!response.IsSuccessStatusCode)
-        {
-            return [];
-        }
-
-        var json = await response.Content.ReadAsStringAsync(ct);
-        using var doc = JsonDocument.Parse(json);
-
-        IEnumerable<JsonElement> items = [];
-        if (doc.RootElement.ValueKind == JsonValueKind.Object)
-        {
-            if (doc.RootElement.TryGetProperty("categories", out var cats)
-                && cats.ValueKind == JsonValueKind.Array)
-            {
-                items = cats.EnumerateArray()
-                    .Where(c => c.ValueKind == JsonValueKind.Object
-                        && c.TryGetProperty("items", out var ci)
-                        && ci.ValueKind == JsonValueKind.Array)
-                    .SelectMany(c => c.GetProperty("items").EnumerateArray());
-            }
-            else if (doc.RootElement.TryGetProperty("items", out var direct)
-                && direct.ValueKind == JsonValueKind.Array)
-            {
-                items = direct.EnumerateArray();
-            }
-        }
-
-        var list = new List<MediaMetadata>();
-        foreach (var item in items)
-        {
-            if (item.ValueKind != JsonValueKind.Object)
-            {
-                continue;
-            }
-
-            string? malId = null;
-            if (item.TryGetProperty("id", out var idProp))
-            {
-                malId = idProp.ValueKind == JsonValueKind.Number
-                    ? idProp.GetInt32().ToString()
-                    : idProp.GetString();
-            }
-
-            if (string.IsNullOrWhiteSpace(malId))
-            {
-                continue;
-            }
-
-            var name = item.TryGetProperty("name", out var nameProp)
-                ? nameProp.GetString() ?? malId
-                : item.TryGetProperty("title", out var titleProp)
-                    ? titleProp.GetString() ?? malId
-                    : malId;
-            var poster = item.TryGetProperty("image_url", out var imgProp)
-                ? imgProp.GetString()
-                : item.TryGetProperty("thumbnail", out var thumbProp)
-                    ? thumbProp.GetString()
-                    : null;
-
-            string? type = null;
-            int? year = null;
-            double? score = null;
-            string? status = null;
-            if (item.TryGetProperty("payload", out var payload)
-                && payload.ValueKind == JsonValueKind.Object)
-            {
-                type = payload.TryGetProperty("media_type", out var mt) ? mt.GetString() : null;
-                year = payload.TryGetProperty("start_year", out var sy) && sy.ValueKind == JsonValueKind.Number
-                    ? sy.GetInt32() : null;
-                if (payload.TryGetProperty("score", out var sc))
-                {
-                    score = sc.ValueKind switch
-                    {
-                        JsonValueKind.Number => sc.GetDouble(),
-                        JsonValueKind.String when double.TryParse(sc.GetString(),
-                            NumberStyles.Any, CultureInfo.InvariantCulture, out var sv) && sv > 0 => sv,
-                        _ => null,
-                    };
-                }
-                status = payload.TryGetProperty("status", out var st) ? st.GetString() : null;
-            }
-
-            list.Add(new MediaMetadata
-            {
-                ExternalId = malId,
-                MyAnimeListId = malId,
-                Source = MetadataSource.MyAnimeList,
-                Title = name,
-                PosterUrl = poster,
-                Status = status ?? string.Empty,
-                Year = year,
-                Score = score,
-                Format = MapFormat(type),
-                Genres = [],
-                Synonyms = [],
-            });
-
-            if (list.Count >= 10)
-            {
-                break;
-            }
-        }
-
-        return list;
     }
 
     private async Task<List<MediaMetadata>> SearchHtmlAsync(string q, CancellationToken ct)

@@ -11,15 +11,6 @@ namespace Migurdex.Tests;
 
 public sealed class MalScrapeProviderTests
 {
-    private const string PrefixJson = """
-        {"categories":[{"items":[
-          {"id":52991,"name":"Sousou no Frieren","image_url":"https://cdn.myanimelist.net/images/anime/1015/138006.jpg",
-           "payload":{"media_type":"TV","start_year":2023,"score":9.25,"status":"Finished Airing"}},
-          {"id":59978,"name":"Frieren: Beyond Journey's End Season 2","image_url":"https://cdn.myanimelist.net/images/anime/1921/154528.jpg",
-           "payload":{"media_type":"TV","start_year":2026,"score":"8.8","status":"Not Yet Aired"}}
-        ]}]}
-        """;
-
     private const string SearchHtml = """
         <html><body><div class="js-categories-seasonal"><table>
         <tr><th>Image</th><th>Anime</th><th>Type</th><th>Eps</th><th>Score</th></tr>
@@ -76,9 +67,9 @@ public sealed class MalScrapeProviderTests
     }
 
     [Fact]
-    public async Task Search_PrefixJson_MapsFields()
+    public async Task Search_HtmlTable_MapsFields()
     {
-        var provider = Create(new ScriptedHandler([Ok(PrefixJson, "application/json")]));
+        var provider = Create(new ScriptedHandler([Ok(SearchHtml)]));
 
         var list = await provider.SearchMetadataAsync("frieren", cancellationToken: TestContext.Current.CancellationToken);
 
@@ -88,30 +79,25 @@ public sealed class MalScrapeProviderTests
         Assert.Equal("52991", first.MyAnimeListId);
         Assert.Equal(MetadataSource.MyAnimeList, first.Source);
         Assert.Equal("Sousou no Frieren", first.Title);
-        Assert.Equal(2023, first.Year);
+        Assert.Equal(28, first.TotalEpisodes);
         Assert.Equal(9.25, first.Score);
         Assert.Equal(ContentFormat.Tv, first.Format);
+        Assert.Null(first.Year);
         Assert.Equal("MyAnimeList", provider.Name);
-        Assert.Equal(8.8, list[1].Score);
+        Assert.Null(list[1].Score);
     }
 
     [Fact]
-    public async Task Search_PrefixFails_FallsBackToHtml()
+    public async Task Search_HtmlError_ReturnsEmpty()
     {
         var provider = Create(new ScriptedHandler(
         [
-            new HttpResponseMessage(HttpStatusCode.InternalServerError),
-            Ok(SearchHtml)
+            new HttpResponseMessage(HttpStatusCode.InternalServerError)
         ]));
 
         var list = await provider.SearchMetadataAsync("frieren", cancellationToken: TestContext.Current.CancellationToken);
 
-        Assert.Equal(2, list.Count);
-        Assert.Equal("52991", list[0].ExternalId);
-        Assert.Equal("Sousou no Frieren", list[0].Title);
-        Assert.Equal(28, list[0].TotalEpisodes);
-        Assert.Null(list[0].Year);
-        Assert.Null(list[1].Score);
+        Assert.Empty(list);
     }
 
     [Fact]
