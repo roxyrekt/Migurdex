@@ -21,6 +21,7 @@ bulunur.
 | [`DONGU-4-TANI-KAYBI.md`](DONGU-4-TANI-KAYBI.md) | 4. döngü: altyazı hatalarının 29 sebebe indirgenmesi, plugin'lerin sessizce kaybolması, SQLite ölçüm adımı |
 | [`DONGU-5-OAUTH-IZINLERI.md`](DONGU-5-OAUTH-IZINLERI.md) | 5. döngü: OAuth token'larının dünya-okunur WAL dosyasında kalması (güvenlik) ve `busy_timeout` iddiasının çürütülmesi |
 | [`DONGU-6-PLUGIN-API-UPDATE.md`](DONGU-6-PLUGIN-API-UPDATE.md) | 6. döngü: `OpenAnime`'de yeniden denemenin semaforu **yeniden giriş kilitlemesi** (kritik, kontrol deneyiyle kanıtlandı), kendini güncellemenin kurulumu brick etmesi, `System.Text.Json`'nin doldurmadığı 3 DTO alanı |
+| [`DONGU-7-PORT-TAHISISI.md`](DONGU-7-PORT-TAHISISI.md) | 7. döngü: OAuth loopback testlerinin **sabit port** kullanması (PR #10'ın Linux CI'ını kırmızı yaptı), belirleyici kontrol deneyiyle düzeltildi; ortam kaybı (Temp iki SDK'yı sildi) |
 | [`linux/`](linux/) | WSL2 doğrulama turları: yetim/zombie öldürme, torun öldürme, toplu SQLite çökmesi, merge sonrası Windows CI kırılması (BULGU 33) |
 ## Ölçüm yöntemi
 
@@ -39,6 +40,7 @@ göstermek gerekir. Her "ölçüldü" satırının bir karşılığı vardır:
 | Test paketi temizliği (BULGU 30) | süpürücü kapalı ×3 → **0** hata | süpürücü açık ×3 → **47** hata |
 | BULGU 29 regresyon testi | düzeltilmiş hâlde yeşil | düzeltme geri alınınca **kırmızı**, 3 koşuda 40 hata |
 | BULGU 1 semafor kilitlenmesi | 5 eşzamanlı 401 → **0/6 başarısız** | düzeltme geri alınınca **3/3 başarısız**, 30 sn'de (asılmadan) |
+| BULGU 51 sabit port | koruma testleri **5/5** | `Next()` sabit porta döndürülünce **2 test kırmızı** (ölçümle, tek tek) |
 
 ### 2. Ayırıcı deneyde **tüm** değişiklikleri geri al
 

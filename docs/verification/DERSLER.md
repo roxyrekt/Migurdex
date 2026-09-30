@@ -1,6 +1,6 @@
 # Dersler
 
-50 ders. **Süreç hataları da teknik hatalar kadar kayıt altına alındı** — çünkü bu
+52 ders. **Süreç hataları da teknik hatalar kadar kayıt altına alındı** — çünkü bu
 listede en pahalı kayıtlar onlar.
 
 Kaynak: görev sırasında tutulan işlem günlüğü. Her satır bir olayı, bir ölçümü ve
@@ -61,6 +61,8 @@ o olaydan çıkarılan kuralı içerir.
 | 48 | PowerShell komut satırına yazdığım `'Başarılı!'` deseni **Türkçe karakterlerden bozuldu**, hiç eşleşmedi ve **12/12 başarısız** raporladım — o koşuların hepsi yeşildi | Döngü 6 ölçümü | Komut içine yazılan desenlerde Türkçe harf **kullanma**. Güvenilir ölçüt `$LASTEXITCODE` ya da ASCII örüntü (`'Ba.Ar.s.z!'`). Daha kötüsü: aynı ölçümü `$LASTEXITCODE` ile yapınca 12/12 **gerçekten** başarısızdı — iki ölçüm çelişti, ayırıcı deney zorunluydu |
 | 49 | Testimin randevu (barrier) kapısı 5 isteğin **hepsinin aynı anda gelmesini** bekliyordu; havuz doyunca kapı hiç açılmadı, istekler `HttpClient.Timeout`'a (100 sn) kaldı ve **düzeltmeli durumda** kırmızı üretti | BULGU 1 | Eşzamanlılık testlerinde kesin koordinasyon **kendi kırılganlığındır**. Kapıya süre toleransı koy: ya N geldi ya da süre doldu. Test, kendi kuyruğunda asılı kalıp **düzeltmeli durumu** kırmızı yapmamalı |
 | 50 | Ajan "3 eşzamanlı 401 kilitler" dedi; ölçüm **5**'i gösterdi (3'te ikinci dalga yalnız 2 istek, bir permit bulur) | Döngü 6 · BULGU 1 | Ajanın **sayılarını** da doğrula, sadece teşhisini değil. Eşik, semafor kapasitesine **eşit** olmalıydı: arz ancak 5'i geçince tükenir |
+| 51 | **Mekanizmayı hafızadan tahmin ettim.** `HttpListener.Dispose()` için “portta açık bağlantı varken patlar” dedim; Linux'ta birebir repro yazıp koşturdum: **3/3 temiz, hipotez ölü.** Yığın izi `Dispose()` → `RemovePrefixInternal` → `GetEPListener` diyordu | Çökütülen hipotez | Stack trace'u **okumadan** mekanizma anlatma. Yığın izi çük kısa nesnenin sınıfında olduğunu değil, **hangi aşamada** olduğunu gösterir |
+| 52 | **Kontrol deneyi Linux doğrulamasını bozdu.** Windows'ta `FreeLoopbackPort.cs`'i sabit porta sabitlerken Linux aynı dosyayı okuyordu; Linux ölçümü geçersiz oldu (koruma testleri 2/3 gösterdi). Ayrıca Linux betiğinde `Migurdex.tests.csproj` yazım hatası vardı, tam süt 4/4 “başarısız” göründü | Linux doğrulaması | Bir **kaynağı okuyan** ölçüm ile onu **değiştiren** ölçüm aynı anda çalışmaz. Kontrol deneyini doğrulama koşusundan ayrıklaştır |
 
 ---
 
