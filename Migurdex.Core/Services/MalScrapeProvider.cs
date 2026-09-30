@@ -131,6 +131,7 @@ public partial class MalScrapeProvider : IMetadataProvider
 
             var img = row.QuerySelector("td:nth-child(1) .picSurround img");
             var poster = img?.GetAttribute("data-src") ?? img?.GetAttribute("src");
+            var blurb = row.QuerySelector("td:nth-child(2) .pt4")?.TextContent.Trim() ?? string.Empty;
             var typeText = row.QuerySelector("td:nth-child(3)")?.TextContent.Trim() ?? string.Empty;
             var epsText = row.QuerySelector("td:nth-child(4)")?.TextContent.Trim() ?? string.Empty;
             var scoreText = row.QuerySelector("td:nth-child(5)")?.TextContent.Trim() ?? string.Empty;
@@ -145,6 +146,7 @@ public partial class MalScrapeProvider : IMetadataProvider
                 Source = MetadataSource.MyAnimeList,
                 Title = animeTitle,
                 PosterUrl = poster,
+                Summary = blurb,
                 Year = null,
                 Score = scoreVal > 0 ? scoreVal : null,
                 TotalEpisodes = eps > 0 ? eps : null,

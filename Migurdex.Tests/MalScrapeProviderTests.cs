@@ -83,6 +83,7 @@ public sealed class MalScrapeProviderTests
         Assert.Equal(9.25, first.Score);
         Assert.Equal(ContentFormat.Tv, first.Format);
         Assert.Null(first.Year);
+        Assert.StartsWith("Demon King", first.Summary);
         Assert.Equal("MyAnimeList", provider.Name);
         Assert.Null(list[1].Score);
     }
