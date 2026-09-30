@@ -35,6 +35,8 @@ public partial class MalScrapeProvider : IMetadataProvider
 
     public async Task<List<MediaMetadata>> SearchMetadataAsync(string title,
         ContentFormat expectedFormat = ContentFormat.Unknown,
+        int limit = 10,
+        int offset = 0,
         CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(title))
@@ -48,9 +50,12 @@ public partial class MalScrapeProvider : IMetadataProvider
             q = q[..200];
         }
 
+        limit = Math.Clamp(limit, 1, 50);
+        offset = Math.Max(0, offset);
+
         try
         {
-            var light = await SearchHtmlAsync(q, cancellationToken);
+            var light = await SearchHtmlAsync(q, limit, offset, cancellationToken);
             return await EnrichTopAsync(light, cancellationToken);
         }
         catch (OperationCanceledException)
@@ -149,11 +154,12 @@ public partial class MalScrapeProvider : IMetadataProvider
         }
     }
 
-    private async Task<List<MediaMetadata>> SearchHtmlAsync(string q, CancellationToken ct)
+    private async Task<List<MediaMetadata>> SearchHtmlAsync(string q, int limit, int offset, CancellationToken ct)
     {
         await ThrottleAsync(ct);
+        var show = offset - offset % 50;
         using var response = await _httpClient.GetAsync(
-            $"https://myanimelist.net/anime.php?q={Uri.EscapeDataString(q)}&cat=anime", ct);
+            $"https://myanimelist.net/anime.php?q={Uri.EscapeDataString(q)}&cat=anime&show={show}", ct);
         if (!response.IsSuccessStatusCode)
         {
             return [];
@@ -163,6 +169,8 @@ public partial class MalScrapeProvider : IMetadataProvider
         using var doc = await _parser.ParseDocumentAsync(html, ct);
 
         var list = new List<MediaMetadata>();
+        var skip = offset % 50;
+        var skipped = 0;
         var rows = doc.QuerySelectorAll("div.js-categories-seasonal table tr");
         foreach (var row in rows.Skip(1))
         {
@@ -180,6 +188,11 @@ public partial class MalScrapeProvider : IMetadataProvider
             }
 
             var malId = idMatch.Groups[1].Value;
+            if (skipped < skip)
+            {
+                skipped++;
+                continue;
+            }
             var animeTitle = anchor.QuerySelector("strong")?.TextContent.Trim()
                 ?? anchor.TextContent.Trim();
             if (string.IsNullOrWhiteSpace(animeTitle))
@@ -213,7 +226,7 @@ public partial class MalScrapeProvider : IMetadataProvider
                 Synonyms = [],
             });
 
-            if (list.Count >= 10)
+            if (list.Count >= limit)
             {
                 break;
             }

@@ -9,6 +9,8 @@ public interface IMetadataProvider
 
     Task<List<MediaMetadata>> SearchMetadataAsync(string title,
         ContentFormat                                    expectedFormat    = ContentFormat.Unknown,
+        int                                              limit             = 10,
+        int                                              offset            = 0,
         CancellationToken                                cancellationToken = default);
 
     Task<MediaMetadata?> GetMetadataByIdAsync(string id, CancellationToken cancellationToken = default);

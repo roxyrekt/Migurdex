@@ -130,6 +130,51 @@ public sealed class MalScrapeProviderTests
     }
 
     [Fact]
+    public async Task Search_Offset_SkipsRows()
+    {
+        var provider = Create(url => url.Contains("anime.php") ? Ok(SearchHtml) : Fail());
+
+        var list = await provider.SearchMetadataAsync("frieren",
+            limit: 10,
+            offset: 1,
+            cancellationToken: TestContext.Current.CancellationToken);
+
+        var single = Assert.Single(list);
+        Assert.Equal("20", single.ExternalId);
+    }
+
+    [Fact]
+    public async Task Search_Limit_TakesRows()
+    {
+        var provider = Create(url => url.Contains("anime.php") ? Ok(SearchHtml) : Fail());
+
+        var list = await provider.SearchMetadataAsync("frieren",
+            limit: 1,
+            cancellationToken: TestContext.Current.CancellationToken);
+
+        var single = Assert.Single(list);
+        Assert.Equal("52991", single.ExternalId);
+    }
+
+    [Fact]
+    public async Task Search_OffsetBeyondPage_UsesShowParam()
+    {
+        var urls = new List<string>();
+        var provider = Create(url =>
+        {
+            urls.Add(url);
+            return url.Contains("anime.php") ? Ok(SearchHtml) : Fail();
+        });
+
+        _ = await provider.SearchMetadataAsync("frieren",
+            limit: 5,
+            offset: 55,
+            cancellationToken: TestContext.Current.CancellationToken);
+
+        Assert.Contains(urls, u => u.Contains("show=50"));
+    }
+
+    [Fact]
     public async Task Search_HtmlError_ReturnsEmpty()
     {
         var provider = Create(_ => Fail());

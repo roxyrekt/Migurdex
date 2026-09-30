@@ -20,6 +20,8 @@ public static class MetadataEndpoints
     private static async Task<IResult> SearchMetadata(
         string                         q,
         string?                        source,
+        int?                           limit,
+        int?                           offset,
         IEnumerable<IMetadataProvider> providers,
         ILoggerFactory                 loggerFactory,
         CancellationToken              cancellationToken)
@@ -37,6 +39,9 @@ public static class MetadataEndpoints
             return ApiErrors.BadRequest($"Arama sorgusu en fazla {MaxQueryLength} karakter olabilir.");
         }
 
+        var lim = Math.Clamp(limit ?? 10, 1, 50);
+        var off = Math.Max(0, offset ?? 0);
+
         var metadataProviders = providers as IMetadataProvider[] ?? providers.ToArray();
 
         if (!string.IsNullOrEmpty(source))
@@ -52,7 +57,10 @@ public static class MetadataEndpoints
 
             try
             {
-                var results = await targetProvider.SearchMetadataAsync(q, cancellationToken: cancellationToken);
+                var results = await targetProvider.SearchMetadataAsync(q,
+                                                                       limit: lim,
+                                                                       offset: off,
+                                                                       cancellationToken: cancellationToken);
                 return Results.Ok(results);
             }
             catch (Exception ex)
@@ -68,7 +76,10 @@ public static class MetadataEndpoints
         {
             try
             {
-                return await p.SearchMetadataAsync(q, cancellationToken: cancellationToken);
+                return await p.SearchMetadataAsync(q,
+                                                   limit: lim,
+                                                   offset: off,
+                                                   cancellationToken: cancellationToken);
             }
             catch (Exception ex)
             {

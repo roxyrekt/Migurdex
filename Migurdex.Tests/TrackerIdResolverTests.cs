@@ -598,6 +598,71 @@ public sealed class TrackerIdResolverTests
         Assert.Empty(list);
     }
 
+    [Fact]
+    public async Task AniList_Search_SendsPageVariables()
+    {
+        var handler = new CapturingHandler(new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StringContent(AniListPageJson)
+        });
+        var provider = new AniListProvider(new StubBridge(new HttpClient(handler)));
+
+        var list = await provider.SearchMetadataAsync("one piece",
+                                                      limit: 5,
+                                                      offset: 10,
+                                                      cancellationToken: TestContext.Current.CancellationToken);
+
+        Assert.Single(list);
+        Assert.NotNull(handler.Body);
+        Assert.Contains("\"page\":3", handler.Body);
+        Assert.Contains("\"perPage\":5", handler.Body);
+    }
+
+    [Fact]
+    public async Task Jikan_Search_SendsLimitAndPage()
+    {
+        var handler = new CapturingHandler(new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StringContent("""{"data":[]}""")
+        });
+        var provider = new JikanProvider(new StubBridge(new HttpClient(handler)));
+
+        var list = await provider.SearchMetadataAsync("frieren",
+                                                      limit: 5,
+                                                      offset: 5,
+                                                      cancellationToken: TestContext.Current.CancellationToken);
+
+        Assert.Empty(list);
+        Assert.NotNull(handler.Uri);
+        Assert.Contains("limit=5", handler.Uri);
+        Assert.Contains("page=2", handler.Uri);
+    }
+
+    private sealed class CapturingHandler : HttpMessageHandler
+    {
+        private readonly HttpResponseMessage _response;
+
+        public CapturingHandler(HttpResponseMessage response)
+        {
+            _response = response;
+        }
+
+        public string? Body { get; private set; }
+        public string? Uri { get; private set; }
+
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            Uri = request.RequestUri?.ToString();
+            if (request.Content is not null)
+            {
+                Body = await request.Content.ReadAsStringAsync(cancellationToken);
+            }
+
+            return _response;
+        }
+    }
+
     private sealed class FakeMetadataProvider : IMetadataProvider
     {
         private readonly List<MediaMetadata> _data;
@@ -611,6 +676,8 @@ public sealed class TrackerIdResolverTests
 
         public Task<List<MediaMetadata>> SearchMetadataAsync(string title,
             ContentFormat                                           expectedFormat    = ContentFormat.Unknown,
+            int                                                     limit             = 10,
+            int                                                     offset            = 0,
             CancellationToken                                       cancellationToken = default)
         {
             return Task.FromResult(_data);
@@ -628,6 +695,8 @@ public sealed class TrackerIdResolverTests
 
         public Task<List<MediaMetadata>> SearchMetadataAsync(string title,
             ContentFormat                                           expectedFormat    = ContentFormat.Unknown,
+            int                                                     limit             = 10,
+            int                                                     offset            = 0,
             CancellationToken                                       cancellationToken = default)
         {
             return Task.FromException<List<MediaMetadata>>(new TaskCanceledException());

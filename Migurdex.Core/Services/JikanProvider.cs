@@ -19,12 +19,17 @@ public class JikanProvider : IMetadataProvider
 
     public async Task<List<MediaMetadata>> SearchMetadataAsync(string title,
         ContentFormat                                                 expectedFormat    = ContentFormat.Unknown,
+        int                                                           limit             = 10,
+        int                                                           offset            = 0,
         CancellationToken                                             cancellationToken = default)
     {
-        var url = $"https://api.jikan.moe/v4/anime?q={Uri.EscapeDataString(title)}&limit=10";
+        limit = Math.Clamp(limit, 1, 25);
+        offset = Math.Max(0, offset);
+        var page = offset / limit + 1;
+        var url = $"https://api.jikan.moe/v4/anime?q={Uri.EscapeDataString(title)}&limit={limit}&page={page}";
         if (expectedFormat == ContentFormat.Manga)
         {
-            url = $"https://api.jikan.moe/v4/manga?q={Uri.EscapeDataString(title)}&limit=10";
+            url = $"https://api.jikan.moe/v4/manga?q={Uri.EscapeDataString(title)}&limit={limit}&page={page}";
         }
 
         var list = new List<MediaMetadata>();

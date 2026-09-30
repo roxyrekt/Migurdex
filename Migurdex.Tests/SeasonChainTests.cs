@@ -1098,6 +1098,8 @@ public sealed class SeasonChainTests
 
         public Task<List<MediaMetadata>> SearchMetadataAsync(string title,
             ContentFormat                                           expectedFormat    = ContentFormat.Unknown,
+            int                                                     limit             = 10,
+            int                                                     offset            = 0,
             CancellationToken                                       cancellationToken = default)
         {
             return Task.FromResult(_byId.Values.ToList());
