@@ -71,6 +71,33 @@ internal static class TestTempDirectory
     /// </summary>
     internal const int DeleteAttempts = 3;
 
+    /// <summary>
+    /// Bir koşu dizini en az bu süre dokunulmamışsa "terk edilmiş" sayılabilir.
+    ///
+    /// <para><b>Neden şart — ölçüldü, varsayım değil.</b> xUnit v3 test derlemesini
+    /// <b>birden çok işlemde</b> çalıştırıyor (ölçülen PID'ler: 645, 673, 703, 707,
+    /// 719, 745 — hepsi <em>tek</em> <c>dotnet test</c> çağrısında). Her biri modül
+    /// başlatıcısını çalıştırıp kökü süpürdüğü için, bir işlem bitip öldüğü anda
+    /// <b>bir sonraki işlem onun dizinini siliyor</b> — oysa dosyalar hâlâ
+    /// kullanılıyordu. Linux (WSL) kaydı:
+    /// <c>RunRoot=run-673-… entry=run-645-… -&gt; SILDI</c>.</para>
+    ///
+    /// <para>Sonuç: SQLite günlük dosyasını oluşturamıyor,
+    /// <c>SQLite Error 10: disk I/O error</c> ve
+    /// <c>Error 14: unable to open database file</c> ile koşu başına 8–17 test
+    /// düşüyordu. Ölçüm: süpürücü açıkken 3 koşuda 47 hata, kapalıyken <b>0</b>.</para>
+    ///
+    /// <para>Yalnız Windows'ta görünmüyordu: açık dosya varken
+    /// <c>Directory.Delete</c> başarısız olur ve hata yutulur. Unix'te
+    /// <c>unlink</c> açık dosyada da başarılıdır, yani silme gerçekten olur.</para>
+    ///
+    /// <para>Tolerans bu yarışı tamamen kapatır: yeni bitmiş bir koşu 10 dakika
+    /// dokunulmaz, gerçekten eski kalıntılar toplanır. Birikim yine sınırsız
+    /// büyümez — yalnız "bir sonraki koşuda" değil, "on dakika sonraki koşuda"
+    /// toplanır. Doğruluk, daha agresif temizliğin önüne geçti.</para>
+    /// </summary>
+    internal static readonly TimeSpan SweepGracePeriod = TimeSpan.FromMinutes(10);
+
     private static readonly ConcurrentDictionary<string, byte> Tracked = new(StringComparer.Ordinal);
 
     /// <summary>Kökün tam yolu. Testler buraya yazmaya devam edebilir.</summary>
@@ -173,10 +200,14 @@ internal static class TestTempDirectory
                 }
 
                 // Kapanmamış yönetilmeyen taşıyıcılar (ör. SQLite) ilk denemede
-                // paylaşım ihlali üretir. Finalizatörlerin işe koşması için kısa bir
-                // bekleme ve tekrar deneme.
-                GC.Collect();
-                GC.WaitForPendingFinalizers();
+                // paylaşım ihlali üretir; kısa bekleyip yeniden denenir.
+                //
+                // DİKKAT: burada bilinçli olarak `GC.Collect()` /
+                // `GC.WaitForPendingFinalizers()` ÇAĞRILMAZ. Bir dizin silme
+                // yardımcısının süreç çapında sonlandırma tetiklemesi, paralel
+                // çalışan başka testlerin nesnelerini beklenmedik anda sonlandırabilir.
+                // Ölçülen Linux hatasında bu tam olarak tetikleniyordu: süpürücü canlı
+                // bir koşu dizinini silemeyince yardımcı üç kez küresel GC zorluyordu.
                 Thread.Sleep(20 * attempt);
             }
         }
@@ -234,10 +265,17 @@ internal static class TestTempDirectory
             {
                 return;
             }
-
             foreach (var entry in Directory.EnumerateDirectories(Root))
             {
-                if (!string.Equals(Path.GetFileName(entry), RunRoot, StringComparison.Ordinal)
+                // `entry` bir TAM YOL, `RunRoot` de tam yoldur. Önceden
+                // `Path.GetFileName(entry)` (dosya adı) ile karşılaştırılıyordu ve bu
+                // hiç eşleşmediği için "kendi koşu dizinimi atla" güvencesi fiilen
+                // yoktu — her karar `IsAbandoned`'e bağlıydı.
+                //
+                // Tolerans: yeni bitmiş bir koşunun dizini silinmez. Yukarıdaki
+                // ölçülen yarışın kaynağı tam olarak budur.
+                if (!string.Equals(entry, RunRoot, StringComparison.Ordinal)
+                    && IsOlderThan(entry, SweepGracePeriod)
                     && IsAbandoned(entry))
                 {
                     TryDelete(entry);
@@ -276,6 +314,27 @@ internal static class TestTempDirectory
         if (pid <= 0)
         {
             return true;
+        }
+
+        // KENDİ koşu dizinimiz kesinlikle terk edilmiş olamaz — bu süreç yaşıyor
+        // demektir. Bu kural iki gerçek açığı tek yerinde kapatır:
+        //
+        // 1) `BuildRunName` okuyamadığında `startTicks = 0` yazıyor. Böyle bir
+        //    dizinde `owner.StartTime.Ticks != 0` olduğu için "terk edilmiş" sayılır
+        //    ve **canlı koşunun kökü silinirdi**. Linux ölçümü: test ortasında
+        //    `DirectoryNotFoundException` (kilit dosyasının yolu yok).
+        //
+        // 2) xUnit v3 derlemeyi birden çok AssemblyLoadContext'e yüklüyor (ölçüldü:
+        //    3 ayrı yükleme). Her biri modül başlatıcısını çalıştırıp kendi
+        //    `RunRoot` değerini kuruyor; bunlar farklıysa biri diğerinin dizinini
+        //    "kendi" diye atlayamaz.
+        //
+        // Linux'a özgü görünmesinin nedeni: Unix'te `unlink`/`rmdir` **açık dosya
+        //    bulunsa da** başarılıdır, yani silme gerçekten gerçekleşir. Windows'ta
+        // açık kilit dosyası silmeyi engeller ve hata yutulur.
+        if (pid == Environment.ProcessId)
+        {
+            return false;
         }
 
         try

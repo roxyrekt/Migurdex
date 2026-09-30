@@ -346,18 +346,24 @@ public sealed class TuiRedirectedStdinTests
     ///     (sadece FuzzyPrompt'un kapatılması) bu listedeki bir dosyayı sessizce boşta bırakırdı.
     /// </summary>
     [Theory]
+    // Ayraç olarak düz `/` kullanılır: `Path.Combine` Linux'ta `\`'i ayraç saymaz,
+    // `Views\X.cs` diye bir dosya adı üretir ve tarama tutmaz (Linux CI'da ölçüldü:
+    // `Beklenen TUI dosyası yok: Views\EpisodeSourcesView.cs`). Windows da `/`
+    // kabul ettiği için tek yazım iki platformda da geçerlidir.
     [InlineData("FuzzyPrompt.cs")]
     [InlineData("ReorderPrompt.cs")]
     [InlineData("SyncAmbiguityPrompt.cs")]
-    [InlineData("Views\\EpisodeSourcesView.cs")]
-    [InlineData("Views\\SettingsView.cs")]
-    [InlineData("Views\\MainMenuView.cs")]
+    [InlineData("Views/EpisodeSourcesView.cs")]
+    [InlineData("Views/SettingsView.cs")]
+    [InlineData("Views/MainMenuView.cs")]
     public void EveryInteractiveScreenRoutesThroughTuiConsole(string relativePath)
     {
         var tuiDir = FindTuiSourceDirectory();
         Assert.SkipWhen(tuiDir is null, "Migurdex kaynak ağacı bulunamadı; tarama atlandı.");
 
-        var full = Path.Combine(tuiDir!, relativePath);
+        // Bölücüyü işletim sistemi ayracına çevir.
+        var full = Path.Combine(tuiDir!,
+                                relativePath.Replace('/', Path.DirectorySeparatorChar));
         Assert.True(File.Exists(full), $"Beklenen TUI dosyası yok: {relativePath}");
 
         var source = File.ReadAllText(full);

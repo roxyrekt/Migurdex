@@ -34,6 +34,7 @@ internal static class DownloadTargetLock
 
         var fullTarget = Path.GetFullPath(targetIdentity);
         var key         = PathKey(fullTarget);
+        var parent      = Path.GetDirectoryName(fullTarget);
         var entry       = _processLocks.GetOrAdd(key, _ => new ProcessLock());
         await entry.Semaphore.WaitAsync(cancellationToken).ConfigureAwait(false);
         Interlocked.Increment(ref entry.Acquisitions);
@@ -58,6 +59,19 @@ internal static class DownloadTargetLock
             stream?.Dispose();
             ReleaseEntry(entry, key);
             throw;
+        }
+        catch (DirectoryNotFoundException ex)
+        {
+            // `DirectoryNotFoundException` de bir `IOException` türevidir. Altındaki
+            // genel `catch (IOException)` kolu onu "başka bir indirme kullanıyor"
+            // diye raporlardı — **tamamen yanlış teşhis**. Linux CI'da ölçüldü:
+            // hedef klasör silinmiş/silinmemişken kullanıcıya eşzamanlı indirme
+            // varmış gibi görünüyordu.
+            stream?.Dispose();
+            ReleaseEntry(entry, key);
+            throw new DownloadException(
+                $"İndirme klasörü bulunamadı: {parent}",
+                ex);
         }
         catch (IOException ex)
         {

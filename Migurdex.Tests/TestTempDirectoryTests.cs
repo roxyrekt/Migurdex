@@ -187,15 +187,65 @@ public sealed class TestTempDirectoryTests
     {
         // Sahibi olmayan (PID'si çözülemeyen çok büyük PID) koşu dizini, çökmüş ya da
         // SIGKILL ile öldürülmüş bir koşudan kalmış gibidir ve toplanmalıdır.
+        //
+        // DİKKAT: dizin yaşlandırılır. Süpürücü artık yalnızca
+        // `SweepGracePeriod` boyunca dokunulmamış dizinleri topluyor; aksi halde
+        // "az önce ölmüş ama dosyaları hâlâ kullanılan" koşuların dizinleri de
+        // toplanır ve canlı testlerin veritabanları yok edilir (Linux'ta ölçüldü:
+        // koşu başına 8–17 hata). Gerçek bir çökme kalıntısı da zaten eski olduğu
+        // için bu eşikle de toplanır.
         var stale = Path.Combine(TestTempDirectory.Root,
                                  "run-2147483647-1");
         Directory.CreateDirectory(Path.Combine(stale, "migurdex-dbtest-eski"));
         File.WriteAllText(Path.Combine(stale, "migurdex-dbtest-eski", "migurdex.db"), "x");
+        Directory.SetLastWriteTimeUtc(stale, DateTime.UtcNow - TestTempDirectory.SweepGracePeriod - TimeSpan.FromMinutes(5));
 
-        TestTempDirectory.SweepAbandonedRuns();
+        try
+        {
+            TestTempDirectory.SweepAbandonedRuns();
 
-        Assert.False(Directory.Exists(stale));
+            Assert.False(Directory.Exists(stale));
+        }
+        finally
+        {
+            TestTempDirectory.TryDelete(stale);
+        }
     }
+
+    /// <summary>
+    /// <b>Regresyon testi — Linux CI kırmızısı.</b> Sahibi ölmüş görünen ama
+    /// <b>taze</b> bir koşu dizini silinmemelidir.
+    ///
+    /// <para>Ölçülen hata: xUnit v3 tek <c>dotnet test</c> çağrısında birden çok
+    /// işlem çalıştırıyor (PID 645 → 673 → 703 …). Her biri modül başlatıcısında
+    /// kökü süpürdüğü için, bir işlem öldüğü anda <b>bir sonraki işlem onun hâlâ
+    /// kullanılan dizinini siliyordu</b>. SQLite günlük dosyasını oluşturamadığı
+    /// için <c>SQLite Error 10: disk I/O error</c> / <c>Error 14: unable to open
+    /// database file</c> ile koşu başına 8–17 test düşüyordu.</para>
+    ///
+    /// <para>Bu test, düzeltme olmasaydı kırmızı olurdu: eski kod taze dizini de
+    /// siliyordu.</para>
+    /// </summary>
+    [Fact]
+    public void SweepAbandonedRuns_Keeps_Fresh_Run_Of_Dead_Process()
+    {
+        var fresh = Path.Combine(TestTempDirectory.Root,
+                                 "run-2147483646-1");
+        Directory.CreateDirectory(Path.Combine(fresh, "migurdex-dbtest-canli"));
+
+        try
+        {
+            TestTempDirectory.SweepAbandonedRuns();
+
+            Assert.True(Directory.Exists(fresh),
+                        "Sahibi ölmüş görünen taze koşu dizini silinmemeli.");
+        }
+        finally
+        {
+            TestTempDirectory.TryDelete(fresh);
+        }
+    }
+
 
     [Fact]
     public void SweepAbandonedRuns_Keeps_Unparsable_Fresh_Directory()
@@ -249,18 +299,53 @@ public sealed class TestTempDirectoryTests
     }
 
     [Fact]
-    public void IsAbandoned_Rejects_Live_Process_Run()
+    public void IsAbandoned_NeverSweepsTheCurrentProcessRun()
     {
-        // PID yeniden kullanımı: süreç hâlâ yaşıyor ama başlangıç zamanı tutmuyor.
-        // Bu dizin eski koşuya aittir ve toplanmalıdır.
-        var name   = Path.GetFileName(TestTempDirectory.RunRoot);
-        var reused = Path.Combine(TestTempDirectory.Root,
-                                  "run-" + Environment.ProcessId.ToString(
-                                               System.Globalization.CultureInfo.InvariantCulture)
-                                          + "-1");
+        // GUVENLIK KURALI: kendi PID'imize ait dizin, baslangic zamani tutmasa bile
+        // ASLA terk edilmis sayilmaz.
+        //
+        // Neden sart: `BuildRunName` baslangic zamanini okuyamazsa `0` yaziyor ve
+        // o dizin "baslangic zamani uyusmuyor" gerekcesiyle supuruluyordu - yani
+        // **canli kosunun koku kendi kendini siliyordu**. Linux'ta bu sessizce
+        // gerceklesiyordu (`unlink` acik dosyada da basarili): test ortasinda
+        // `DirectoryNotFoundException`, CI'da kirmizi. Ayrica xUnit v3 derlemeyi
+        // birden cok ALC'ye yukledigi icin (olculdu: 3) her biri kendi `RunRoot`
+        // degerini kurabiliyor ve biri digerinin dizinini "kendi" diye atlayamiyor.
+        var ownPidMismatched = Path.Combine(TestTempDirectory.Root,
+                                            "run-" + Environment.ProcessId.ToString(
+                                                             System.Globalization.CultureInfo.InvariantCulture)
+                                                + "-1");
 
-        Assert.NotEqual(name, Path.GetFileName(reused));
-        Assert.True(TestTempDirectory.IsAbandoned(reused));
+        Assert.False(TestTempDirectory.IsAbandoned(ownPidMismatched),
+                     "Kendi surecimizin kosu dizini silinmemeli.");
+    }
+
+    [Fact]
+    public void IsAbandoned_RejectsRecycledPidOfAnotherLiveProcess()
+    {
+        // PID YENIDEN KULLANIMI: surec hala yasiyor ama dizindeki baslangic zamani
+        // onunkiyle tutmuyor -> o numara artik baska bir surece ait, dizin eski
+        // kosudan kalmis ve toplanmali.
+        //
+        // "Kendi PID'imiz asla terk edilmis sayilmaz" kurali yuzden burada
+        // **baska bir canli surecin** PID'i kullanilir.
+        using var other = new System.Diagnostics.Process();
+        other.StartInfo = new System.Diagnostics.ProcessStartInfo(
+            OperatingSystem.IsWindows() ? "cmd.exe" : "/bin/sh")
+        {
+            UseShellExecute = false
+        };
+        other.StartInfo.ArgumentList.Add(OperatingSystem.IsWindows() ? "/c" : "-c");
+        other.StartInfo.ArgumentList.Add(OperatingSystem.IsWindows() ? "pause" : "sleep 30");
+        other.Start();
+
+        var recycled = Path.Combine(TestTempDirectory.Root,
+                                    "run-" + other.Id.ToString(
+                                                    System.Globalization.CultureInfo.InvariantCulture)
+                                        + "-1");
+
+        Assert.True(TestTempDirectory.IsAbandoned(recycled),
+                    "Baska bir canli surecin numarasi tasinmissa dizin toplanmali.");
     }
 
     [Fact]

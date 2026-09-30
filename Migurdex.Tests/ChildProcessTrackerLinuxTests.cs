@@ -177,7 +177,21 @@ public sealed class ChildProcessTrackerLinuxTests
         }
 
         var deadChild = FindUnusedPid();
-        var before    = CountOurWatcherChildren();
+
+        // Olcum **tum** izleyici cocuklarini degil, **yalnizca bu hedefi izleyenleri**
+        // sayar.
+        //
+        // Neden: genel sayaç ("bizim cocugumuz olan izleyici sayisi") ayni siniftaki
+        // diger testlerin izleyicilerini de kapsiyor. Onlar kendi sureclerini
+        // biraktiginda bu testin taban cizgisi kendiliğinden degisiyor ve test
+        // deterministik olarak kiriyordu. Olcum: 3 kosunun 3unde de
+        // "Expected: 1, Actual: 0" - yani onceki testin izleyicisi taban cizgiden
+        // sonra sonuyordu, bu testin hicbir seyi yanlisi degildi.
+        //
+        // Izleyicinin komut satirinda `--internal-watch-orphan <ebeveyn> <baslangic>
+        // <hedef> <hedefBaslangic>` bulunur; yani dogru dogan izleyici **bu** hedef
+        // PID'sini tasir. Hedef PID imzasi olcumu bu teste ozlestirir.
+        var before = FindWatcherPids(deadChild).Count;
 
         var exitCode = LinuxOrphanGuard.RunWatcher(
         [
@@ -194,7 +208,7 @@ public sealed class ChildProcessTrackerLinuxTests
 
         Thread.Sleep(500);
 
-        Assert.Equal(before, CountOurWatcherChildren());
+        Assert.Equal(before, FindWatcherPids(deadChild).Count);
     }
 
     // ---------------------------------------------------------------------
