@@ -30,6 +30,9 @@ Terminalden Türkçe anime aramak ve izlemek için araç. TUI + yerel HTTP API +
 - [`DEVELOPMENT_LOG.md`](DEVELOPMENT_LOG.md) — indirme özelliğinin başlangıçtan upstream'e
   merge edilene kadar kronolojik geliştirme günlüğü.
 - [`PR_DESCRIPTION.md`](PR_DESCRIPTION.md) — fork ve upstream hedefi için PR metinleri.
+- [`docs/verification/`](docs/verification/README.md) — düzeltmelerin **ölçüm
+  kayıtları**: her iddia için ne ölçüldü, nasıl ölçüldü ve *düzeltme olmasaydı ne
+  olurdu*. Kontrol deneyleri, Linux doğrulama turları ve 46 ders bu klasörde.
 
 ## Özellikler
 
