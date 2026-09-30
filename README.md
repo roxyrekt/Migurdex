@@ -25,7 +25,7 @@ Terminalden Türkçe anime aramak ve izlemek için araç. TUI + yerel HTTP API +
   TrAnimeIzle, TRAnimeci, TurkAnime (Arşiv)
 - AniList ve MAL ile bilgi/poster çekme ve izleme durumu eşitleme
 - MPV ile kaldığın yerden devam etme
-- API'den gelen doğrudan MP4/HLS kaynaklarını komut satırından veya TUI'den indirme
+- Anime indirme desteği (TUI ve CLI, paralel MP4 + HLS)
 - Geçmiş, favoriler, arama geçmişi
 - Discord RPC (ayarlanabilir)
 - Otomatik kaynak seçimi (sunucu / kalite / tür kuralları, uymazsa manuel liste)
