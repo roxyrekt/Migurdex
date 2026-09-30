@@ -163,9 +163,17 @@ public class PluginLoader(
                         provider = prov;
                     }
                 }
-                catch
+                catch (Exception ex)
                 {
-                    // ignored
+                    // Sessizce yutuluyordu. `Logger<>.MakeGenericType`,
+                    // `Activator.CreateInstance` ve `CreateInstanceWithBestConstructor`
+                    // hatalarının **hiçbiri** günlüğe geçmiyordu. Dış `catch` yalnız
+                    // `assembly.GetTypes()` başarısızlığında tetiklendiği için,
+                    // bağımlılık sürümü uyuşmayan bir plugin sessizce kayboluyordu.
+                    // Belirtisi yalnız `/health` çıktısında eksik sağlayıcı ve TUI'de
+                    // boş kaynak listesi — teşhisi imkânsız.
+                    logger.LogWarning(ex, "plugin type {Type} oluşturulamadı; atlanıyor",
+                                 type.FullName);
                 }
 
                 if (provider == null)
@@ -201,9 +209,17 @@ public class PluginLoader(
                         extractor = ext;
                     }
                 }
-                catch
+                catch (Exception ex)
                 {
-                    // ignored
+                    // Sessizce yutuluyordu. `Logger<>.MakeGenericType`,
+                    // `Activator.CreateInstance` ve `CreateInstanceWithBestConstructor`
+                    // hatalarının **hiçbiri** günlüğe geçmiyordu. Dış `catch` yalnız
+                    // `assembly.GetTypes()` başarısızlığında tetiklendiği için,
+                    // bağımlılık sürümü uyuşmayan bir plugin sessizce kayboluyordu.
+                    // Belirtisi yalnız `/health` çıktısında eksik sağlayıcı ve TUI'de
+                    // boş kaynak listesi — teşhisi imkânsız.
+                    logger.LogWarning(ex, "plugin type {Type} oluşturulamadı; atlanıyor",
+                                 type.FullName);
                 }
 
                 if (extractor == null)

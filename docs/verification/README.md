@@ -14,14 +14,12 @@ bulunur.
 | Dosya | İçerik |
 |---|---|
 | [`DUZELTMELER.md`](DUZELTMELER.md) | **Ana teknik kayıt.** C1 (SSRF), Grup A/B/C/D ve E1–E12 dahil her düzeltmenin problemi, kök nedeni, çözümü ve testi |
-| [`CI-TEST-ADIMI.md`](CI-TEST-ADIMI.md) | Bu PR'ın CI'a eklediği test adımı, **BULGU 29** ve **BULGU 30**'un tam hikâyesi (teşhis, yanlış teşhis, düzeltme) |
-| [`BILINEN-SORUNLAR.md`](BILINEN-SORUNLAR.md) | E1–E12 ve BULGU 29/30/31 özet tablosu — ne düzeltildi, ne açık kaldı |
+| [`CI-TEST-ADIMI.md`](CI-TEST-ADIMI.md) | Bu PR'ın CI'a eklediği test adımı ve **yayımlama kapısı**, **BULGU 29** (kendi yarattığım kırılganlık) ve **BULGU 30** (Linux toplu SQLite çökmesi) |
+| [`BILINEN-SORUNLAR.md`](BILINEN-SORUNLAR.md) | E1–E12 ve BULGU 29/30/31/32/33 özet tablosu — ne düzeltildi, ne açık kaldı |
 | [`DERSLER.md`](DERSLER.md) | 46 ders. Süreç hataları da teknik hatalar kadar kayıt altına alındı |
-
-| [`DONGU-3-KALAN-HATALAR.md`](DONGU-3-KALAN-HATALAR.md) | 3. döngü: kalan hata taraması, Linux yetim korumanın **reap edilen ebeveynde** çalışmaması (kritik), ajan bulgularının doğrulanması |`r`n| [`linux/`](linux/) | WSL2 doğrulama turları ve merge sonrası Windows CI kırılması (BULGU 33) || [`linux/`](linux/) | WSL2 Ubuntu-24.04 doğrulama turları: yetim/zombie öldürme, torun öldürme, toplu SQLite çökmesi |
-
----
-
+| [`DONGU-3-KALAN-HATALAR.md`](DONGU-3-KALAN-HATALAR.md) | 3. döngü: kalan hata taraması, Linux yetim korumanın **reap edilen ebeveynde** çalışmaması (kritik), ajan bulgularının doğrulanması |
+| [`DONGU-4-TANI-KAYBI.md`](DONGU-4-TANI-KAYBI.md) | 4. döngü: altyazı hatalarının 29 sebebe indirgenmesi, plugin'lerin sessizce kaybolması, SQLite ölçüm adımı |
+| [`linux/`](linux/) | WSL2 doğrulama turları: yetim/zombie öldürme, torun öldürme, toplu SQLite çökmesi, merge sonrası Windows CI kırılması (BULGU 33) |
 ## Ölçüm yöntemi
 
 Bu kayıtlarda uyulan üç kural, okuyucuya sayıların neden güvenilir olduğunu gösterir.

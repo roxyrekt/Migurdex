@@ -339,10 +339,23 @@ public sealed class DownloadService : IDownloadService
             {
                 throw;
             }
-            catch
-            {
-                warnings.Add("Altyazı indirilemedi.");
-            }
+              catch (SubtitleDownloadException exception)
+              {
+                  // Bu `catch` `SubtitleDownloader` DIŞINDA: indiricinin ürettiği
+                  // her `SubtitleDownloadException`'ı yakalayıp tek bir genel
+                  // metne indiriyordu. Oysa indirici **29 ayrı, eyleme dönük**
+                  // sebep üretiyor ("WebVTT imzası bulunamadı", "HTML içerik
+                  // döndürdü", "hedefi zaten var; overwrite kapalı" ...). Kullanıcı
+                  // hangisinin olduğunu hiçbir zaman öğrenemiyordu; ayrıca
+                  // `NullReferenceException` gibi programlama hataları da
+                  warnings.Add($"Altyazı indirilemedi: {exception.Message}");
+              }
+              catch (Exception exception)
+              {
+                  // Programlama hatası: kullanıcıya iç ayrıntı göstermeyiz ama
+                  // sessizce de yutmeyiz.
+                  warnings.Add($"Altyazı indirilemedi ({exception.GetType().Name}).");
+              }
 
         }
     }
