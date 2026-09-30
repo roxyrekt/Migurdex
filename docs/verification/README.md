@@ -17,7 +17,8 @@ bulunur.
 | [`CI-TEST-ADIMI.md`](CI-TEST-ADIMI.md) | Bu PR'ın CI'a eklediği test adımı, **BULGU 29** ve **BULGU 30**'un tam hikâyesi (teşhis, yanlış teşhis, düzeltme) |
 | [`BILINEN-SORUNLAR.md`](BILINEN-SORUNLAR.md) | E1–E12 ve BULGU 29/30/31 özet tablosu — ne düzeltildi, ne açık kaldı |
 | [`DERSLER.md`](DERSLER.md) | 46 ders. Süreç hataları da teknik hatalar kadar kayıt altına alındı |
-| [`linux/`](linux/) | WSL2 Ubuntu-24.04 doğrulama turları: yetim/zombie öldürme, torun öldürme, toplu SQLite çökmesi |
+
+| [`linux/`](linux/) | WSL2 doğrulama turları ve merge sonrası Windows CI kırılması (BULGU 33) || [`linux/`](linux/) | WSL2 Ubuntu-24.04 doğrulama turları: yetim/zombie öldürme, torun öldürme, toplu SQLite çökmesi |
 
 ---
 

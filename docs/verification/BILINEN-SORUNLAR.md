@@ -46,6 +46,7 @@ Tam anlatım: [`CI-TEST-ADIMI.md`](CI-TEST-ADIMI.md).
 |---|---|---|
 | **BULGU 29** | Tam süit aralıklı kırılıyordu (~%20) → `SQLite Error 14` | ✅ **Çözüldü.** Kök neden **kendi eklediğim bir testin** (`CleanupAll_Removes_Every_Tracked_Directory`) global temizliği test ortasında çağırmasıydı. Düzeltme sonrası **40/40** koşu temiz |
 | **BULGU 30** | Linux'da koşu başına 8–17 test çöküyordu → `SQLite Error 10` / `Error 14` | ✅ **Çözüldü.** Kök neden: xUnit v3 **tek koşuda birden çok işlem** açıyor; her biri kökü süpürüp ölen işlemin hâlâ kullanılan dizinini siliyordu. Linux × 8 → **8/8** |
+| **BULGU 33** | `DownloadStallTimeoutTests.Mp4_SlowButSteadyBody_CompletesWithoutError` — `main`'de kırıldı (koşu `36696912854`). Nedeni **testin** kendisi: 40 ms blok arası boşluğa karşı 200 ms bütçe = yalnız 5× başlık | ✅ **Çözüldü.** `SlowSteadyOptions()` (3 sn, 75× başlık) eklendi; takılma testlerinin 200 ms bütçeleri korundu. Yüksüz 0/8 → yük altında üretildi (1/10) → düzeltildi. Ayrıntı: [`CI-TEST-ADIMI.md`](CI-TEST-ADIMI.md) §5 |
 
 > **İki yanlış teşhis de kayda geçirildi.** BULGU 29'u önce "upstream'ten gelen
 > kırılganlık" diye yazdım ve CI test adımını bu yüzden `continue-on-error` yaptım;
