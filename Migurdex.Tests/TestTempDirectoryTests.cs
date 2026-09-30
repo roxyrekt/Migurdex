@@ -320,15 +320,22 @@ public sealed class TestTempDirectoryTests
                      "Kendi surecimizin kosu dizini silinmemeli.");
     }
 
+
     [Fact]
     public void IsAbandoned_RejectsRecycledPidOfAnotherLiveProcess()
     {
-        // PID YENIDEN KULLANIMI: surec hala yasiyor ama dizindeki baslangic zamani
-        // onunkiyle tutmuyor -> o numara artik baska bir surece ait, dizin eski
-        // kosudan kalmis ve toplanmali.
+        // PID YENIDEN KULLANIMI: süreç hâlâ yaşıyor ama dizindeki başlangıç zamanı
+        // onunkiyle tutmuyor -> o numara artık başka bir sürece ait, dizin eski
+        // koşudan kalmış ve toplanmalı.
         //
-        // "Kendi PID'imiz asla terk edilmis sayilmaz" kurali yuzden burada
-        // **baska bir canli surecin** PID'i kullanilir.
+        // "Kendi PID'imiz asla terk edilmiş sayılmaz" kuralı yüzden burada
+        // **başka bir canlı sürecin** PID'i kullanılır.
+        //
+        // DİKKAT: süreç mutlaka elle öldürülmeli. `Process.Dispose()` süreci
+        // **öldürmez**, yalnız yönetilmeyen tanıtıcıyı serbest bırakır. Windows'ta
+        // `cmd /c pause` stdin yönlendirilmediği için **sonsuza kadar** bloklandığından
+        // (Linux'ta `sleep 30`) her `dotnet test` koşusu bir süreç sızdırıyordu.
+        // Ölçüldü ve düzeltildi.
         using var other = new System.Diagnostics.Process();
         other.StartInfo = new System.Diagnostics.ProcessStartInfo(
             OperatingSystem.IsWindows() ? "cmd.exe" : "/bin/sh")
@@ -339,13 +346,32 @@ public sealed class TestTempDirectoryTests
         other.StartInfo.ArgumentList.Add(OperatingSystem.IsWindows() ? "pause" : "sleep 30");
         other.Start();
 
-        var recycled = Path.Combine(TestTempDirectory.Root,
-                                    "run-" + other.Id.ToString(
-                                                    System.Globalization.CultureInfo.InvariantCulture)
-                                        + "-1");
+        try
+        {
+            var recycled = Path.Combine(TestTempDirectory.Root,
+                                        "run-" + other.Id.ToString(
+                                                        System.Globalization.CultureInfo.InvariantCulture)
+                                            + "-1");
 
-        Assert.True(TestTempDirectory.IsAbandoned(recycled),
-                    "Baska bir canli surecin numarasi tasinmissa dizin toplanmali.");
+            Assert.True(TestTempDirectory.IsAbandoned(recycled),
+                        "Başka bir canlı sürecin numarası taşınmışsa dizin toplanmalı.");
+        }
+        finally
+        {
+            try
+            {
+                if (!other.HasExited)
+                {
+                    other.Kill();
+                }
+
+                other.WaitForExit(10_000);
+            }
+            catch
+            {
+                // ignored
+            }
+        }
     }
 
     [Fact]
