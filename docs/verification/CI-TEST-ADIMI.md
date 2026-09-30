@@ -276,3 +276,61 @@ bir fark var.
 var; testler kökün altına doğrudan yazıyor. Yeni süpürücü 10 dakikalık yaşlanma
 kuralı nedeniyle bunlara dokunmuyor. Etkisi yok — eski kod da yalnız 1 saatten eski,
 adı çözülemeyen dizinleri siliyordu — ama kapsam dışı kalıyor.
+
+---
+
+## 5. BULGU 33 — merge sonrası `main`'de kırılan test (kendi eklediğim test)
+
+**Tetikleyici:** koşu `36696912854`, `main` / `0c6615e`. `Test (ubuntu-22.04)` **yeşil**,
+`Test (windows-latest)` **kırmızı**. Tek hata:
+
+```
+DownloadStallTimeoutTests.Mp4_SlowButSteadyBody_CompletesWithoutError [FAIL]
+DownloadException : Sunucu 1 saniye boyunca veri göndermedi; indirme takıldı.
+```
+
+Bu, tam da "kapı işe yaradı" kanıtının üçüncüsü: kapı, PR merge edildikten sonra ilk
+gerçek koşuda bir testin **zaman duyarlılığını** yakaladı.
+
+### Kök neden — **test**, üretim kodu değil
+
+`Mp4_SlowButSteadyBody_CompletesWithoutError`, "yavaş ama düzenli akış takılmış sayılmamalı"
+iddiasını sınar. Betiği 6 × 1 KiB blok, bloklar arası **40 ms** boşluk.
+
+Bütçe `QuickOptions()`'tan geliyordu: `FirstByteTimeout = IdleTimeout = 200 ms`.
+
+**40 ms'lik araya karşı yalnızca 5 kat başlık.** Yüklü bir koşucuda tek bir 1 KiB okuma
+200 ms'yi aşınca koruma — **doğru şekilde** — devreye giriyor.
+
+`QuickOptions()` bilerek küçük: *takılma* testlerinin (`Mp4_BodyStopsAfterFirstChunk`,
+`Mp4_CancelWhileStalled`, `Mp4_ParallelSegmentsStall`, `Subtitle_BodyStopsMidStream`)
+hızlı tetiklenmesi için. Sorun, "yavaş ama düzenli" testinin de aynı fabrikayı kullanması.
+
+### Ölçüm — hatayı önce ürettim
+
+| Koşum | Sonuç |
+|---|---|
+| Yüksüz, bu test sınıfı × 8 | **0** başarısız |
+| 48 işlemci yakını (%100 yük, 16 çekirdek), aynı sınıf × 10 | **1** başarısız — **CI ile aynı test** |
+
+Temiz makinede yakalanmıyordu; tahminle değil, **üretilerek** teşhis edildi.
+
+### Düzeltme
+
+`SlowSteadyOptions()` eklendi ve **yalnız bu test** ona bağlandı:
+
+| | `QuickOptions()` (takılma testleri) | `SlowSteadyOptions()` (bu test) |
+|---|---|---|
+| `FirstByteTimeout` | 200 ms | **3 sn** |
+| `IdleTimeout` | 200 ms | **3 sn** |
+| 40 ms'lik araya başlık | 5× | **75×** |
+
+Takılma testlerinin 200 ms bütçeleri **korundu** (dosyada 6 adet `FromMilliseconds(200)`
+değerinin altısı da yerinde). 3 sn, `HangGuard`'ın (8 sn) altında kaldığı için gerçek bir
+regresyon yine hızlı yakalanır. Normal akışta test ~240 ms sürer — zaman kaybı yok.
+
+### Dokunulmayan: `ToWholeSeconds`
+
+Hata mesajı 200 ms bütçe için *"1 saniye"* diyor. İnceledim: bu **kasıtlı** ve
+dokümante — "çok küçük test eşikleri (ör. 200 ms) 0'a yuvarlanmasın diye en küçük değer
+1'dir". Gerçek varsayılanlar 30 sn / 20 sn, yani üretimde mesaj doğru. **Dokunulmadı.**

@@ -36,6 +36,35 @@ public sealed class DownloadStallTimeoutTests
             IdleTimeout           = TimeSpan.FromMilliseconds(200)
         };
     }
+    /// <summary>
+    /// "Yavaş ama düzenli akış" testleri için eşikler.
+    ///
+    /// <para><b>Neden <see cref="QuickOptions"/> değil.</b> <c>QuickOptions</c> bilerek
+    /// küçük (200 ms) bütçeler kullanır; <i>takılma</i> testlerinin hızlı tetiklenmesi
+    /// için. Ancak bloklar arası yalnızca 40 ms boşluk bırakılan bir akış, 200 ms
+    /// bütçeye karşı sadece <b>5 kat</b> başlığa sahip. Yüklü bir makinede — GitHub
+    /// Actions koşucusu, 16 çekirdekte 48 işlemci yakınıyla ölçüldü — tek bir 1 KiB
+    /// okuma 200 ms'yi aşabildi ve koruma doğru şekilde devreye girdi:
+    /// <c>Sunucu 1 saniye boyunca veri göndermedi</c>.</para>
+    ///
+    /// <para>Ölçülen kırılma oranı: yüksüz 8 koşuda <b>0</b>, %100 işlemci yükünde
+    /// 10 koşuda <b>1</b>. Demek ki test, kendi varsayımı zayıf kaldığında kırılıyor;
+    /// üretim kodu doğru davranıyordu.</para>
+    ///
+    /// <para>3 saniyelik bütçe 40 ms'lik araya <b>75 kat</b> başlık verir; yanlış
+    /// tetikleme için tek bir okumanın 3 saniyeyi aşması gerekirdi. Normal akışta test
+    /// yine ~240 ms sürer, yani zaman kaybı yok. Bütçe <c>HangGuard</c>'ın (8 sn)
+    /// altında kaldığı için gerçek bir regresyon yine hızlı yakalanır.</para>
+    /// </summary>
+    private static DownloadStallOptions SlowSteadyOptions()
+    {
+        return new DownloadStallOptions
+        {
+            ResponseHeaderTimeout = TimeSpan.FromSeconds(4),
+            FirstByteTimeout      = TimeSpan.FromSeconds(3),
+            IdleTimeout           = TimeSpan.FromSeconds(3)
+        };
+    }
 
     [Fact]
     public async Task Mp4_BodyStopsAfterFirstChunk_FailsWithDownloadException()
@@ -130,7 +159,7 @@ public sealed class DownloadStallTimeoutTests
             // Bekleme eşiği (200 ms) bloklar arası 40 ms'lik boşluktan uzun:
             // yavaş ama düzenli akış hata üretmemeli.
             var stopwatch = Stopwatch.StartNew();
-            var result = await AssertSucceedsWithinAsync(() => new Mp4Downloader(handler, QuickOptions())
+            var result = await AssertSucceedsWithinAsync(() => new Mp4Downloader(handler, SlowSteadyOptions())
                                                               .DownloadAsync(Source(),
                                                                              target,
                                                                              cancellationToken:
