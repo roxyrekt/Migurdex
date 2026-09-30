@@ -333,7 +333,8 @@ public sealed class TrackerIdResolver : ITrackerIdResolver
         var anilistId = top.Metadata.AniListId
                         ?? (top.Metadata.Source == MetadataSource.AniList ? top.Metadata.ExternalId : null);
         var malId = top.Metadata.MyAnimeListId
-                    ?? (top.Metadata.Source == MetadataSource.Jikan ? top.Metadata.ExternalId : null);
+                    ?? (top.Metadata.Source is MetadataSource.Jikan or MetadataSource.MyAnimeList
+                        ? top.Metadata.ExternalId : null);
 
         if (string.IsNullOrWhiteSpace(anilistId)
             && !string.IsNullOrWhiteSpace(malId)

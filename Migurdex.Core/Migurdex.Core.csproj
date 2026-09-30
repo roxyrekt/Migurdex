@@ -12,6 +12,7 @@
     </ItemGroup>
 
     <ItemGroup>
+        <PackageReference Include="AngleSharp" Version="1.7.1"/>
         <PackageReference Include="Jint" Version="4.16.0"/>
         <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.*"/>
         <PackageReference Include="SQLitePCLRaw.bundle_e_sqlite3" Version="2.1.12"/>

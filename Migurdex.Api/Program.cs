@@ -56,6 +56,7 @@ builder.Services.AddCoreExtractors();
 
 builder.Services.AddTransient<IMetadataProvider, AniListProvider>();
 builder.Services.AddTransient<IMetadataProvider, JikanProvider>();
+builder.Services.AddTransient<IMetadataProvider, MalScrapeProvider>();
 
 builder.Services.AddSingleton<MigurdexDatabase>();
 builder.Services.AddSingleton<TrackerMappingStore>(sp =>
