@@ -151,15 +151,18 @@ public sealed class TestTempDirectoryTests
     }
 
     [Fact]
-    public void CleanupAll_Removes_Every_Tracked_Directory()
+    public void ReleaseDatabaseHandles_Does_Not_Throw()
     {
-        var a = TestTempDirectory.Create("migurdex-tempdirtest-");
-        var b = TestTempDirectory.Create("migurdex-tempdirtest-");
+        // `CleanupAll` bunu çağırır ve süreç sonunda SQLite havuzlarını boşaltır.
+        //
+        // DİKKAT: `CleanupAll` burada bilinçli olarak ÇAĞRILMAZ. O, tüm kayıtlı
+        // dizinleri siler ve bağlantı havuzlarını boşaltır; testler paralel
+        // çalıştığı için bir testin ortasında çağırmak eşzamanlı başka testlerin
+        // kullandığı dizinleri ve veritabanı bağlantılarını bozar. Bu yüzden
+        // yalnızca `ProcessExit`/sinyal üzerinden, yani süreç sonunda çağrılır.
+        var exception = Record.Exception(TestTempDirectory.ReleaseDatabaseHandles);
 
-        TestTempDirectory.CleanupAll();
-
-        Assert.False(Directory.Exists(a));
-        Assert.False(Directory.Exists(b));
+        Assert.Null(exception);
     }
 
     [Fact]
