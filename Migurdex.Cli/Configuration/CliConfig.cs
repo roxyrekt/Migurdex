@@ -32,7 +32,32 @@ public class CliConfig
     public bool DownloadOverwrite { get; set; } = false;
 
     public bool   AutoDownloadBestSource           { get; set; } = false;
-    public double DownloadAutoSelectTimeoutSeconds { get; set; } = 5;
+
+    /// <summary>
+    /// Kaynak taraması için tek API çağrısına tanınan süre.
+    ///
+    /// Önceki varsayılan 5 saniyeydi. İlk doğrulama turunda "one piece" (37 kaynak,
+    /// 1166 bölüm) için 46,98 saniyelik bir çözümleme ölçüldü ve 5 saniyenin bunun
+    /// çok altında kaldığı düşünüldü.
+    ///
+    /// <b>Dürüstlük notu:</b> sonraki (nihai) doğrulama turunda bu hata
+    /// <em>yeniden üretilemedi</em>. Aynı komutun çözümleme zinciri toplam ~1,78 saniye
+    /// sürdü; config elle 5 saniyeye (hatta 0,2 saniyeye) zorlandığında bile indirme
+    /// <c>exit 0</c> ile tamamlandı. Yani 46,98 saniye ya ağ yavaşlığına bağlı bir
+    /// uç değerdi ya da ölçüm koşulları farklıydı; 5 saniyenin somut bir hata
+    /// ürettiği **kanıtlanmadı**.
+    ///
+    /// Değer yine de 5 -&gt; 60 saniyeye çıkarıldı: 5 saniye, ölçülen uç değerin
+    /// çok altında kalmak üzere tasarlanmış bir sayıydı ve 60 saniye bu belirsizliği
+    /// maliyetsiz biçimde ortadan kaldırıyor. Bu bir **düzeltilmiş hata değil,
+    /// genişletilmiş pay**tır; 60 saniye de yetmezse kullanıcı TUI'dan ya da
+    /// `config.json`'dan yükseltebilir.
+    ///
+    /// Bu bir duvar-saati sınırıdır, takılma dedektörü değil: API yanıt veriyorsa
+    /// süre işler. Bu yüzden MP4/HLS indirme yolundaki <c>DownloadStallGuard</c>'dan
+    /// (90/30/20 sn) ayrıdır ve daha uzun tutulmalıdır.
+    /// </summary>
+    public double DownloadAutoSelectTimeoutSeconds { get; set; } = 60;
 
     public bool    UpdateCheckEnabled { get; set; } = true;
     public string  UpdateChannel      { get; set; } = "stable";

@@ -13,25 +13,30 @@ public sealed class SubtitleDownloader : ISubtitleDownloader
 
     private readonly IDownloadHttpClientFactory? _clientFactory;
     private readonly HttpClient?                  _fixedClient;
+    private readonly DownloadStallOptions         _stallOptions;
 
     public SubtitleDownloader()
         : this(new DownloadHttpClientFactory())
     {
     }
 
-    public SubtitleDownloader(IDownloadHttpClientFactory clientFactory)
+    public SubtitleDownloader(IDownloadHttpClientFactory clientFactory,
+                              DownloadStallOptions?     stallOptions = null)
     {
         _clientFactory = clientFactory ?? throw new ArgumentNullException(nameof(clientFactory));
+        _stallOptions  = stallOptions ?? DownloadStallOptions.Default;
     }
 
-    public SubtitleDownloader(HttpMessageHandler handler)
+    public SubtitleDownloader(HttpMessageHandler handler,
+                              DownloadStallOptions? stallOptions = null)
+        : this(new HttpMessageHandlerDownloadClientFactory(handler), stallOptions)
     {
-        _clientFactory = new HttpMessageHandlerDownloadClientFactory(handler);
     }
 
     public SubtitleDownloader(HttpClient client)
     {
-        _fixedClient = client ?? throw new ArgumentNullException(nameof(client));
+        _fixedClient  = client ?? throw new ArgumentNullException(nameof(client));
+        _stallOptions = DownloadStallOptions.Default;
     }
 
     public async Task<SubtitleDownloadResult> DownloadAsync(
@@ -90,7 +95,8 @@ public sealed class SubtitleDownloader : ISubtitleDownloader
                 throw new SubtitleDownloadException("Altyazı URL'si geçersiz.");
             }
 
-            DownloadHttp.ValidateHttpUri(subtitleUri);
+            await DownloadHttp.ValidateHttpUriAsync(subtitleUri, cancellationToken)
+                               .ConfigureAwait(false);
             var requestHeaders = subtitle.Headers is { Count: > 0 }
                                      ? DownloadHttp.CopyHeaders(subtitle.Headers)
                                      : DownloadHttp.CopySubtitleFallbackHeaders(sourceHeaders,
@@ -104,7 +110,8 @@ public sealed class SubtitleDownloader : ISubtitleDownloader
             using var response = await DownloadHttp.SendWithRedirectsAsync(clientToUse,
                                                                            subtitleUri,
                                                                            requestHeaders,
-                                                                           cancellationToken)
+                                                                           cancellationToken,
+                                                                           _stallOptions)
                                        .ConfigureAwait(false);
             if (DownloadHttp.IsHtml(response))
             {
@@ -130,6 +137,10 @@ public sealed class SubtitleDownloader : ISubtitleDownloader
             partPath = finalPath + ".part";
             DeleteIfExists(partPath);
 
+            // Bekçi gövde akışından ÖNCE bildirilir: using bildirimleri ters
+            // sırada yok edildiği için asılı kalmış okuma iptal edildikten sonra
+            // bekçinin kendisi temizlenir.
+            using var stall = new DownloadStallGuard(_stallOptions, cancellationToken);
             await using var body = await response.Content.ReadAsStreamAsync(cancellationToken);
             await using var file = new FileStream(partPath,
                                                   FileMode.CreateNew,
@@ -145,7 +156,7 @@ public sealed class SubtitleDownloader : ISubtitleDownloader
             while (true)
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                var read = await body.ReadAsync(buffer.AsMemory(), cancellationToken)
+                var read = await stall.ReadAsync(body, buffer.AsMemory())
                                      .ConfigureAwait(false);
                 if (read == 0)
                 {

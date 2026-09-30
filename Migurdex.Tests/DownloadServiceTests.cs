@@ -181,7 +181,12 @@ public sealed class DownloadServiceTests
                 AnimeTitle = "Anime",
                 EpisodeTitle = "Episode"
             }, cts.Token);
-            await handler.SubtitleStarted.Task.WaitAsync(TimeSpan.FromSeconds(2), TestContext.Current.CancellationToken);
+            // Bütün paket paralel koşarken (494 test) 2 sn yetersiz kalıyordu:
+            // Linux ölçümünde 4 zorunlu turun 3'ünde, 8 koşunun 1'inde
+            // TimeoutException. İzole koşumda ortalama 465 ms (4,4x marj), yani
+            // bu bir yük duyarlılığı, ürün hatası değil. 15 sn hem yük altında
+            // güvenli hem de gerçekten takılan bir akışı yakalamaya yeter.
+            await handler.SubtitleStarted.Task.WaitAsync(TimeSpan.FromSeconds(15), TestContext.Current.CancellationToken);
             cts.Cancel();
 
             var result = await download;

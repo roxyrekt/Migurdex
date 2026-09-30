@@ -19,7 +19,7 @@ public sealed class YtDlpHlsDownloader : IHlsDownloader
         RegexOptions.Compiled | RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
 
     private static readonly Regex ProgressTotalRegex = new(
-        @"of\s+~?\s*(?<value>\d+(?:[.,]\d+)?)\s*(?<unit>B|KiB|MiB|GiB|TiB)(?!/s)",
+        @"of\s+(?<estimate>~)?\s*(?<value>\d+(?:[.,]\d+)?)\s*(?<unit>B|KiB|MiB|GiB|TiB)(?!/s)",
         RegexOptions.Compiled | RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
 
     private static readonly Regex ProgressSpeedRegex = new(
@@ -37,6 +37,20 @@ public sealed class YtDlpHlsDownloader : IHlsDownloader
     private static readonly Regex ProgressDestinationRegex = new(
         @"^\[download\]\s+Destination:\s*(?<path>.+?)\s*$",
         RegexOptions.Compiled | RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+
+    /// <summary>
+    /// ffmpeg binary'si eksik. <c>DOWNLOAD.md</c> bu metni birebir anlatıyor,
+    /// değiştirilmedi.
+    /// </summary>
+    internal const string FfmpegMissingMessage =
+        "HLS için ffmpeg gerekiyor ancak ffmpeg bulunamadı veya çalışmıyor.";
+
+    /// <summary>
+    /// ffmpeg yüklü ama işi yapamadı (segment birleştirme sırasında çöktü).
+    /// Eski hâlde bu durum da "ffmpeg gerekiyor" diye bildiriliyordu.
+    /// </summary>
+    internal const string FfmpegRuntimeMessage =
+        "yt-dlp HLS indirmeyi tamamlayamadı; birleştirme sırasında ffmpeg hata verdi.";
 
     private readonly IExternalProcessRunner _processRunner;
     private readonly HlsDownloadOptions      _options;
@@ -91,7 +105,7 @@ public sealed class YtDlpHlsDownloader : IHlsDownloader
             throw new HlsDownloadException("HLS kaynak URL'si geçersiz.");
         }
 
-        DownloadHttp.ValidateHttpUri(sourceUri);
+        await DownloadHttp.ValidateHttpUriAsync(sourceUri, cancellationToken).ConfigureAwait(false);
         if (sourceUri.AbsoluteUri.Contains('\r') || sourceUri.AbsoluteUri.Contains('\n'))
         {
             throw new HlsDownloadException("HLS kaynak URL'si geçersiz.");
@@ -105,10 +119,14 @@ public sealed class YtDlpHlsDownloader : IHlsDownloader
                                              .ConfigureAwait(false);
         EnsureNoMediaConflict(destination, overwrite);
 
-        var jobDirectory = Path.Combine(destination.AnimeDirectory,
-                                       ".migurdex-job-" + Guid.NewGuid().ToString("N"));
-        DownloadPathBuilder.EnsureFullPathBudget(jobDirectory, reservedSuffixBytes: 64);
-        Directory.CreateDirectory(jobDirectory);
+        // İş dizini indirme klasörünün DIŞINDA, sistem geçici klasöründe tutulur.
+        // Ölçülen sızıntı: `taskkill /F` 130.022.831 B, `CTRL_BREAK` 103.792.544 B
+        // kalıcı olarak indirme klasöründe bırakıyordu (finally yalnız graceful
+        // çıkışta çalışıyor; Ctrl+C temiz, SIGTERM/SIGHUP/SIGKILL değil). Geçici
+        // klasöre taşınca kalıntı kullanıcıya görünmez, indirme klasörü
+        // kirletilmez ve SweepStaleJobDirectories ile sonraki koşuda temizlenir.
+        SweepStaleJobDirectories();
+        var jobDirectory = CreateJobDirectory();
         var inputPath = Path.Combine(jobDirectory, ".migurdex-input.txt");
 
         try
@@ -183,12 +201,20 @@ public sealed class YtDlpHlsDownloader : IHlsDownloader
                 }
                 else if (LooksLikeFfmpegFailure(result))
                 {
-                    lastError = "HLS için ffmpeg gerekiyor ancak ffmpeg bulunamadı veya çalışmıyor.";
+                    // ffmpeg binary'si gerçekten yok: tekrar denemek anlamsız,
+                    // kullanıcıdan PATH'e kurması gerekiyor.
+                    lastError = FfmpegMissingMessage;
                     break;
                 }
                 else
                 {
-                    lastError = WithCause("yt-dlp HLS indirmeyi tamamlayamadı.", attemptErrors);
+                    // ffmpeg'in kendisi hata verdiyse mesaj nötrleştirilir:
+                    // "ffmpeg kurun" demek yanlış olurdu, gerçek neden (ağ, 404,
+                    // disk dolu) ERROR: satırlarıyla birlikte korunur.
+                    var fallback = LooksLikeFfmpegRuntimeFailure(result)
+                                       ? FfmpegRuntimeMessage
+                                       : "yt-dlp HLS indirmeyi tamamlayamadı.";
+                    lastError = WithCause(fallback, attemptErrors);
                 }
 
                 if (attempt < maxAttempts)
@@ -207,7 +233,7 @@ public sealed class YtDlpHlsDownloader : IHlsDownloader
             var message = lastError ?? "yt-dlp HLS indirmeyi tamamlayamadı.";
             if (lastResult is not null && LooksLikeFfmpegFailure(lastResult))
             {
-                message = "HLS için ffmpeg gerekiyor ancak ffmpeg bulunamadı veya çalışmıyor.";
+                message = FfmpegMissingMessage;
             }
 
             throw new HlsDownloadException(message);
@@ -248,6 +274,91 @@ public sealed class YtDlpHlsDownloader : IHlsDownloader
         {
             throw new HlsDownloadException(exception.Message);
         }
+    }
+
+    /// <summary>
+    /// yt-dlp iş dizininin kökü. Tek bir bilinen yer kullanmak, kalıntıların
+    /// nereye bırakıldığını izlenebilir kılar ve <see cref="SweepStaleJobDirectories"/>
+    /// ile hepsini topluca temizlemeye izin verir.
+    /// </summary>
+    internal static string JobRootDirectory => Path.Combine(Path.GetTempPath(), "migurdex-jobs");
+
+    /// <summary>
+    /// Zorla sonlandırılmış (SIGKILL, SIGTERM, SIGHUP) koşulardan kalan iş
+    /// dizinlerini siler. Eşik saat olarak seçildi: normal bir HLS indirmesi
+    /// saatlerce sürebildiği için çok kısa bir eşik uzun süren geçerli bir
+    /// indirmeyi silerdi.
+    /// </summary>
+    internal static int SweepStaleJobDirectories(TimeSpan? maxAge = null)
+    {
+        var root = JobRootDirectory;
+        if (!Directory.Exists(root))
+        {
+            return 0;
+        }
+
+        var threshold = DateTime.UtcNow - (maxAge ?? TimeSpan.FromHours(6));
+        var removed    = 0;
+        foreach (var candidate in Directory.EnumerateDirectories(root))
+        {
+            // Yalnız bizim ürettiğimiz GUID adlı dizinlere dokun; geçici klasör
+            // başka uygulamalarla paylaşılıyor.
+            if (!Guid.TryParse(Path.GetFileName(candidate), out _))
+            {
+                continue;
+            }
+
+            if (SafeDirectoryAgeUtc(candidate) > threshold)
+            {
+                continue;
+            }
+
+            if (TryDeleteDirectory(candidate))
+            {
+                removed++;
+            }
+        }
+
+        return removed;
+    }
+
+    private static bool TryDeleteDirectory(string directory)
+    {
+        try
+        {
+            if (Directory.Exists(directory))
+            {
+                Directory.Delete(directory, true);
+            }
+
+            return !Directory.Exists(directory);
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static DateTime SafeDirectoryAgeUtc(string directory)
+    {
+        try
+        {
+            return Directory.GetLastWriteTimeUtc(directory);
+        }
+        catch (Exception ex) when (ex is IOException
+                                      or UnauthorizedAccessException
+                                      or NotSupportedException)
+        {
+            return DateTime.MinValue;
+        }
+    }
+
+    private static string CreateJobDirectory()
+    {
+        var jobDirectory = Path.Combine(JobRootDirectory, Guid.NewGuid().ToString("N"));
+        DownloadPathBuilder.EnsureFullPathBudget(jobDirectory, reservedSuffixBytes: 64);
+        Directory.CreateDirectory(jobDirectory);
+        return jobDirectory;
     }
 
     private ProcessStartInfo BuildStartInfo(
@@ -294,12 +405,33 @@ public sealed class YtDlpHlsDownloader : IHlsDownloader
         return startInfo;
     }
 
-    private sealed class HlsProgressHeartbeat
+    /// <summary>
+    /// yt-dlp <c>--newline</c> ilerleme satırlarını <see cref="DownloadProgress"/>'e
+    /// çeviren durum makinesi. <c>internal</c> (Migurdex.Tests
+    /// <c>InternalsVisibleTo</c> ile erişir) çünkü monoton toplam kuralı ve
+    /// faz geçişi ayrımı satır düzeyinde doğrudan doğrulanmalıdır.
+    /// </summary>
+    internal sealed class HlsProgressHeartbeat
     {
         private long _bytes;
         private long? _total;
         private string? _track;
         private int _trackCount;
+
+        // BULGU 23: yt-dlp `of ~Y` toplamını her satırda YENİDEN TAHMİN eder ve
+        // tahmin can dalgalar. Canlı ölçüm (aynı indirme, tek dosya):
+        //   1 KiB → 7.81 MiB → 177.03 MiB → 434.27 MiB → 521.3 MiB → 362.26 MiB → 280.65 MiB
+        // Yüzde zaten [0,100] aralığına kırpılıyor ama PAYDA (toplam) kırpılmadığı
+        // için ilerleme çubuğu sürekli geri gidiyordu. Tahmin edilen toplam, faz
+        // içinde monoton artan yapılır; tahminin kendisi değişmez.
+        private long? _estimatedTotalFloor;
+
+        // Frag sayacı faz geçişini bildirir: HLS'te iki gerçek faz var
+        // (segment ham ~277 MiB → mux sonrası ~260 MiB) ve toplam gerçekten
+        // küçülebilir. Sayaç %100'e ulaşıp yeniden başladığında monotonluk
+        // sıfırlanır; aksi halde kilit tutulur.
+        private int? _lastFragDone;
+        private bool _fragPhaseCompleted;
 
         public void Report(string line, IProgress<DownloadProgress>? progress)
         {
@@ -317,8 +449,7 @@ public sealed class YtDlpHlsDownloader : IHlsDownloader
                 {
                     _track = name;
                     _trackCount++;
-                    _bytes = 0;
-                    _total = null;
+                    BeginNewTrack();
                     progress.Report(new DownloadProgress(DownloadStage.Downloading,
                                                          0,
                                                          null,
@@ -331,6 +462,7 @@ public sealed class YtDlpHlsDownloader : IHlsDownloader
 
             var speed = TryParseSpeed(line);
             var (fragDone, fragTotal) = TryParseFrags(line);
+            ObserveFragments(fragDone, fragTotal);
             var eta = TryParseEta(line);
 
             var bytesMatch = ProgressBytesRegex.Match(line);
@@ -340,6 +472,9 @@ public sealed class YtDlpHlsDownloader : IHlsDownloader
                 && TryParseSize(bytesMatch.Groups["total"].Value, bytesMatch.Groups["totalUnit"].Value,
                                 out var total))
             {
+                // `X / Y` biçimi yt-dlp'nin BİLİNEN gerçek toplamı, tahmin değil:
+                // monoton kural uygulanmaz (aksi halde kesin toplam, önceki tahmin
+                // yüzünden şişirilmiş bir değerle değiştirilirdi).
                 _bytes = current;
                 _total = total;
                 progress.Report(new DownloadProgress(DownloadStage.Downloading, current, total, speed, fragDone, fragTotal, eta, null, _track, _trackCount > 1));
@@ -358,10 +493,29 @@ public sealed class YtDlpHlsDownloader : IHlsDownloader
                     && TryParseSize(totalMatch.Groups["value"].Value, totalMatch.Groups["unit"].Value,
                                     out var percentTotal))
                 {
+                    // yt-dlp toplamı `~` ile yazdığında bunun bir **tahmin**
+                    // olduğunu bildiğimiz kesin. Tahmin kesin toplam gibi
+                    // sunulursa ilerleme yanlış bir %100 gösterir (ölçüm:
+                    // tahmin 1,25 GiB, gerçek dosya 486,16 MiB). Bu yüzden yüzde
+                    // ve ETA tahminden türetilmez; parça sayacı kullanılır.
+                    var isEstimated = totalMatch.Groups["estimate"].Success;
+                    percentTotal = MonotonicEstimatedTotal(percentTotal);
                     var downloaded = (long)Math.Round(percent / 100 * percentTotal);
                     _bytes = downloaded;
                     _total = percentTotal;
-                    progress.Report(new DownloadProgress(DownloadStage.Downloading, downloaded, percentTotal, speed, fragDone, fragTotal, eta, percent, _track, _trackCount > 1));
+                    progress.Report(new DownloadProgress(DownloadStage.Downloading,
+                                                          downloaded,
+                                                          percentTotal,
+                                                          speed,
+                                                          fragDone,
+                                                          fragTotal,
+                                                          isEstimated ? null : eta,
+                                                          isEstimated ? null : percent,
+                                                          _track,
+                                                          _trackCount > 1)
+                                     {
+                                         IsEstimatedTotal = isEstimated
+                                     });
                     return;
                 }
 
@@ -381,6 +535,68 @@ public sealed class YtDlpHlsDownloader : IHlsDownloader
             {
                 progress.Report(new DownloadProgress(DownloadStage.Downloading, _bytes, _total, speed, fragDone, fragTotal, eta, null, _track, _trackCount > 1));
             }
+        }
+
+        /// <summary>
+        /// Yeni track (farklı <c>Destination:</c> satırı) başladığında tüm
+        /// faz durumu sıfırlanır. Ayrı indirilen bir track'in toplamı öncekinin
+        /// altında olabilir; bu bir faz geçişi değil, ayrı dosya.
+        /// </summary>
+        private void BeginNewTrack()
+        {
+            _bytes = 0;
+            _total = null;
+            ResetEstimatedTotal();
+        }
+
+        private void ResetEstimatedTotal()
+        {
+            _estimatedTotalFloor = null;
+            _lastFragDone = null;
+            _fragPhaseCompleted = false;
+        }
+
+        /// <summary>
+        /// Tahmin edilen toplamı aynı faz içinde monoton artan yapar.
+        /// Yeni tahmin eskisinden küçükse yok sayılır; payda geri gitmez.
+        /// </summary>
+        private long MonotonicEstimatedTotal(long candidate)
+        {
+            _estimatedTotalFloor = _estimatedTotalFloor is { } floor
+                                       ? Math.Max(floor, candidate)
+                                       : candidate;
+            return _estimatedTotalFloor.Value;
+        }
+
+        /// <summary>
+        /// Frag sayacını izleyip gerçek faz geçişini yakalar. Sadece sayac
+        /// %100'e ulaştıktan sonra **yeniden başladığında** (done küçüldü)
+        /// sıfırlama yapılır; sıfırlanmış gibi görünen ama %100'e hiç ulaşmamış
+        /// sayaçlar (ör. track değişimi) kilidi bozmaz.
+        /// </summary>
+        private void ObserveFragments(int? done, int? total)
+        {
+            if (done is not { } currentDone || total is not { } currentTotal || currentTotal <= 0)
+            {
+                return;
+            }
+
+            if (_fragPhaseCompleted
+                && _lastFragDone is { } previousDone
+                && currentDone < previousDone)
+            {
+                // frag %100'e ulaştı ve yeniden başladı → segment → mux fazı.
+                // Gerçek faz geçişi: toplam küçülebilir, monotonluğu bırak.
+                _total = null;
+                ResetEstimatedTotal();
+            }
+
+            if (currentDone >= currentTotal)
+            {
+                _fragPhaseCompleted = true;
+            }
+
+            _lastFragDone = currentDone;
         }
 
         private static TimeSpan? TryParseEta(string line)
@@ -500,6 +716,14 @@ public sealed class YtDlpHlsDownloader : IHlsDownloader
         return true;
     }
 
+    internal static MediaDownloadResult MoveOutputForTest(
+        string        outputPath,
+        DownloadPath  destination,
+        bool          overwrite)
+    {
+        return MoveOutput(outputPath, destination, overwrite, null, CancellationToken.None);
+    }
+
     private static MediaDownloadResult MoveOutput(
         string                       outputPath,
         DownloadPath                 destination,
@@ -528,7 +752,7 @@ public sealed class YtDlpHlsDownloader : IHlsDownloader
 
         try
         {
-            File.Move(outputPath, finalPath, overwrite);
+            MoveFileAcrossVolumes(outputPath, finalPath, overwrite);
         }
         catch (IOException) when (!overwrite && File.Exists(finalPath))
         {
@@ -546,6 +770,186 @@ public sealed class YtDlpHlsDownloader : IHlsDownloader
         bytes = new FileInfo(finalPath).Length;
         Report(progress, DownloadStage.Completed, bytes, bytes);
         return new MediaDownloadResult(finalPath, bytes, bytes, false, warnings);
+    }
+
+    /// <summary>
+    /// İş dizini artık sistem geçici klasöründe olduğu için hedef klasörle
+    /// **farklı dosya sisteminde** olabilir (Linux'ta `/tmp` çoğu dağıtımda ayrı
+    /// bir tmpfs/disk'tir; `TMPDIR` değiştirilmiş olabilir). .NET'in
+    /// <see cref="File.Move(string,string,bool)"/> çağrısı Unix'te `rename(2)`
+    /// kullanır ve farklı dosya sistemlerinde `EXDEV` ile başarısız olur.
+    ///
+    /// Bu yüzden önce atomik taşıma denenir; `EXDEV` karşılığı olan
+    /// <see cref="IOException"/> gelirse kopyala-sil yedeğine düşülür. Aynı
+    /// dosya sisteminde davranış değişmez (taşıma hâlâ atomik).
+    /// </summary>
+    private static void MoveFileAcrossVolumes(string sourcePath, string finalPath, bool overwrite)
+    {
+        // `CopyThenDelete` taşıma sırasında `<hedef>.migurdex-partial` yazıyor.
+        // SIGKILL veya güç kesintisi `File.Copy` ile `File.Move` arasında
+        // yakalanırsa bu dosya kalıcı çöp olarak kalıyor ve sonraki çalışmada
+        // temizlenmiyordu (aynı dosya sisteminde taşıma başarılı olursa
+        // `CopyThenDelete` hiç çağrılmıyor). Kilit dosyası için bu yol açıldı,
+        // burada da aynı kural uygulanıyor: yalnızca kimse tutmuyorsa dokunulur.
+        TryRemoveStalePartialFile(finalPath);
+
+        try
+        {
+            File.Move(sourcePath, finalPath, overwrite);
+            return;
+        }
+        catch (IOException ex) when (ShouldFallBackToCopy(ex, sourcePath, finalPath))
+        {
+            // Aşağıda kopyala-sil.
+        }
+
+        CopyThenDelete(sourcePath, finalPath, overwrite);
+    }
+
+    /// <summary>
+    /// Taşıma hatası kopyala-sil yedeğini gerektiriyor mu?
+    ///
+    /// Unix'te yalnızca <c>EXDEV</c> (errno 18) gerektirir. Önceden Unix'te
+    /// "her zaman farklı dosya sistemi" varsayılıyordu; bu yüzden disk dolu,
+    /// izin yok veya hedef kilitli gibi <c>EXDEV</c> dışı hatalarda da tam boy
+    /// kopyalama deniyordu — hepsi zaten başarısız olacak, yalnızca kullanıcı
+    /// boşuna bekliyordu ve bir <c>.migurdex-partial</c> bırakıp siliniyordu.
+    ///
+    /// Windows'ta taşıma birbirine bağlı dosya sistemleri arasında
+    /// <c>EXDEV</c> üretmez; orada kök karşılaştırması kullanılmaya devam eder.
+    ///
+    /// <b>Linux ölçüm notu:</b> .NET'in <see cref="File.Move(string,string,bool)"/>
+    /// Unix'te <c>EXDEV</c>'i çoğu zaman <em>kendi içinde</em> copy+delete ile
+    /// yutuyor, dolayısıyla bu yedek yol sık tetiklenmez (ölçüldü: 5 senaryonun
+    /// tamamında `File.Move` doğrudan başarılı oldu). Yedek <b>bilerek korundu</b>:
+    /// farklı .NET sürümlerinde, özel dosya sistemlerinde ya da kopyalama
+    /// seçenekleri değiştiğinde gerekebilir. Bilinen yan etkisi: .NET kendi
+    /// yedeğini kullandığında kopyalama doğrudan nihai yola yapılır, dolayısıyla
+    /// <see cref="CopyThenDelete"/>'nin sağladığı <c>.migurdex-partial</c> ara
+    /// dosyasının atomiklik koruması o yolda devreye girmez. Sonuç yine de aynıdır;
+    /// ara dosya adı farklı olduğu için kısmi dosya temizliği geçerlidir.
+    /// </summary>
+    private static bool ShouldFallBackToCopy(IOException ex, string sourcePath, string finalPath)
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            return IsCrossDeviceLink(ex);
+        }
+
+        try
+        {
+            var sourceRoot = Path.GetPathRoot(Path.GetFullPath(sourcePath));
+            var finalRoot  = Path.GetPathRoot(Path.GetFullPath(finalPath));
+            if (string.IsNullOrEmpty(sourceRoot) || string.IsNullOrEmpty(finalRoot))
+            {
+                return true;
+            }
+
+            return !string.Equals(sourceRoot, finalRoot, StringComparison.OrdinalIgnoreCase);
+        }
+        catch (Exception rootEx) when (rootEx is IOException
+                                           or UnauthorizedAccessException
+                                           or ArgumentException
+                                           or NotSupportedException)
+        {
+            return true;
+        }
+    }
+
+    /// <summary>
+    /// <see cref="IOException"/> <c>EXDEV</c> ile mi geldi? .NET, Unix'te errno
+    /// değerini <c>HResult</c>'ın düşük 16 bitine koyar; iç içe zincirde de
+    /// aranır.
+    /// </summary>
+    private static bool IsCrossDeviceLink(IOException ex)
+    {
+        const int exdevErrno = 18;
+        for (var current = ex; current is not null; current = current.InnerException as IOException)
+        {
+            if ((current.HResult & 0xFFFF) == exdevErrno)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static void TryRemoveStalePartialFile(string finalPath)
+    {
+        var partialPath = finalPath + ".migurdex-partial";
+        try
+        {
+            if (!File.Exists(partialPath))
+            {
+                return;
+            }
+
+            // Silme önce **yoklama akışı açıkken** denenir. Unix'te `FileShare.None`
+            // `flock` alır, böylece silme anında başka bir süreç dosyayı açamaz ve
+            // yarış penceresi kapanır. Windows'ta açık dosya silinemediği için deneme
+            // `IOException` verir; akış kapanır ve aynı silme bir kez daha denenir.
+            var deletedWhileOpen = false;
+            using (var probe = new FileStream(partialPath,
+                                            FileMode.Open,
+                                            FileAccess.ReadWrite,
+                                            FileShare.None,
+                                            bufferSize: 1,
+                                            FileOptions.None))
+            {
+                try
+                {
+                    File.Delete(partialPath);
+                    deletedWhileOpen = true;
+                }
+                catch (IOException)
+                {
+                    // Windows: akış kapanınca tekrar denenecek.
+                }
+            }
+
+            if (!deletedWhileOpen)
+            {
+                File.Delete(partialPath);
+            }
+        }
+        catch (IOException)
+        {
+            // Başka bir işlem tutuyor; normal akış devreder.
+        }
+        catch (UnauthorizedAccessException)
+        {
+            // Klasör yazma izni yoksa zaten taşıma da başarısız olur.
+        }
+    }
+
+    private static void CopyThenDelete(string sourcePath, string finalPath, bool overwrite)
+    {
+        if (!overwrite && File.Exists(finalPath))
+        {
+            throw new IOException("Hedef dosya zaten var.");
+        }
+
+        var temporaryPath = finalPath + ".migurdex-partial";
+        try
+        {
+            File.Copy(sourcePath, temporaryPath, overwrite: true);
+            if (overwrite)
+            {
+                File.Move(temporaryPath, finalPath, overwrite: true);
+            }
+            else
+            {
+                File.Move(temporaryPath, finalPath);
+            }
+
+            File.Delete(sourcePath);
+        }
+        catch
+        {
+            TryDelete(temporaryPath);
+            throw;
+        }
     }
 
     private static readonly Regex ErrorUrlScrubRegex = new(
@@ -750,16 +1154,132 @@ public sealed class YtDlpHlsDownloader : IHlsDownloader
         }
     }
 
-    private static bool LooksLikeFfmpegFailure(ExternalProcessResult result)
+    /// <summary>
+    /// Araç adıyla birlikte geçen, binary'nin **kendisinin bulunamadığına**
+    /// işaret eden kalıplar. Genel "failed" bilinçli olarak yok: yt-dlp neredeyse
+    /// her hatada "failed" yazar (ağ, 404, disk dolu) ve bu satırlar çıktının
+    /// herhangi bir yerinde "ffmpeg" kelimesi geçtiği anda "ffmpeg gerekiyor"
+    /// teşhisi tetikliyordu → gerçek neden gizleniyordu.
+    /// </summary>
+    private static readonly string[] MissingBinaryPatterns =
+    [
+        "is not installed",
+        "not installed",
+        "no such file",
+        "not found",
+        "is not recognized",
+        "command not found",
+        "enoent",
+        "cannot be found",
+        "could not be found",
+        "unable to find",
+        "no ffmpeg",
+        "ffmpeg-location",
+        "yüklü değil",
+        "bulunamad",
+        "çalışm"
+    ];
+
+    /// <summary>
+    /// ffmpeg'e **özgü** hata sinyalleri. Bunlar "ffmpeg yok" değil, "ffmpeg var
+    /// ama işi yapamadı" demektir; kullanıcıya "ffmpeg kurun" demek yanlış olurdu.
+    /// </summary>
+    private static readonly string[] FfmpegRuntimePatterns =
+    [
+        "exited with code",
+        "exit code",
+        "exit status",
+        "error while",
+        "invalid data",
+        "could not write",
+        "unknown encoder",
+        "no such filter",
+        "permission denied"
+    ];
+
+    private static readonly string[] FfmpegToolNames = ["ffmpeg", "ffprobe", "avconv"];
+
+    /// <summary>
+    /// C6: ffmpeg teşhisi **satır bazında** ve **araç adı + eksiklik sinyali
+    /// aynı satırda** olacak şekilde daraltıldı.
+    ///
+    /// Önceki hâli: <c>output.Contains("ffmpeg") &amp;&amp; output.Contains("failed")</c>
+    /// — iki koşul da tüm stdout+stderr kümesinde aranıyordu. yt-dlp bir 404
+    /// hatası verdiğinde ("ERROR: ... HTTP Error 404: Not Found ... failed")
+    /// stderr'in herhangi bir yerinde "ffmpeg" geçtiği anda kullanıcı
+    /// "HLS için ffmpeg gerekiyor" mesajını alıyor, gerçek neden (ağ/404/disk
+    /// dolu) <c>WithCause</c> ile eklenmeden atılıyordu.
+    ///
+    /// Satır bazlı eşleşme ayrıca URL tuzağını da kapatır: yt-dlp hata
+    /// satırlarına ham URL yazdığı için
+    /// "https://cdn/.../ffmpeg-master/frag12.ts: HTTP Error 404: Not Found"
+    /// satırı hem "ffmpeg" hem "not found" içerir. URL'ler önce
+    /// <see cref="ErrorUrlScrubRegex"/> ile maskelendiği için bu satır artık
+    /// eşleşmez.
+    /// </summary>
+    internal static bool LooksLikeFfmpegFailure(ExternalProcessResult result)
     {
-        var output = result.StandardOutput + "\n" + result.StandardError;
-        return output.Contains("ffmpeg", StringComparison.OrdinalIgnoreCase)
-               && (output.Contains("not found", StringComparison.OrdinalIgnoreCase)
-                   || output.Contains("not installed", StringComparison.OrdinalIgnoreCase)
-                   || output.Contains("enoent", StringComparison.OrdinalIgnoreCase)
-                   || output.Contains("failed", StringComparison.OrdinalIgnoreCase)
-                   || output.Contains("bulunamadı", StringComparison.OrdinalIgnoreCase)
-                   || output.Contains("çalışmıyor", StringComparison.OrdinalIgnoreCase));
+        return MatchesFfmpegLine(result.StandardOutput)
+               || MatchesFfmpegLine(result.StandardError);
+    }
+
+    /// <summary>
+    /// ffmpeg adı geçen bir hata satırı var mı — ama **eksiklik** mi, yoksa
+    /// **çalışma hatası** mı? İkisi farklı mesaj verir.
+    /// </summary>
+    internal static bool LooksLikeFfmpegRuntimeFailure(ExternalProcessResult result)
+    {
+        return MatchesFfmpegPattern(result.StandardOutput, FfmpegRuntimePatterns)
+               || MatchesFfmpegPattern(result.StandardError, FfmpegRuntimePatterns);
+    }
+
+    private static bool MatchesFfmpegLine(string output)
+    {
+        return MatchesFfmpegPattern(output, MissingBinaryPatterns);
+    }
+
+    private static bool MatchesFfmpegPattern(string output, string[] patterns)
+    {
+        if (string.IsNullOrEmpty(output))
+        {
+            return false;
+        }
+
+        foreach (var raw in output.Split(['\r', '\n'],
+                                        StringSplitOptions.RemoveEmptyEntries
+                                        | StringSplitOptions.TrimEntries))
+        {
+            // URL'ler önce maskelenir: 404 satırı "not found" içerir ve
+            // "ffmpeg" bir dosya adının parçası olabilir.
+            var line = ErrorUrlScrubRegex.Replace(raw, " [adres] ");
+            if (!MentionsFfmpeg(line))
+            {
+                continue;
+            }
+
+            foreach (var pattern in patterns)
+            {
+                if (line.Contains(pattern, StringComparison.OrdinalIgnoreCase))
+                {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    private static bool MentionsFfmpeg(string line)
+    {
+        foreach (var tool in FfmpegToolNames)
+        {
+            if (line.Contains(tool, StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private static void DeleteGeneratedFiles(string directory)

@@ -86,4 +86,18 @@ public sealed class TopLevelHelpTests
         Assert.Equal(0, exitCode);
         Assert.Contains("migurdex --help", writer.ToString(), StringComparison.Ordinal);
     }
+
+    [Fact]
+    public void PrintHelp_DocumentsEveryTuiFlagThatIsAccepted()
+    {
+        var writer = new StringWriter();
+        HelpCommand.PrintHelp(writer);
+        var help = writer.ToString();
+
+        Assert.NotEmpty(TopLevelArguments.TuiFlags);
+        foreach (var flag in TopLevelArguments.TuiFlags)
+        {
+            Assert.Contains(flag, help, StringComparison.Ordinal);
+        }
+    }
 }

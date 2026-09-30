@@ -189,9 +189,11 @@ Kaydetmeden çıkarsan (`Esc` / İptal) değişiklikler uygulanmaz.
 İndirme varsayılanları `config.json` içinden de değiştirilebilir: `DownloadDirectory`, `YtDlpPath`, `DownloadSubtitles`,
 `DownloadResume` ve `DownloadOverwrite`. Sırasıyla platform Downloads/Migurdex dizini, `yt-dlp`, `true`, `true` ve `false`
 varsayılanları kullanılır. `AutoDownloadBestSource` (`false`) kapalıyken bölümden İndir kaynak seçim ekranını açar;
-açıkken en iyi aday otomatik indirilir. `DownloadAutoSelectTimeoutSeconds` (`5`) otomatik çözümlemenin bütçesidir,
-tutamazsa manuel listeye düşülür. Eski config dosyaları yeni alanlar eklenmeden de güvenle yüklenir. Migurdex bu harici araçları
-otomatik indirmez.
+açıkken en iyi aday otomatik indirilir. `DownloadAutoSelectTimeoutSeconds` (`60`) indirme öncesi
+**kaynak taramasının** bütçesidir (tek API çağrısına duvar-saati sınırı); tutamazsa manuel listeye düşülür.
+Bu, TUI'deki `AutoSelectTimeoutSeconds` (`5`, kaynak listesinde otomatik seçim beklemesi) ile
+**farklı bir ayardır** ve biri değişince diğeri değişmez. Eski config dosyaları yeni alanlar eklenmeden de
+güvenle yüklenir. Migurdex bu harici araçları otomatik indirmez.
 
 ## Güvenlik ve kaynak kullanımı
 
@@ -213,12 +215,6 @@ içermez.
   [`b3fc2c7`](https://github.com/Nutaliaxd/Migurdex/pull/4) commit'iyle.
 - **HLS'de resume yoktur.** MP4'te `.part` + `.meta` ile kaldığı yerden devam edilir; HLS'de yt-dlp her
   denemeyi geçici iş dizininde baştan yapar. `--no-resume` yalnız MP4'ü etkiler.
-- **HLS'de graceful olmayan sonlandırma disk bırakır.** `SIGTERM`/`SIGHUP` ile kesilen HLS indirmesi
-  `.migurdex-job-*` klasörünü kalıcı olarak bırakır ve başlangıçta temizlenmez. `Ctrl+C` temizdir.
-  Ölçüm: 6 turda 43,6 MB monotonik birikim.
-- **CLI'da ağ geçidi koruması yok.** API'nin extractor ucu `IsBlockedAddress` ile loopback / özel IP /
-  cloud metadata adreslerini reddeder; indirici tarafındaki `DownloadHttp.ValidateHttpUri` yalnız
-  şema ve boş-olmayan host kontrol eder. Aynı makinede CLI ile hedef doğrudan verilebilir.
 - **Altyazı mux edilmez.** Altyazılar videonun yanına ayrı `.srt` / `.ass` / `.vtt` **sidecar** dosyası olarak
   iner; videoya gömülmez. Altyazının oynatılması için oynatıcının sidecar'ı otomatik bulması gerekir.
 - **Deokwave sağlayıcısı boş sonuç verebilir.** `deokwave.com` Cloudflare `"Just a moment..."` JS
@@ -227,6 +223,22 @@ içermez.
   senkronunu tetiklemez.
 - **CLI tek bölüm indirir.** `migurdex download -e <n>` tek bölüm alır; `-s/--season` bir **filtre**,
   "sezonun tamamını indir" değildir. Kaynak seçimi yalnız TUI'de vardır.
+
+### Bu depoda giderilmiş sınırlar
+
+Aşağıdakiler önceki sürümlerde sınırdı, **bu depoda düzeltildi**; ayrıntı için
+[`DOWNLOAD.md`](DOWNLOAD.md) ve `DEVELOPMENT_LOG.md`:
+
+- **MP4 resume imzalı kaynaklarda çalışmıyordu.** Parça adı artık URL'in tamamından değil, kaynağı
+  *kimliklendiren* sorgu parametrelerinden (`id`, `vid`, `slug`…) üretiliyor; her istekte değişen
+  imza/ölçüm parametreleri (`expire`, `signature`, `token`) hariç tutuluyor. Aynı bölüm artık aynı
+  `.part` dosyasını kullanıyor. Sürümden önce kalan parçalar ve farklı adayların bıraktıkları en yeni
+  2 grup korunuyor, fazlası atılıyor.
+- **HLS'de graceful olmayan sonlandırma diski kirletiyordu.** İş dizini artık sistem geçici
+  klasöründe; zorla öldürülen indirmelerden sonra **kullanıcı klasöründe 0 bayt** kalıyor
+  (ölçüm: `taskkill /F` ile önce 130.022.831 bayt). 6 saatten eski iş dizinleri başlangıçta temizleniyor.
+- **CLI'da ağ geçidi (SSRF) koruması yoktu.** Koruma `Migurdex.Shared/NetworkGuard` içine taşındı;
+  API ve CLI artık **tek uygulamayı** kullanıyor. Yönlendirme hedefleri de korumadan geçiyor.
 
 Kapsamlı sınır listesi ve riskler için [`DOWNLOAD.md`](DOWNLOAD.md) → `Bilinen sınırlar ve riskler`
 bölümüne bak.
@@ -307,6 +319,16 @@ MP4 resume düzeltmesi eklendiğinde aynı filtre ile **341/341** test geçti
 
 Ayrıntılı ölçüm ve hata kayıtları: [`DOWNLOAD.md`](DOWNLOAD.md) → `Test kapsamı` ve
 `KNOWN-ISSUES.md` (bu depoda yok, `test-reports/` altında tutulur).
+
+**Kapsamlı düzeltme dalgası (30 Eylül 2026):** 18 bulgu düzeltildi — iş dizini sızıntısı,
+CLI'da ağ geçidi koruması, bilinmeyen argüman, iki eksik sağlayıcı, HTTP stall dedektörü,
+HLS ilerleme monotonluğu, kilit birikimi, Linux yetim alt süreç, kaynak tarama zaman aşımı
+ve resume sıralaması. Release derlemesi **0 uyarı / 0 hata**; ağ bağımlı
+`ExtractorSmokeTests` hariç **494/494** test geçti (341 taban + 153 yeni), **8 ardışık
+Windows turunda** birebir aynı sonuç. Doğrulama: 3 gerçek CDN indirmesi (260–486 MB,
+sırasıyla ~1,5 MiB/sn ve ~30 MiB/sn) **tamamlandı**, hiçbirinde yeni zaman aşımı
+devreye girmedi; `/health` → `providers` **14**; `migurdex --bilinmeyen` → `exit 2`
+(stack trace yok).
 
 ### Yayım durumu
 

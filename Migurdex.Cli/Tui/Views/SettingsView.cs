@@ -649,9 +649,9 @@ public class SettingsView : BaseView
                     config.DownloadAutoSelectTimeoutSeconds = 0.2;
                 }
 
-                if (config.DownloadAutoSelectTimeoutSeconds > 120.0)
+                if (config.DownloadAutoSelectTimeoutSeconds > 300.0)
                 {
-                    config.DownloadAutoSelectTimeoutSeconds = 120.0;
+                    config.DownloadAutoSelectTimeoutSeconds = 300.0;
                 }
 
                 break;

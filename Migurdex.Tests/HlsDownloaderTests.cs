@@ -114,7 +114,16 @@ public sealed class HlsDownloaderTests
                                     && item.BytesDownloaded == 4435476
                                     && item.TotalBytes == 10485760
                                     && item.SpeedBytesPerSecond == 1048576
-                                    && item.Eta == TimeSpan.FromSeconds(7));
+                                    && item.IsEstimatedTotal);
+            // Tahmin isareti olan toplam bir TAHMIN. Yuzde ve ETA ondan
+            // turetilmez: canli olcumde tahmin 1,25 GiB, gercek dosya
+            // 486,16 MiB idi ve yanlis bir yuzde 100 gosteriliyordu.
+            Assert.Contains(progress.Items,
+                            item => item.Stage == DownloadStage.Downloading
+                                    && item.BytesDownloaded == 4435476
+                                    && item.IsEstimatedTotal
+                                    && item.Percent is null
+                                    && item.Eta is null);
             Assert.Contains(progress.Items,
                             item => item.Stage == DownloadStage.Downloading
                                     && item.BytesDownloaded == 11010048
@@ -132,8 +141,9 @@ public sealed class HlsDownloaderTests
                                     && item.SpeedBytesPerSecond == 13285457
                                     && item.FragmentsDone == 12
                                     && item.FragmentsTotal == 142
-                                    && item.Percent == 9.0
-                                    && item.Eta == TimeSpan.FromMinutes(1) + TimeSpan.FromSeconds(24));
+                                    && item.IsEstimatedTotal
+                                    && item.Percent is null
+                                    && item.Eta is null);
         }
         finally
         {
@@ -514,6 +524,111 @@ public sealed class HlsDownloaderTests
     {
         var index = values.ToList().IndexOf(option);
         return index >= 0 && index + 1 < values.Count ? values[index + 1] : string.Empty;
+    }
+
+    [Fact]
+    public void JobRootDirectory_IsOutsideTheDownloadFolder()
+    {
+        // BULGU 16: is dizini indirme klasorunde olunca zorla sonlandirmada kalici
+        // olarak kaliyordu (olcum: taskkill /F 130.022.831 B, CTRL_BREAK 103.792.544 B).
+        // Artik sistem gecici klasorunde ve kullaniciya gorunmez.
+        var root = YtDlpHlsDownloader.JobRootDirectory;
+
+        Assert.False(string.IsNullOrWhiteSpace(root));
+        Assert.StartsWith(Path.GetFullPath(Path.GetTempPath()), root, StringComparison.Ordinal);
+        Assert.DoesNotContain(".migurdex-job-", root, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void SweepStaleJobDirectories_RemovesOldGuidFoldersAndKeepsRecentOnes()
+    {
+        var root = YtDlpHlsDownloader.JobRootDirectory;
+        Directory.CreateDirectory(root);
+        var stale   = Path.Combine(root, Guid.NewGuid().ToString("N"));
+        var recent  = Path.Combine(root, Guid.NewGuid().ToString("N"));
+        var foreign = Path.Combine(root, "gecici klasor paylasiliyor");
+        foreach (var path in new[] { stale, recent, foreign })
+        {
+            Directory.CreateDirectory(path);
+            File.WriteAllText(Path.Combine(path, "media.mp4"), "x");
+        }
+
+        try
+        {
+            Directory.SetLastWriteTimeUtc(stale, DateTime.UtcNow.AddHours(-8));
+            Directory.SetLastWriteTimeUtc(recent, DateTime.UtcNow.AddMinutes(-1));
+            Directory.SetLastWriteTimeUtc(foreign, DateTime.UtcNow.AddHours(-8));
+
+            YtDlpHlsDownloader.SweepStaleJobDirectories();
+
+            Assert.False(Directory.Exists(stale));   // 8 saat once -> silinir
+            Assert.True(Directory.Exists(recent));   // 1 dakika once -> korunur
+            Assert.True(Directory.Exists(foreign));  // GUID degil -> dokunulmaz
+        }
+        finally
+        {
+            foreach (var path in new[] { stale, recent, foreign })
+            {
+                try { if (Directory.Exists(path)) { Directory.Delete(path, true); } } catch { }
+            }
+        }
+    }
+
+    [Fact]
+    public void SweepStaleJobDirectories_KeepsLongRunningDownload()
+    {
+        // Esik saat olarak secildi: normal bir HLS indirmesi saatlerce surebilir;
+        // cok kisa bir esik uzun suren gecerli bir indirmeyi silerdi.
+        var root = YtDlpHlsDownloader.JobRootDirectory;
+        Directory.CreateDirectory(root);
+        var running = Path.Combine(root, Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(running);
+        File.WriteAllText(Path.Combine(running, "media.mp4"), "x");
+
+        try
+        {
+            Directory.SetLastWriteTimeUtc(running, DateTime.UtcNow.AddHours(-2));
+            YtDlpHlsDownloader.SweepStaleJobDirectories();
+            Assert.True(Directory.Exists(running));
+        }
+        finally
+        {
+            try { if (Directory.Exists(running)) { Directory.Delete(running, true); } } catch { }
+        }
+    }
+
+    [Fact]
+    public async Task MoveOutput_PreservesFileWhenJobDirectoryIsElsewhere()
+    {
+        // Is dizini gecici klasore tasindigi icin hedef farkli dosya sisteminde
+        // olabilir. Unix'te rename(2) EXDEV ile basarisiz olur ve dogrudan
+        // File.Move cagrisi "HLS medya dosyasi tasinamadi" hatasi verirdi.
+        // Burada ayni dosya sisteminde tasima yolunun sonucunu dogruluyoruz:
+        // dosya hedefe tasinmis, kaynak YOK olmus, icerik ayni kalmis olmali.
+        var root = NewTempDir();
+        try
+        {
+            var jobDirectory = Path.Combine(root, "gecici-is-dizini");
+            Directory.CreateDirectory(jobDirectory);
+            var source = Path.Combine(jobDirectory, "media.mp4");
+            await File.WriteAllTextAsync(source, "icerik", TestContext.Current.CancellationToken);
+
+            var destination = new DownloadPath(root, root, "S01E01 - Test", ".mp4");
+
+            var result = YtDlpHlsDownloader.MoveOutputForTest(source,
+                                                               destination,
+                                                               overwrite: false);
+
+            Assert.True(File.Exists(result.OutputPath));
+            Assert.False(File.Exists(source));
+            Assert.Equal("icerik",
+                         await File.ReadAllTextAsync(result.OutputPath,
+                                                      TestContext.Current.CancellationToken));
+        }
+        finally
+        {
+            Directory.Delete(root, true);
+        }
     }
 
     private static string NewTempDir()

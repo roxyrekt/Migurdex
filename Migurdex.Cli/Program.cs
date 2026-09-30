@@ -38,6 +38,15 @@ public static class Program
             AnsiConsole.Profile.Capabilities.ColorSystem = ColorSystem.NoColors;
         }
 
+        // Linux yetim korumasının izleyici süreci. Ebeveyn öldüğünde yaşamaya
+        // devam etmesi gerektiği için **kendi sürecimizde** çalışamaz; bu yüzden
+        // ayrı bir Migurdex örneği olarak başlatılır. Kullanıcı argümanı değildir.
+        if (args.Length > 0
+            && string.Equals(args[0], LinuxOrphanGuard.WatcherArgument, StringComparison.Ordinal))
+        {
+            return LinuxOrphanGuard.RunWatcher(args);
+        }
+
         CleanStaleBackup();
 
         if (args.Any(a => a.Equals("--version", StringComparison.OrdinalIgnoreCase)
@@ -79,6 +88,12 @@ public static class Program
             ConfigureServices(nonInteractiveServices);
             using var nonInteractiveProvider = nonInteractiveServices.BuildServiceProvider();
             return await NonInteractiveCommand.RunAsync(args, nonInteractiveProvider);
+        }
+
+        // Buraya düşen her şey TUI'yi açar; TUI'nin tanımadığı argüman sessizce yutulmamalı.
+        if (!TopLevelArguments.TryValidate(args, out var argError))
+        {
+            return TopLevelArguments.PrintUsageError(Console.Error, argError!);
         }
 
         AppDomain.CurrentDomain.ProcessExit += (s, e) => RestoreCursor();
@@ -155,6 +170,13 @@ public static class Program
                         // ignored
                     }
                 }
+            }
+            else
+            {
+                // CLI kendi API'sini başlattıysa sürümler zaten aynıdır; ayakta duran bir API için denetle.
+                var apiBaseUrl = serviceProvider.GetRequiredService<IConfigurationService>()
+                                                             .Config.ApiBaseUrl;
+                await ApiVersionCheck.ReportAsync(apiService, apiBaseUrl, tuiToken);
             }
 
             var navigator = serviceProvider.GetRequiredService<ITuiNavigator>();

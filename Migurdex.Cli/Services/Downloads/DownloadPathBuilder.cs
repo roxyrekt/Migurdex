@@ -32,8 +32,18 @@ public sealed class DownloadPathBuilder : IDownloadPathBuilder
         var normalizedExtension = NormalizeExtension(extension);
         var separatorBytes = Encoding.UTF8.GetByteCount(Path.DirectorySeparatorChar.ToString());
         var extensionBytes = Encoding.UTF8.GetByteCount(normalizedExtension ?? string.Empty);
+        // C5: tam hedef yolu İKİ ayraç içeriyor (root -> anime dizini -> dosya
+        // adı) ama ayraç maliyeti bütçeden yalnızca BİR kez düşülüyordu.
+        // Hesap: anime + stem bütçesi `availableBytes` kadar olduğunda
+        //   tam yol = root + ayraç + anime + ayraç + stem + uzantı
+        //          = root + uzantı + 2*ayraç + availableBytes
+        //          = Max + ayraç - TemporarySuffix
+        // yani bütçe tam olarak 1 ayraç (1 UTF-8 baytı) eksik hesaplanıyordu
+        // ve EnsureFullPathBudget tam dolu bir yolda yanlışlıkla patlıyordu
+        // ("Tam çıktı yolu güvenli dosya adı bütçesini aşıyor").
         var availableBytes = MaxFullPathUtf8Bytes
                              - Encoding.UTF8.GetByteCount(root)
+                             - separatorBytes
                              - separatorBytes
                              - extensionBytes
                              - TemporarySuffixUtf8Bytes;
