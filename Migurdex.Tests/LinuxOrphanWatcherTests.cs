@@ -1,4 +1,5 @@
 using Migurdex.Cli.Services.Downloads;
+using System.Diagnostics;
 using System.Globalization;
 using Xunit;
 
@@ -356,5 +357,82 @@ public sealed class LinuxOrphanWatcherTests
         }
 
         return 2_000_000_000;
+    }
+
+    /// <summary>
+    /// <b>Regresyon testi — BULGU 34 (kritik).</b> Ebeveyn <b>reap edildiğinde</b>
+    /// koruma hiç tetiklenmiyordu.
+    ///
+    /// <para><b>Hata.</b> <c>Watch</c> içindeki ebeveyn kontrolü
+    /// <c>ReadStartTime(parentPid) != 0</c> şartına bağlıydı. Ebeveyn
+    /// <c>SIGKILL</c> edildikten sonra <b>reap edilirse</b> <c>/proc/&lt;pid&gt;</c>
+    /// tamamen kaybolur, <c>ReadStatField</c> <c>0</c> döner ve <c>break</c> hiç
+    /// çalışmıyordu — izleyici <c>MaxWatchMilliseconds</c> (<b>6 saat</b>) boyunca
+    /// yoklamayı sürdürüyor, hedefi öldürmüyordu.</para>
+    ///
+    /// <para><b>Kontrol deneyi (WSL2, aynı harness):</b>
+    /// ebeveyn reap <b>EDİLMEDİ</b> (zombie) -> hedef 0,16 sn'de öldü;
+    /// ebeveyn reap <b>EDİLDİ</b> -> 20 sn sonra hâlâ yaşıyordu. Yani önceki
+    /// doğrulama yalnız zombie dalını ölçmüş, <c>kill -9 migurdex</c> yapan her gerçek
+    /// ebeveyn (bash, systemd, supervisor) için koruma işlevsizdi.</para>
+    ///
+    /// <para><b>Bu test nasıl kırılır?</b> Düzeltme geri alınırsa izleyici
+    /// <c>MaxWatchMilliseconds</c> dolana kadar döner; bu test de <b>6 saat</b>
+    /// sonra zaman aşımına düşer. Ölçülen süre sınırı 60 sn'dir — tavan yüksek
+    /// tutuldu ki yavaş bir koşuda yanlış negatif üretmesin.</para>
+    /// </summary>
+    [Fact]
+    public void RunWatcher_WithAlreadyReapedParent_KillsChildWithoutWaiting()
+    {
+        if (!OperatingSystem.IsLinux())
+        {
+            return;
+        }
+
+        using var child = StartSleep();
+
+        // Ebeveyn PID'i hiç var olmamış bir numara: `/proc/<pid>` YOK, yani gerçek
+        // hayatta "reap edilmiş" ebeveynle aynı durum. `ShouldGuard` yalnız
+        // pozitiflik ve eşitlik kontrolü yaptığı için bu kabul edilir.
+        var reapedParentPid = FindUnusedPid();
+        Assert.False(LinuxOrphanGuard.IsProcessAlive(reapedParentPid),
+                     "Bu numara gerçekten kullanılmıyor olmalı; aksi hâlde test yanıltır.");
+
+        var stopwatch = Stopwatch.StartNew();
+        var exitCode = LinuxOrphanGuard.RunWatcher(
+            Args(reapedParentPid,
+                 0,
+                 child.Id,
+                 LinuxOrphanGuard.ReadStartTime(child.Id)));
+        stopwatch.Stop();
+
+        Assert.Equal(0, exitCode);
+        Assert.True(stopwatch.Elapsed < TimeSpan.FromSeconds(60),
+                    $"Reap edilmiş ebeveyn için izleyici beklemek zorunda kalmamalı; " +
+                    $"{stopwatch.Elapsed.TotalSeconds:F1} sn sürdü (sınır 60 sn). " +
+                    "Eski davranış 6 saatlik tavana kadar sürerdi.");
+
+        // Hedef gerçekten öldürülmüş olmalı.
+        var deadline = Stopwatch.StartNew();
+        while (LinuxOrphanGuard.IsProcessAlive(child.Id) && deadline.Elapsed < TimeSpan.FromSeconds(10))
+        {
+            Thread.Sleep(50);
+        }
+
+        Assert.False(LinuxOrphanGuard.IsProcessAlive(child.Id),
+                     "Ebeveyn gitmişken hedef izleyici tarafından öldürülmeliydi.");
+    }
+
+    private static Process StartSleep()
+    {
+        var startInfo = new ProcessStartInfo
+        {
+            FileName        = "/bin/sleep",
+            UseShellExecute = false,
+            CreateNoWindow  = true
+        };
+        startInfo.ArgumentList.Add("120");
+
+        return Process.Start(startInfo) ?? throw new InvalidOperationException("Süreç başlatılamadı.");
     }
 }

@@ -707,7 +707,14 @@ public sealed class YtDlpHlsDownloader : IHlsDownloader
         }
 
         var result = number * multiplier;
-        if (result <= 0 || result > long.MaxValue)
+        // Aralık kontrolü **double** üzerinde, atama ise sıfıra doğru kirpar.
+        // Bölme `(0, 1)` aralığındaki her değer bu korumayı geçer ve
+        // `bytes = 0` ile `true` dönerdi. Çağıranlar bunu "geçerli ve sıfırdan
+        // farklı" sanıyordu; `HlsProgressHeartbeat` monotonik tabanı 0'a
+        // sabitleniyor ve o dosyanın geri kalanında tahminli toplam düzeltmesi
+        // (E9/C1b) işe yaramıyordu.
+        // Karşılaştırmayı hedef alanda yap: `bytes >= 1`.
+        if (result < 1 || result > long.MaxValue)
         {
             return false;
         }

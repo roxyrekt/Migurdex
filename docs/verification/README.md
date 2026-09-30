@@ -18,7 +18,7 @@ bulunur.
 | [`BILINEN-SORUNLAR.md`](BILINEN-SORUNLAR.md) | E1–E12 ve BULGU 29/30/31 özet tablosu — ne düzeltildi, ne açık kaldı |
 | [`DERSLER.md`](DERSLER.md) | 46 ders. Süreç hataları da teknik hatalar kadar kayıt altına alındı |
 
-| [`linux/`](linux/) | WSL2 doğrulama turları ve merge sonrası Windows CI kırılması (BULGU 33) || [`linux/`](linux/) | WSL2 Ubuntu-24.04 doğrulama turları: yetim/zombie öldürme, torun öldürme, toplu SQLite çökmesi |
+| [`DONGU-3-KALAN-HATALAR.md`](DONGU-3-KALAN-HATALAR.md) | 3. döngü: kalan hata taraması, Linux yetim korumanın **reap edilen ebeveynde** çalışmaması (kritik), ajan bulgularının doğrulanması |`r`n| [`linux/`](linux/) | WSL2 doğrulama turları ve merge sonrası Windows CI kırılması (BULGU 33) || [`linux/`](linux/) | WSL2 Ubuntu-24.04 doğrulama turları: yetim/zombie öldürme, torun öldürme, toplu SQLite çökmesi |
 
 ---
 

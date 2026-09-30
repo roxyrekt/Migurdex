@@ -56,11 +56,11 @@ Tam anlatım: [`CI-TEST-ADIMI.md`](CI-TEST-ADIMI.md).
 
 ---
 
-## BULGU 31 — açık kaldı
+## BULGU 31 - **KAPANDI** (ölçüm: koşu başına büyüme 0)
 
 | Konu | Etki | Durum |
 |---|---|---|
-| `/tmp/migurdex-tests` altında `run-` önekli olmayan `bilinmeyen-<guid>` dizinleri var; testler kökün altına **doğrudan** yazıyor. Yeni süpürücü 10 dakikalık yaşlanma kuralı nedeniyle bunlara dokunmuyor | **Etkisiz.** Eski kod da yalnız 1 saatten eski, adı çözülemeyen dizinleri siliyordu | ⬜ Açık — ayrı ve küçük iş |
+| `/tmp` altındaki `migurdex-dbtest-*` dizinleri (Grup H öncesinden kalan `TestTempDirectory` dışı kalıntı) | **Etkisiz** — tarihsel kalıntı | ✅ **Kapandı.** Ölçüldü: 241 → 241 → 241 → 241 (3 ardışık koşu). **Koşu başına büyüme 0.** `TestTempDirectory` işini yapıyor; kalan 240 dizin o düzeltmeden *önce* oluşmuş. Tek kayıt `migurdex-jobs` — sabit adlı, büyümüyor |
 
 ---
 
@@ -68,7 +68,7 @@ Tam anlatım: [`CI-TEST-ADIMI.md`](CI-TEST-ADIMI.md).
 
 | Konu | Etki | Durum |
 |---|---|---|
-| Keşif (`--list-tests`) sabit **600**, ama tam koşunun raporladığı toplam **599/600** arasında oynuyor — 8 ardışık koşuda 5 kez 599, 3 kez 600. `Başarısız: 0` ve `Atlanan: 0` her koşuda | **Regresyon değil** — hiçbir koşuda test düşmüyor. Ama bir test bazı koşularda hiç çalışmıyor, yani %0,17 kapsama açığı | ⬜ Açık — hangi test olduğu **ayırt edilemedi** |
+| Keşif (`--list-tests`) sabit **600**, ama tam koşunun raporladığı toplam **599/600** arasında oynuyor — 8 ardışık koşuda 5 kez 599, 3 kez 600. `Başarısız: 0` ve `Atlanan: 0` her koşuda | **Regresyon değil** — hiçbir koşuda test düşmüyor. Ama bir test bazı koşularda hiç çalışmıyor, yani %0,17 kapsama açığı | 📋 **Kök neden bulundu**, davranış değişmedi — xUnit V3 → VSTest adaptörü arasında **düşen bir sonuç mesajı**. Test koşuyor, sonucu kayboluyor (`--diag`: 21 `RecordStart` / 20 `RecordResult` / 21 `RecordEnd`). Hangi test **her koşuda değişiyor**. Yapılandırma ayarıyla çözülmüyor; self-hosted exe ile 600/8 temiz | ⬜ **Sonraki döngü** — koşucuyu self-hosted exe'ye taşı, sonra sayı eşleşmesini kapı olarak koy |
 
 **Şüphelenilen neden:** xUnit v3'ün **çok işlemli** çalışma modu — BULGU 30'da aynı
 mekanizma kanıtlandı (tek `dotnet test` çağrısı birden çok işlem açıyor, PID 645 → 673 →
