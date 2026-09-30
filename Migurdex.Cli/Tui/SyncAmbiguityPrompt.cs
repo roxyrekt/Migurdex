@@ -36,10 +36,8 @@ public static class SyncAmbiguityPrompt
             });
         }
 
-        while (Console.KeyAvailable)
-        {
-            Console.ReadKey(true);
-        }
+        // Önceki ekrandan kalan tuşları at; yönlendirilmiş stdin'de zararsız bir no-op.
+        TuiConsole.DrainPendingKeys();
 
         var picked = FuzzyPrompt.Show($"Tracker eşleşmesi: {entry.AnimeTitle}",
                                       choices,

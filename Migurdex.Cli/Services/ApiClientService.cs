@@ -20,6 +20,12 @@ public class ApiClientService : IApiClientService
 
     private static readonly Lock ApiLogLock = new();
 
+    /// <summary>Ayakta mı diye soran hızlı yoklama; gövde okunmaz.</summary>
+    private static readonly TimeSpan HealthProbeTimeout = TimeSpan.FromMilliseconds(500);
+
+    /// <summary>Gövde de okunduğu için biraz daha geniş bütçe.</summary>
+    private static readonly TimeSpan HealthReadTimeout = TimeSpan.FromMilliseconds(1500);
+
     private readonly IConfigurationService _configService;
     private readonly HttpClient            _httpClient;
 
@@ -45,7 +51,7 @@ public class ApiClientService : IApiClientService
         try
         {
             using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-            cts.CancelAfter(TimeSpan.FromMilliseconds(500));
+            cts.CancelAfter(HealthProbeTimeout);
             using var response = await _httpClient.GetAsync("health", cts.Token);
             return response.IsSuccessStatusCode;
         }
@@ -56,6 +62,32 @@ public class ApiClientService : IApiClientService
         catch
         {
             return false;
+        }
+    }
+
+    public async Task<ApiHealthInfo?> GetApiHealthAsync(CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            cts.CancelAfter(HealthReadTimeout);
+            using var response = await _httpClient.GetAsync("health", cts.Token);
+            if (!response.IsSuccessStatusCode)
+            {
+                return null;
+            }
+
+            var body = await response.Content.ReadAsStringAsync(cts.Token);
+            return JsonSerializer.Deserialize<ApiHealthInfo>(body, JsonOpts);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch
+        {
+            // Sürüm okunamıyorsa çağıran taraf bunu "bilinmiyor" sayar; çevrimdışı değil.
+            return null;
         }
     }
 

@@ -35,25 +35,30 @@ public sealed class Mp4Downloader : IMp4Downloader
 
     private readonly IDownloadHttpClientFactory? _clientFactory;
     private readonly HttpClient?                  _fixedClient;
+    private readonly DownloadStallOptions         _stallOptions;
 
     public Mp4Downloader()
         : this(new DownloadHttpClientFactory())
     {
     }
 
-    public Mp4Downloader(IDownloadHttpClientFactory clientFactory)
+    public Mp4Downloader(IDownloadHttpClientFactory clientFactory,
+                         DownloadStallOptions?     stallOptions = null)
     {
         _clientFactory = clientFactory ?? throw new ArgumentNullException(nameof(clientFactory));
+        _stallOptions  = stallOptions ?? DownloadStallOptions.Default;
     }
 
-    public Mp4Downloader(HttpMessageHandler handler)
-        : this(new HttpMessageHandlerDownloadClientFactory(handler))
+    public Mp4Downloader(HttpMessageHandler handler,
+                         DownloadStallOptions? stallOptions = null)
+        : this(new HttpMessageHandlerDownloadClientFactory(handler), stallOptions)
     {
     }
 
     public Mp4Downloader(HttpClient client)
     {
-        _fixedClient = client ?? throw new ArgumentNullException(nameof(client));
+        _fixedClient  = client ?? throw new ArgumentNullException(nameof(client));
+        _stallOptions = DownloadStallOptions.Default;
     }
 
     public static string GetResumePartPath(string destinationPath, VideoSource source)
@@ -113,7 +118,7 @@ public sealed class Mp4Downloader : IMp4Downloader
             throw new DownloadException("Video kaynak URL'si geçersiz.");
         }
 
-        DownloadHttp.ValidateHttpUri(sourceUri);
+        await DownloadHttp.ValidateHttpUriAsync(sourceUri, cancellationToken).ConfigureAwait(false);
 
         var finalPath = Path.GetFullPath(destinationPath);
         DownloadPathBuilder.EnsureFullPathBudget(finalPath, DownloadPathBuilder.TemporarySuffixUtf8Bytes);
@@ -197,7 +202,8 @@ public sealed class Mp4Downloader : IMp4Downloader
                 using var response = await DownloadHttp.SendWithRedirectsAsync(client,
                                                                                sourceUri,
                                                                                requestHeaders,
-                                                                               cancellationToken)
+                                                                               cancellationToken,
+                                                                               _stallOptions)
                                          .ConfigureAwait(false);
                 if (DownloadHttp.IsHtml(response))
                 {
@@ -355,6 +361,10 @@ public sealed class Mp4Downloader : IMp4Downloader
                                                     cancellationToken)
                                             .ConfigureAwait(false);
 
+                // Bekçi gövde akışından ÖNCE bildirilir: using bildirimleri ters
+                // sırada yok edildiği için, asılı kalmış okumanın iptalinden sonra
+                // bekçinin kendisi temizlenir.
+                using var stall = new DownloadStallGuard(_stallOptions, cancellationToken);
                 await using var body = await response.Content.ReadAsStreamAsync(cancellationToken);
                 await using var file = new FileStream(partPath,
                                                       append ? FileMode.Append : FileMode.CreateNew,
@@ -381,7 +391,7 @@ public sealed class Mp4Downloader : IMp4Downloader
                     if (append && remaining == 0)
                     {
                         var extraProbe = new byte[1];
-                        var extra      = await body.ReadAsync(extraProbe.AsMemory(), cancellationToken)
+                        var extra      = await stall.ReadAsync(body, extraProbe.AsMemory())
                                              .ConfigureAwait(false);
                         if (extra != 0)
                         {
@@ -394,7 +404,7 @@ public sealed class Mp4Downloader : IMp4Downloader
                     var readLength = append
                                          ? (int)Math.Min(buffer.Length, remaining)
                                          : buffer.Length;
-                    var read = await body.ReadAsync(buffer.AsMemory(0, readLength), cancellationToken)
+                    var read = await stall.ReadAsync(body, buffer.AsMemory(0, readLength))
                                      .ConfigureAwait(false);
                     if (read == 0)
                     {
@@ -614,7 +624,7 @@ public sealed class Mp4Downloader : IMp4Downloader
 
             if (!groups.TryGetValue(groupKey, out var group))
             {
-                group = new ResumeGroup();
+                group = new ResumeGroup { Key = groupKey };
             }
 
             if (metaPath is not null)
@@ -636,7 +646,17 @@ public sealed class Mp4Downloader : IMp4Downloader
         }
 
         // Yeni parçaya en yakın adaylar resume için değerlidir; eskiler atılır.
+        //
+        // `ModifiedUtc` bir türev alandır (gruptaki en yeni dosyanın zamanı) ve
+        // dosya sistemi çözünürlüğü saniyeden kaba olduğu için farklı adaylar
+        // aynı değeri alabilir. Bağlayıcısız (tiebreaker'sız) bir sıralamada
+        // `Skip` bu durumda **hangi** 2 grubun korunacağını keyfî seçer; yani
+        // "en yeni 2" sözleşmesi sessizce aday izolasyonunu bozabilir. Grup
+        // anahtarı ikincil ölçüt olarak kullanılır: seçim artık dosya sistemi
+        // sırasına değil, kararlı bir kıyaslamaya bağlıdır ve tekrar çalıştırmada
+        // birebir aynı sonucu verir.
         foreach (var group in groups.Values.OrderByDescending(entry => entry.ModifiedUtc)
+                                         .ThenByDescending(entry => entry.Key, StringComparer.Ordinal)
                                          .Skip(MaxRetainedResumeParts))
         {
             if (group.MetadataPath is not null)
@@ -652,6 +672,8 @@ public sealed class Mp4Downloader : IMp4Downloader
 
     private sealed class ResumeGroup
     {
+        /// <summary>Sıralamada bağlayıcı olarak kullanılan kararlı grup anahtarı.</summary>
+        public string              Key          { get; init; } = string.Empty;
         public string?             MetadataPath { get; set; }
         public List<string>        PartPaths    { get; } = [];
         public DateTime            ModifiedUtc  { get; set; } = DateTime.MinValue;
@@ -1210,7 +1232,8 @@ public sealed class Mp4Downloader : IMp4Downloader
         using var response = await DownloadHttp.SendWithRedirectsAsync(client,
                                                                        sourceUri,
                                                                        headers,
-                                                                       cancellationToken)
+                                                                       cancellationToken,
+                                                                       _stallOptions)
                                      .ConfigureAwait(false);
         if (DownloadHttp.IsHtml(response))
         {
@@ -1272,6 +1295,8 @@ public sealed class Mp4Downloader : IMp4Downloader
             throw new DownloadException("Video dosyasına erişilemedi.");
         }
 
+        // Bekçi akıştan önce bildirilir; bkz. DownloadStallGuard açıklaması.
+        using var stall = new DownloadStallGuard(_stallOptions, cancellationToken);
         await using var body = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
         await using var file = new FileStream(segmentPath,
                                               existingLength > 0 ? FileMode.Append : FileMode.Create,
@@ -1290,7 +1315,7 @@ public sealed class Mp4Downloader : IMp4Downloader
         {
             cancellationToken.ThrowIfCancellationRequested();
             var readLength = (int)Math.Min(buffer.Length, remaining);
-            var read = await body.ReadAsync(buffer.AsMemory(0, readLength), cancellationToken).ConfigureAwait(false);
+            var read = await stall.ReadAsync(body, buffer.AsMemory(0, readLength)).ConfigureAwait(false);
             if (read == 0)
             {
                 break;
@@ -1309,7 +1334,7 @@ public sealed class Mp4Downloader : IMp4Downloader
         }
 
         var extraProbe = new byte[1];
-        var extra = await body.ReadAsync(extraProbe.AsMemory(), cancellationToken).ConfigureAwait(false);
+        var extra = await stall.ReadAsync(body, extraProbe.AsMemory()).ConfigureAwait(false);
         if (extra != 0)
         {
             throw new DownloadException("Video sunucusu aralık uzunluğu tutarsız.");

@@ -18,9 +18,7 @@ public sealed class AniListListClientTests
 
     private static string NewTempDir()
     {
-        var dir = Path.Combine(Path.GetTempPath(), "migurdex-listtest-" + Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(dir);
-        return dir;
+        return TestTempDirectory.Create("migurdex-listtest-");
     }
 
     private static OAuthToken FreshToken()

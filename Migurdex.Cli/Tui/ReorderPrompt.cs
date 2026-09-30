@@ -12,6 +12,13 @@ public static class ReorderPrompt
 {
     public static List<ReorderItem>? Show(string title, List<ReorderItem> items)
     {
+        // Sıralama tamamen klavye girişine dayanır; etkileşim yoksa yapılamaz.
+        if (!TuiConsole.Interactive)
+        {
+            TuiConsole.ReportNonInteractive(title);
+            return null;
+        }
+
         var list = items.Select(i => new ReorderItem
                         {
                             Key         = i.Key,
@@ -181,9 +188,9 @@ public static class ReorderPrompt
                                last = fp;
                            }
 
-                           if (Console.KeyAvailable)
+                           if (TuiConsole.TryReadKey(out var keyInfo))
                            {
-                               HandleKey(Console.ReadKey(true));
+                               HandleKey(keyInfo);
                            }
                            else
                            {

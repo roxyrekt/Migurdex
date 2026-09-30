@@ -31,11 +31,25 @@ public sealed class DownloadProgress
         Eta                 = eta;
         Percent             = percent;
         Track               = track;
+        IsAudioTrack        = isAudioTrack;
     }
 
     public DownloadStage Stage          { get; init; }
     public long          BytesDownloaded { get; init; }
     public long?         TotalBytes      { get; init; }
+
+    /// <summary>
+    /// <see cref="TotalBytes"/> bir **tahmin** mi (yt-dlp'nin `of ~Y` çıktısı)
+    /// gerçek bir boyut mu?
+    ///
+    /// Ölçülen ayrım: `one piece` bölümünde yt-dlp segment fazı için
+    /// <c>1,25 GiB</c> tahmin etti, gerçek dosya <b>486,16 MiB</b> oldu (2,6× sapma).
+    /// Tahmin kesin toplam gibi sunulduğunda ilerleme <b>yanlış bir %100</b> gösteriyor
+    /// ve buna dayalı ETA de yanlış. BULGU 1'in (sahte bayt göstergesi) kardeşi:
+    /// gösterge gerçek değil, bu yüzden yüzde türetilmemeli.
+    /// </summary>
+    public bool          IsEstimatedTotal { get; init; }
+
     public double?       SpeedBytesPerSecond { get; init; }
     public int?          FragmentsDone   { get; init; }
     public int?          FragmentsTotal  { get; init; }

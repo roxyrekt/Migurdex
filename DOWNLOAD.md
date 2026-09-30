@@ -264,6 +264,15 @@ listesinde her satırda fansub adı görünür; istediğiniz fansubun kaynağın
 çalıştırılamadı. yt-dlp kurun ve PATH'te bulunduğundan emin olun.`, ffmpeg eksikse `HLS için
 ffmpeg gerekiyor ancak ffmpeg bulunamadı veya çalışmıyor.` hatası alınır.
 
+Bu ffmpeg hatası **yalnızca ffmpeg binary'sinin gerçekten bulunamadığı** durumda
+verilir (`ffmpeg: command not found`, `is not installed`, `No such file or directory`,
+`is not recognized`, `ENOENT` gibi desenler, satır bazında eşleştirilir). Daha önce
+stderr'de herhangi bir yerde genel `failed` kelimesi geçtiğinde de bu mesaj
+veriliyordu; ağ hatası, `404`, disk dolu gibi durumlar yanlışlıkla "ffmpeg kurun"
+diye teşhis ediliyor ve gerçek neden gizleniyordu. `ffmpeg` yüklü ama birleştirme
+sırasında çökerse (`exited with code 1`, `Invalid data found when processing input`
+gibi) artık nötr bir mesaj verilir ve yt-dlp'nin gerçek `ERROR:` satırları korunur.
+
 **Dosya nereye iniyor?**
 `<DownloadDirectory>\<anime>\SxxEyy - <bölüm>.<uzantı>` düzenine; varsayılan kök
 `<profil>\Downloads\Migurdex`. Ayrıntı: `Kullanım örnekleri → Çıktı dosya/klasör düzeni`.
@@ -287,6 +296,14 @@ kilit boşalana dek bekler; ayrı süreçteyken ikinci indirme kilidi açamayıp
 bir indirme tarafından kullanılıyor.` hatası alır. Video bittikten sonraki altyazı fazında kilit
 alınamazsa altyazılar atlanır, video sonucu korunur. Farklı hedef dosyalara yapılan indirmeler
 birbirini etkilemez.
+
+Zorla sonlandırılan bir indirme (`taskkill /F`, `SIGKILL`) `Dispose` kodunu çalıştıramaz ve
+0 B'lık `<hedef>.migurdex.lock` klasörde kalır. Yeni indirme başlarken bu bayat kilit
+temizlenir; ayrım `FileShare.None` ile yapılır: dosya açılabiliyorsa kimse kullanmıyor
+demektir ve 0 B ise (Migurdex kilit dosyasına asla yazmaz) silinir. Dosya açılamıyorsa
+başka bir indirme kullanıyordur ve hiç dokunulmaz — normal `Video hedefi başka bir indirme
+tarafından kullanılıyor.` hatası verilir. Dolu (0 B olmayan) bir dosya Migurdex'in ürettiği
+bir kilit olmadığından bırakılır.
 
 **Zaten var olan dosyanın üzerine yazar mı?**
 Hayır. Hedef varsa hem MP4 hem HLS indirmesi `Video hedefi zaten var; overwrite kapalı.` hatası
@@ -422,9 +439,25 @@ Testler (`Migurdex.Tests`): `Mp4DownloaderTests`, `SubtitleDownloaderTests`, `Hl
 | `DownloadSubtitles` | `true` | Varsayılan olarak altyazılar da iner (`--no-subs` ile kapatılır) |
 | `DownloadResume` | `true` | Kısmi MP4 dosyasından devam etme (`--no-resume` ile kapatılır) |
 | `DownloadOverwrite` | `false` | Var olan hedefin üzerine yazma (`--force` ile açılır) |
+| `DownloadAutoSelectTimeoutSeconds` | `60` | Kaynak taraması için tek API çağrısına tanınan süre. TUI'da 0,2–300 sn aralığında ayarlanır |
 
 Eski config dosyaları yeni alanlar eklenmeden de güvenle yüklenir. Migurdex yt-dlp veya
 ffmpeg'i otomatik indirmez/kurmaz.
+
+> **`DownloadAutoSelectTimeoutSeconds` neden 60?** Bu bir *duvar-saati* sınırıdır ve
+> yalnızca API'den kaynak listesi alınırken geçerlidir. Ölçüm: `one piece`
+> (37 kaynak, 1166 bölüm) yerel API'de **46,98 saniye** sürdü ve önceki varsayılan
+> 5 saniyeydi. Ancak bu hata sonraki doğrulamada **yeniden üretilemedi**: aynı zincir
+> ~1,78 saniye sürdü ve config 5 saniyeye (hatta 0,2 saniyeye) zorlandığında bile
+> indirme başarıyla tamamlandı. Yani 46,98 saniye muhtemelen ağ yavaşlığına bağlı bir
+> uç değerdi; 5 saniyenin somut bir hata ürettiği kanıtlanmadı.
+>
+> Değer yine de 5 → 60 saniyeye çıkarıldı: 5 saniye, ölçülen uç değerin çok altında
+> kalmak üzere seçilmiş bir sayıydı ve 60 saniye bu belirsizliği maliyetsiz biçimde
+> ortadan kaldırıyor. Bu bir hata düzeltmesi değil, **genişletilmiş pay**tır.
+>
+> Bu süre MP4/HLS indirmesinin **toplam** süresini sınırlamaz — asılı kalmaya karşı
+> asıl koruma indirme yolundaki stall dedektörüdür (aşağıya bakın).
 
 ## Test kapsamı
 
@@ -635,6 +668,33 @@ Kaynak ağacında kod değişikliği yapılmadı.
   `HlsDownloaderTests` koşulmalıdır.
 - HLS'te devam etme (resume) yoktur; ağ kesilirse indirme geçici iş diziniyle birlikte baştan
   alınır.
+- yt-dlp HLS ilerlemesinde toplam boyutu (`of ~Y`) her satırda yeniden tahmin eder ve tahmin
+  can dalgalar. Payda bu yüzden **faz içinde monoton artan** tutulur: yeni tahmin öncekinden
+  küçükse yok sayılır. Böylece gösterilen toplam `521.3 MiB → 362.26 MiB → 280.65 MiB`
+  gibi geriye sıçramaz; tahminin kendisi değiştirilmez. HLS'te iki gerçek faz olduğu için
+  (segment ham → mux sonrası) `frag` sayacı `%100`'e ulaşıp yeniden başladığında sıfırlama
+  serbest bırakılır. `x / y` biçimi yt-dlp'nin *bilinen* gerçek toplamı olduğu için bu
+  kurala tabi değildir ve şişirilmez.
+- **Linux'ta zorla öldürülmüş ana süreç yetim `yt-dlp`/`ffmpeg` bırakabilir.** Windows'ta
+  `ChildProcessTracker` bir Job Object (`JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`) kullanıyor ve
+  ana süreç kapanınca tüm alt süreçler de ölüyor; Linux'ta bu karşılığı yok ve
+  `PR_SET_PDEATHSIG` uygulanmadığı için indirme yetim olarak devam edebilirdi. Bunun yerine
+  **ayrı bir izleyici süreç** başlatılır (`--internal-watch-orphan <ebeveynPid> <ebeveynBaşlangıç>
+  <çocukPid> <çocukBaşlangıç>`): ana süreç zorla öldürülünce izleyici yaşamaya devam eder ve
+  hâlâ yaşayan alt süreç `SIGKILL` ile kapatılır.
+  - İzleyici **ebeveynin kendi içinde bir thread olarak değil, ayrı bir Migurdex süreci
+    olarak** çalışır. Ebeveyn `SIGKILL` ile öldüğünde ebeveyn içindeki hiçbir mekanizma
+    (thread, gözcü döngüsü) hayatta kalamaz; bu yüzden izleyici ayrı olmak zorundadır.
+  - Hedef süreç, PID numarası geri dönüşümüyle karışmasın diye yalnız PID'e bakmaz;
+    `/proc/<pid>/stat` içindeki başlangıç zamanı da eşleşmelidir. `kill(pid, 0)` `EPERM`
+    dönerse süreç "yaşıyor" sayılır ve öldürülmez.
+  - İzleyici hedef süreç bitince **hemen çıkar**; ek olarak 6 saatlik bir üst sınırı vardır
+    (iş dizini süpürmesiyle aynı eşik).
+  - Komut satırı, argüman listesi ve çalışma dizini hiç değişmez. Koruma yalnız Linux'ta
+    aktiftir ve kurulamazsa indirme normal şekilde sürer. macOS'ta `PR_SET_PDEATHSIG`
+    bulunmadığından koruma yoktur.
+  - Bilinen yan etki: indirme sırasında **ek bir Migurdex süreci** yaşar. Bu, disk
+    dolduran süresiz yetimlere karşı bilinçli bir takastır.
 
 ### MP4 resume ve sunucu Range davranışı
 
@@ -644,9 +704,19 @@ Kaynak ağacında kod değişikliği yapılmadı.
   boyu tam `total`'e eşitse "zaten tamamlandı" sayılır; aksi hâlde parça sıfırlanıp en fazla
   `MaxResumeAttempts` (2) kez yeniden denenir, sonra `Video aralık isteği tamamlanamadı.` hatası
   verilir.
-- Kaynak URL'si oturumlar arasında değişiyorsa (imzalı/süreli bağlantılar) fingerprint değişir;
-  eski `.part` kullanılmaz ve indirme sıfırdan başlar. Bu, yanlış dosyaya append etmemek için
-  bilinçli bir tasarım tercihidir.
+- Kaynak URL'si oturumlar arasında değişiyorsa (imzalı/süreli bağlantılar) fingerprint
+  **yine değişebilir**; eski `.part` kullanılmaz ve indirme sıfırdan başlar. Bu, yanlış
+  dosyaya append etmemek için bilinçli bir tasarım tercihidir.
+  **Ancak** fingerprint artık URL'in tamamını değil yalnızca *kimliği belirleyen* sorgu
+  parametrelerini (`IdentityQueryKeys`: `id`, `vid`, `file`, `slug` vb.) hash'ler. Google
+  Drive ve benzeri sağlayıcıların her istekte değişen imza/ölçüm parametreleri (`expire`,
+  `signature`, `token`, `ts`…) hariç tutulur; böylece **aynı bölüm aynı `.part` dosyasını
+  kullanır** ve her denemede bölüm boyutunda yeni `.part` birikmez.
+- Farklı sürümlerden ya da farklı adaylardan kalan `.part`/`.meta` grupları **tümüyle
+  silinmez** — aday izolasyonu sözleşmesi korunur. Yalnız **en yeni 2 grup** tutulur,
+  fazlası atılır. Sıralama önce dosya zamanına, zamanlar çakışırsa grup anahtarına göre
+  yapılır; böylece "hangi 2 grup korunacak" kararı **tekrarlanabilirdir** (eskiden
+  dosya sistemi sırasına bağlıydı ve aynı durumda keyfî seçim yapılıyordu).
 
 ### Content-Length / Content-Range sınırlamaları
 
@@ -665,6 +735,52 @@ Kaynak ağacında kod değişikliği yapılmadı.
   ile dosyayı sorunsuz yeniden açar.
 - Ağ paylaşımlarında (SMB/NFS) dosya kilidi davranışı platformdan platforma değişebilir; eşzamanlı
   indirme koruması yerel diskte tasarlandığı gibi çalışır.
+- Bayat kilit **kilit açılmadan hemen önce** temizlenir. Ayrım `FileShare.None` ile yapılır:
+  dosya açılabiliyorsa kimse kullanmıyor demektir ve 0 B ise (Migurdex kilit dosyasına asla
+  yazmaz) silinir; dosya açılamıyorsa başka bir indirme kullanıyordur ve **hiç dokunulmaz**.
+  Silme, Unix'te `flock` koruması için önce **yoklama akışı açıkken** denenir; Windows'ta
+  açık dosya silinemediği için akış kapanınca bir kez daha denenir. Bu sayede Linux'ta iki
+  yabancı süreç arasındaki mikrosaniyelik pencerede biri diğerinin kilidini silemez.
+
+### Takılma (stall) koruması
+
+MP4 ve altyazı indirme yolunda `HttpClient.Timeout` **sınırsızdır** (`InfiniteTimeSpan`).
+Bu bilinçlidir: `HttpClient.Timeout` bir *duvar-saati* sınırıdır ve 272 MB dosya yavaş
+bağlantıda normal şekilde kesilirdi. Bunun yerine akış okuması bir gözcüyle yarıştırılır:
+
+| Eşik | Değer | Anlamı |
+|---|---|---|
+| Başlık | 90 sn | Sunucu yanıt başlıklarını göndermedi |
+| İlk bayt | 30 sn | Başlık geldi ama gövde başlamadı |
+| Boşta | 20 sn | Son bayttan bu yana hiç veri gelmedi |
+
+Eşik "son bayttan bu yana geçen süre" üzerinden hesaplanır, toplam indirme süresiyle
+ilgisi yoktur. `Ctrl+C` her zaman iptal eder (sonsuza dek beklemez). HLS bu korumada
+**değildir**: HLS `yt-dlp` alt süreç üzerinden çalışır ve kendi yeniden deneme
+davranışına sahiptir.
+
+### HLS ilerlemesinde toplam: tahmin mi, kesin mi?
+
+yt-dlp segment indirirken toplamı `of ~Y` biçiminde **tahmin** olarak yazar. Bu tahmin
+kesin olmayabilir: `one piece` bir bölümünde segment fazı `1,25 GiB` derken gerçek dosya
+**486,16 MiB** oldu (2,6× sapma). Bu yüzden:
+
+- Tahminli satırlarda toplam `~` işaretiyle gösterilir.
+- Tahmine dayalı **yüzde ve kalan süre gösterilmez** — yanlış bir `%100` üretmemek için.
+  İlerleme bu satırlarda parça sayacıyla (`frag 150/300`) okunur.
+- Mux fazında yt-dlp gerçek boyutu bildirdiği için toplam, yüzde ve kalan süre kesinleşir.
+
+Bu, sahte bayt göstergesi (BULGU 1) ile aynı ailedendir: gösterge gerçek değilse
+ondan türetilen hiçbir gösterge de gerçek değildir.
+
+### Kısmi dosya temizliği
+
+HLS çıktısı hedefe taşınırken önce `<hedef>.migurdex-partial` yazılır, sonra hedefe
+taşınır. İşlem zorla öldürülürse (`taskkill /F`, `SIGKILL`) bu ara dosya kalıcı çöp
+olabilir; aynı hedefe yeni indirme başlarken temizlenir (kilitle aynı kural: yalnızca
+kimse tutmuyorsa dokunulur). Aynı hedefe ait taşıma başarısız olursa yedek kopyala-sil
+yolu yalnızca Unix'te `EXDEV` (farklı dosya sistemi) hatasında devreye girer; disk dolu
+veya izin hatası gibi diğer durumlarda gereksiz tam boy kopyalama denenmez.
 
 ### Altyazı formatları
 

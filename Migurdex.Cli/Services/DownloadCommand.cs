@@ -236,9 +236,10 @@ public static class DownloadCommand
         IServiceProvider                                                     services,
         CancellationToken                                                    cancellationToken)
     {
-        var config = services.GetRequiredService<IConfigurationService>().Config;
+        var configService = services.GetRequiredService<IConfigurationService>();
+        var config        = configService.Config;
         var api    = services.GetRequiredService<IApiClientService>();
-        if (!await EnsureApiOnlineAsync(api, cancellationToken))
+        if (!await EnsureApiOnlineAsync(api, config.ApiBaseUrl, cancellationToken))
         {
             return await FailAsync(options, "API bağlantısı kurulamadı. Ayarlardaki API adresini kontrol edin.");
         }
@@ -326,8 +327,21 @@ public static class DownloadCommand
         cancellationToken.ThrowIfCancellationRequested();
         if (resolved.TimedOut)
         {
+            // Mesaj tek başına işe yaramıyordu: anahtarı söylüyordu ama dosyanın
+            // nerede olduğunu söylemiyordu. Dahası, `config.json` oluşturulurken
+            // yalnız yazılmış alanlar serileştirildiği için bu anahtar **dosyada
+            // hiç bulunmayabiliyor** — "değerini büyütün" demek uygulanamaz bir
+            // talimattı. Artık hem tam yol veriliyor hem de anahtarın **eklenmesi**
+            // gerektiği, kolay yolun ne olduğu söyleniyor.
             return await FailAsync(options,
-                                   "Kaynak taraması zaman aşımına uğradı. config dosyasındaki DownloadAutoSelectTimeoutSeconds değeri yükseltilebilir.");
+                                   $"Kaynak taraması zaman aşımına uğradı "
+                                   + $"(süre: {config.DownloadAutoSelectTimeoutSeconds:F0} sn). "
+                                   + "Büyük dizilerde kaynak taraması bu süreyi aşabilir. "
+                                   + "Kolay yol: TUI → Ayarlar → İndirme bekleme süresi. "
+                                   + "Ya da "
+                                   + $"{Path.Combine(configService.ConfigDirectory, "config.json")} "
+                                   + "dosyasına şu satırı ekleyin: "
+                                   + "\"DownloadAutoSelectTimeoutSeconds\": <yeni saniye>");
         }
 
         if (resolved.Error is not null)
@@ -511,10 +525,14 @@ public static class DownloadCommand
         Console.WriteLine("  Çıkış kodları: 0 başarı, 1 çalışma hatası, 2 kullanım hatası, 3 altyazı iptali.");
     }
 
-    private static async Task<bool> EnsureApiOnlineAsync(IApiClientService api, CancellationToken cancellationToken)
+    private static async Task<bool> EnsureApiOnlineAsync(IApiClientService api,
+        string?                                                           apiBaseUrl,
+        CancellationToken                                                 cancellationToken)
     {
         if (await api.IsApiOnlineAsync(cancellationToken))
         {
+            // CLI kendi API'sini başlattıysa sürümler zaten aynıdır; ayakta duran bir API için denetle.
+            await ApiVersionCheck.ReportAsync(api, apiBaseUrl, cancellationToken);
             cancellationToken.ThrowIfCancellationRequested();
             return true;
         }
@@ -744,18 +762,31 @@ public static class DownloadCommand
             }
             else if (value is { Stage: DownloadStage.Downloading, TotalBytes: > 0 })
             {
-                var pct = Math.Min(100, (double)value.BytesDownloaded * 100 / value.TotalBytes.Value);
-                line += $" %{pct.ToString("0.#", CultureInfo.InvariantCulture)} ({size} / {FormatBytes(value.TotalBytes.Value)})";
+                if (value.IsEstimatedTotal)
+                {
+                    // Toplam yt-dlp tahmini. Yüzde ve ETA türetilirse yanlış
+                    // "%100" ve yanlış kalan süre gösterilir; `~` ile işaretlenir.
+                    line += $" ({size} / ~{FormatBytes(value.TotalBytes.Value)})";
+                }
+                else
+                {
+                    var pct = Math.Min(100, (double)value.BytesDownloaded * 100 / value.TotalBytes.Value);
+                    line += $" %{pct.ToString("0.#", CultureInfo.InvariantCulture)} ({size} / {FormatBytes(value.TotalBytes.Value)})";
+                }
+
                 var speed = value.SpeedBytesPerSecond ?? _speed.BytesPerSecond;
                 if (speed > 0)
                 {
                     line += $" • {FormatBytes((long)speed)}/s";
-                    var eta = _speed.EstimateRemaining(value.BytesDownloaded,
-                                                       value.TotalBytes,
-                                                       value.SpeedBytesPerSecond);
-                    if (eta is not null)
+                    if (!value.IsEstimatedTotal)
                     {
-                        line += $" • {DownloadSpeedometer.FormatEta(eta.Value)}";
+                        var eta = _speed.EstimateRemaining(value.BytesDownloaded,
+                                                           value.TotalBytes,
+                                                           value.SpeedBytesPerSecond);
+                        if (eta is not null)
+                        {
+                            line += $" • {DownloadSpeedometer.FormatEta(eta.Value)}";
+                        }
                     }
                 }
             }

@@ -40,6 +40,14 @@ public class SettingsView : BaseView
 
     public override async Task RenderAsync(ITuiNavigator navigator)
     {
+        // Ayarlar ekranı tamamen klavye girişine dayanır. Etkileşim yoksa dış
+        // `while (settingsRunning ...)` döngüsü hiçbir zaman sonlanamaz.
+        if (!TuiConsole.Interactive)
+        {
+            TuiConsole.ReportNonInteractive("Ayarlar");
+            return;
+        }
+
         var settingsRunning = true;
         var cursorIndex     = 0;
 
@@ -297,9 +305,8 @@ public class SettingsView : BaseView
                                          last = fp;
                                      }
 
-                                     if (Console.KeyAvailable)
+                                     if (TuiConsole.TryReadKey(out var key))
                                      {
-                                         var key = Console.ReadKey(true);
                                          switch (key.Key)
                                          {
                                              case ConsoleKey.UpArrow:
@@ -412,7 +419,7 @@ public class SettingsView : BaseView
                     return null;
                 }
 
-                if (Console.KeyAvailable && Console.ReadKey(true).Key == ConsoleKey.Escape)
+                if (TuiConsole.TryReadKey(out var waitKey) && waitKey.Key == ConsoleKey.Escape)
                 {
                     cts.Cancel();
                     Toast.Show("[grey]Vazgeçildi.[/]");
@@ -649,9 +656,9 @@ public class SettingsView : BaseView
                     config.DownloadAutoSelectTimeoutSeconds = 0.2;
                 }
 
-                if (config.DownloadAutoSelectTimeoutSeconds > 120.0)
+                if (config.DownloadAutoSelectTimeoutSeconds > 300.0)
                 {
-                    config.DownloadAutoSelectTimeoutSeconds = 120.0;
+                    config.DownloadAutoSelectTimeoutSeconds = 300.0;
                 }
 
                 break;
@@ -731,6 +738,12 @@ public class SettingsView : BaseView
 
     private async Task ConfigureProvidersAsync(CliConfig config)
     {
+        if (!TuiConsole.Interactive)
+        {
+            TuiConsole.ReportNonInteractive("Sağlayıcı yönetimi");
+            return;
+        }
+
         var active = true;
 
         ApiResult<IReadOnlyList<ProviderInfo>>? providersResult = null;
@@ -829,9 +842,8 @@ public class SettingsView : BaseView
                                last = fp;
                            }
 
-                           if (Console.KeyAvailable)
+                           if (TuiConsole.TryReadKey(out var key))
                            {
-                               var key = Console.ReadKey(true);
                                switch (key.Key)
                                {
                                    case ConsoleKey.UpArrow:
@@ -1127,6 +1139,12 @@ public class SettingsView : BaseView
         List<string>                             neverList,
         List<string>                             onlyList)
     {
+        if (!TuiConsole.Interactive)
+        {
+            TuiConsole.ReportNonInteractive(title);
+            return;
+        }
+
         var cursorIndex = 0;
         var running     = true;
 
@@ -1195,9 +1213,8 @@ public class SettingsView : BaseView
                                last = fp;
                            }
 
-                           if (Console.KeyAvailable)
+                           if (TuiConsole.TryReadKey(out var key))
                            {
-                               var key = Console.ReadKey(true);
                                switch (key.Key)
                                {
                                    case ConsoleKey.UpArrow:

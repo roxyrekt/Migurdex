@@ -452,8 +452,25 @@ public sealed class Mp4DownloaderTests
                     File.WriteAllText(path, "x");
                 }
 
-                File.SetLastWriteTimeUtc(partBase, new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc)
-                                                        .AddMinutes(index));
+                // Grubun **her** dosyası damgalanmalı. `GetStaleResumePartPaths`
+                // grup zamanını grup içindeki en yeni dosyadan alıyor
+                // (`if (modified > group.ModifiedUtc)`), bu yüzden yalnız `.part`
+                // damgalanırsa kalan dosyalar yazım anında kalır ve beş grubun
+                // zamanı birebir eşitlenir.
+                //
+                // Bu dosya sistemi mtime'ı yazma döngüsünden kaba: Linux'ta 8
+                // ardışık yazmada da mtime_ns birebir aynı ölçüldü. Eşitlikte seçim
+                // kararlı bağlayıcıya (fingerprint sırası) düştüğü için test bu
+                // senaryoda %95-100 kırılıyordu. Kardeş test
+                // `HandlesGlobMetacharactersInFileName` aynı düzeltmeyi almıştı,
+                // bu test unutulmuştu.
+                var stamp = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc)
+                                   .AddMinutes(index);
+                foreach (var path in paths)
+                {
+                    File.SetLastWriteTimeUtc(path, stamp);
+                }
+
                 groups.Add(paths);
             }
 
@@ -527,14 +544,72 @@ public sealed class Mp4DownloaderTests
                 var partBase = Path.GetFullPath(target) + "." + other + ".part";
                 File.WriteAllText(partBase + ".seg0", "x");
                 File.WriteAllText(partBase, "x");
-                File.SetLastWriteTimeUtc(partBase, new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc)
-                                                        .AddMinutes(index));
+
+                // Gruptaki **her** dosyanın zamanı ayarlanmalı. `ModifiedUtc` grubun en
+                // yeni dosyasıdır; yalnız `.part` ayarlanırsa `.seg0` yazım anında
+                // kalır, dört grubun hepsi eşitlenir ve sıralama keyfîleşir. Bu yüzden
+                // test izole koşumda 12'de 3 kez (%25) kırılıyordu.
+                var stamp = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc)
+                                   .AddMinutes(index);
+                File.SetLastWriteTimeUtc(partBase, stamp);
+                File.SetLastWriteTimeUtc(partBase + ".seg0", stamp);
                 groups.Add(partBase);
             }
 
             var stale = Mp4Downloader.GetStaleResumePartPaths(target, current);
+
+            // En eski 2 grup korunur.
+            Assert.Contains(groups[0], stale);
             Assert.Contains(groups[0] + ".seg0", stale);
+            Assert.Contains(groups[1], stale);
             Assert.Contains(groups[1] + ".seg0", stale);
+
+            // En yeni 2 grup resume için korunur.
+            Assert.DoesNotContain(groups[2], stale);
+            Assert.DoesNotContain(groups[3], stale);
+        }
+        finally
+        {
+            Directory.Delete(root, true);
+        }
+    }
+
+    [Fact]
+    public void GetStaleResumePartPaths_IsDeterministicWhenTimestampsTie()
+    {
+        // Zaman damgaları çakıştığında korunan 2 grup **keyfî** olmamalı. Bağlayıcısız
+        // `OrderByDescending(...).Skip(n)` dosya sistemi sıralamasına göre seçiyordu;
+        // aynı girdi iki çağrıda farklı sonuç verebiliyordu. Üretimde bu, aday
+        // izolasyonu sözleşmesinin sessizce bozulması demek.
+        var root = NewTempDir();
+        try
+        {
+            var target = Path.Combine(root, "belgesel.mp4");
+            var current = DownloadHttp.CreateSourceFingerprint("https://origin.example/x", null);
+            var all = new List<string>();
+
+            for (var index = 0; index < 5; index++)
+            {
+                var other = DownloadHttp.CreateSourceFingerprint("https://origin.example/z" + index, null);
+                var partBase = Path.GetFullPath(target) + "." + other + ".part";
+                File.WriteAllText(partBase, "x");
+
+                // Bütün gruplar bilinçli olarak **aynı** zamanı alıyor.
+                File.SetLastWriteTimeUtc(partBase,
+                                         new DateTime(2026, 5, 5, 5, 5, 5, DateTimeKind.Utc));
+                all.Add(partBase);
+            }
+
+            // 5 grup, 2 korunur -> 3 grup atılmalı. 25 tekrar boyunca birebir aynı.
+            var first = Mp4Downloader.GetStaleResumePartPaths(target, current);
+            for (var repeat = 0; repeat < 25; repeat++)
+            {
+                var again = Mp4Downloader.GetStaleResumePartPaths(target, current);
+                Assert.Equal(first, again);
+            }
+
+            Assert.Equal(3, first.Count);
+            Assert.Equal(2, all.Count(part => !first.Contains(part)));
         }
         finally
         {

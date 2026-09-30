@@ -61,7 +61,7 @@ public static class NonInteractiveCommand
         }
 
         var api = services.GetRequiredService<IApiClientService>();
-        if (!await EnsureApiOnlineAsync(api))
+        if (!await EnsureApiOnlineAsync(api, services))
         {
             return 1;
         }
@@ -120,7 +120,7 @@ public static class NonInteractiveCommand
 
         var api     = services.GetRequiredService<IApiClientService>();
         var history = services.GetRequiredService<IHistoryService>();
-        if (!await EnsureApiOnlineAsync(api))
+        if (!await EnsureApiOnlineAsync(api, services))
         {
             return 1;
         }
@@ -193,7 +193,7 @@ public static class NonInteractiveCommand
 
         var api     = services.GetRequiredService<IApiClientService>();
         var history = services.GetRequiredService<IHistoryService>();
-        if (!await EnsureApiOnlineAsync(api))
+        if (!await EnsureApiOnlineAsync(api, services))
         {
             return 1;
         }
@@ -408,10 +408,11 @@ public static class NonInteractiveCommand
                ?? (opts.Episode.HasValue || opts.Season.HasValue ? null : list.OrderBy(e => e.Number).First());
     }
 
-    private static async Task<bool> EnsureApiOnlineAsync(IApiClientService api)
+    private static async Task<bool> EnsureApiOnlineAsync(IApiClientService api, IServiceProvider services)
     {
         if (await api.IsApiOnlineAsync())
         {
+            await ReportVersionMismatchAsync(api, services);
             return true;
         }
 
@@ -423,6 +424,12 @@ public static class NonInteractiveCommand
 
         await Console.Error.WriteLineAsync("Hata: API bağlantısı kurulamadı. Ayarlardaki API adresini kontrol edin.");
         return false;
+    }
+
+    private static async Task ReportVersionMismatchAsync(IApiClientService api, IServiceProvider services)
+    {
+        var apiBaseUrl = services.GetRequiredService<IConfigurationService>().Config.ApiBaseUrl;
+        await ApiVersionCheck.ReportAsync(api, apiBaseUrl);
     }
 
     private static string DescribeOutcome(SyncOutcome outcome)

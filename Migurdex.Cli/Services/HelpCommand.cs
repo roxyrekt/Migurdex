@@ -56,6 +56,7 @@ public static class HelpCommand
         ArgumentNullException.ThrowIfNull(output);
         output.WriteLine("Kullanım:");
         output.WriteLine("  migurdex                       TUI'yi başlatır (etkileşimli terminal gerekir).");
+        output.WriteLine("  migurdex --no-update-check      Güncelleme kontrolünü atlayarak TUI'yi başlatır.");
         NonInteractiveCommand.WriteCommandLines(output);
         output.WriteLine("  migurdex --help                Bu yardım metnini yazar.");
         output.WriteLine();

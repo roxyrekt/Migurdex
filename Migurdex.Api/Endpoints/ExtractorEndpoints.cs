@@ -1,4 +1,5 @@
 using Migurdex.Api.Common;
+using Migurdex.Shared;
 using Migurdex.Shared.Interfaces;
 using System.Net;
 using System.Net.Sockets;
@@ -130,51 +131,8 @@ public static class ExtractorEndpoints
         }
     }
 
-    private static async Task<bool> ResolvesToBlockedAddressAsync(string host, CancellationToken cancellationToken)
+    private static Task<bool> ResolvesToBlockedAddressAsync(string host, CancellationToken cancellationToken)
     {
-        if (string.Equals(host, "localhost", StringComparison.OrdinalIgnoreCase))
-        {
-            return true;
-        }
-
-        if (IPAddress.TryParse(host, out var literal))
-        {
-            return IsBlockedAddress(literal);
-        }
-
-        IPAddress[] addresses;
-        try
-        {
-            addresses = await Dns.GetHostAddressesAsync(host, cancellationToken);
-        }
-        catch
-        {
-            return false;
-        }
-
-        return addresses.Any(IsBlockedAddress);
-    }
-
-    private static bool IsBlockedAddress(IPAddress address)
-    {
-        if (IPAddress.IsLoopback(address) || address.Equals(IPAddress.Any) || address.Equals(IPAddress.IPv6Any))
-        {
-            return true;
-        }
-
-        var bytes = address.GetAddressBytes();
-        if (address.AddressFamily == AddressFamily.InterNetwork)
-        {
-            // 0.0.0.0/8, 10/8, 172.16/12, 192.168/16,
-            // 169.254/16, 100.64/10
-            return bytes[0] == 0
-                   || bytes[0] == 10
-                   || (bytes[0] == 172 && bytes[1] >= 16 && bytes[1] <= 31)
-                   || (bytes[0] == 192 && bytes[1] == 168)
-                   || (bytes[0] == 169 && bytes[1] == 254)
-                   || (bytes[0] == 100 && bytes[1] >= 64 && bytes[1] <= 127);
-        }
-
-        return address.IsIPv6LinkLocal || address.IsIPv6SiteLocal;
+        return NetworkGuard.ResolvesToBlockedAddressAsync(host, cancellationToken);
     }
 }

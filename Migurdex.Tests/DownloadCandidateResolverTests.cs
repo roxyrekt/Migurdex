@@ -130,6 +130,13 @@ public sealed class DownloadCandidateResolverTests
         public Task<bool> TryStartApiDaemonAsync(CancellationToken cancellationToken = default)
             => Task.FromResult(true);
 
+        public Task<ApiHealthInfo?> GetApiHealthAsync(CancellationToken cancellationToken = default)
+            => Task.FromResult<ApiHealthInfo?>(new()
+            {
+                Status  = "OK",
+                Version = "0.0.0"
+            });
+
         public Task<ApiResult<IReadOnlyList<ProviderInfo>>> GetProvidersAsync(
             CancellationToken cancellationToken = default)
             => Task.FromResult(ApiResult<IReadOnlyList<ProviderInfo>>.Ok([]));

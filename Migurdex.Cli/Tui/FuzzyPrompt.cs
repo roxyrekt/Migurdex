@@ -279,6 +279,14 @@ public static class FuzzyPrompt
         string?                     footerHelp        = null,
         bool                        searchable        = true)
     {
+        // Etkileşim yoksa canlı ekran hiç açılmaz: hem anlamsız bir "seçim bekle"
+        // döngüsüne girmek hem de Console.KeyAvailable'in fırlatması anlamsız olurdu.
+        if (!TuiConsole.Interactive)
+        {
+            TuiConsole.ReportNonInteractive(title);
+            return null;
+        }
+
         var choicesList     = choices.ToList();
         var headersList     = headerLines?.Where(h => !string.IsNullOrWhiteSpace(h)).ToList();
         var query           = string.Empty;
@@ -338,9 +346,9 @@ public static class FuzzyPrompt
                                lastTextCursor = textCursorIndex;
                            }
 
-                           if (Console.KeyAvailable)
+                           if (TuiConsole.TryReadKey(out var keyInfo))
                            {
-                               HandleKey(Console.ReadKey(true),
+                               HandleKey(keyInfo,
                                          filtered,
                                          ref query,
                                          ref cursorIndex,
@@ -370,6 +378,14 @@ public static class FuzzyPrompt
         string?                          initialSelection = null,
         IEnumerable<string>?             headerLines      = null)
     {
+        // Akış taraması bile başlamadan çık: etkileşim yoksa seçim yapılamaz ve
+        // tarayıcı görevi iptal edilmeden sonsuza kadar arka planda dönerdi.
+        if (!TuiConsole.Interactive)
+        {
+            TuiConsole.ReportNonInteractive(title);
+            return new DynamicPromptResult<T>();
+        }
+
         var rawItems    = new List<T>();
         var headersList = headerLines?.Where(h => !string.IsNullOrWhiteSpace(h)).ToList();
         var isScanning  = true;
@@ -555,9 +571,8 @@ public static class FuzzyPrompt
                                shouldRedraw = false;
                            }
 
-                           if (Console.KeyAvailable)
+                           if (TuiConsole.TryReadKey(out var keyInfo))
                            {
-                               var keyInfo = Console.ReadKey(true);
                                shouldRedraw = true;
 
                                if (IsWordDeleteKey(keyInfo))

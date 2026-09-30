@@ -8,9 +8,7 @@ public sealed class OAuthTokenStoreTests
 {
     private static string NewTempDir()
     {
-        var dir = Path.Combine(Path.GetTempPath(), "migurdex-tokentest-" + Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(dir);
-        return dir;
+        return TestTempDirectory.Create("migurdex-tokentest-");
     }
 
     private static OAuthToken Token(string provider = "anilist")

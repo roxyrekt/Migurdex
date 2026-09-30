@@ -23,12 +23,14 @@
 
     <ItemGroup>
         <PluginProject Include="Migurdex.Plugins.Acheriya"/>
+        <PluginProject Include="Migurdex.Plugins.AniHub"/>
         <PluginProject Include="Migurdex.Plugins.Animecix"/>
         <PluginProject Include="Migurdex.Plugins.Animpow"/>
         <PluginProject Include="Migurdex.Plugins.Anizm"/>
         <PluginProject Include="Migurdex.Plugins.Anizium"/>
         <PluginProject Include="Migurdex.Plugins.Animexe"/>
         <PluginProject Include="Migurdex.Plugins.AsyaAnimeleri"/>
+        <PluginProject Include="Migurdex.Plugins.Deokwave"/>
         <PluginProject Include="Migurdex.Plugins.OpenAnime"/>
         <PluginProject Include="Migurdex.Plugins.SonAnime"/>
         <PluginProject Include="Migurdex.Plugins.TrAnimeIzle"/>

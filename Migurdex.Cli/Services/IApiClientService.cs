@@ -33,6 +33,7 @@ public interface IApiClientService
 {
     Task<bool>                                   IsApiOnlineAsync(CancellationToken       cancellationToken = default);
     Task<bool>                                   TryStartApiDaemonAsync(CancellationToken cancellationToken = default);
+    Task<ApiHealthInfo?>                         GetApiHealthAsync(CancellationToken    cancellationToken = default);
     Task<ApiResult<IReadOnlyList<ProviderInfo>>> GetProvidersAsync(CancellationToken      cancellationToken = default);
 
     Task<ApiResult<IReadOnlyList<SearchResult>>> SearchAnimeAsync(string query,
@@ -96,6 +97,15 @@ public class ProviderInfo
     public JsonElement Type         { get; set; }
     public string      BaseUrl      { get; set; } = string.Empty;
     public JsonElement Capabilities { get; set; }
+}
+
+/// <summary>GET /health gövdesi. Sürüm, CLI ile aynı dağıtımdan geldiğini doğrulamak için okunur.</summary>
+public sealed class ApiHealthInfo
+{
+    public string Status     { get; set; } = string.Empty;
+    public string Version    { get; set; } = string.Empty;
+    public int    Providers  { get; set; }
+    public int    Extractors { get; set; }
 }
 
 public class StreamedSearchResult
