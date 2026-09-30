@@ -203,7 +203,7 @@ public partial class MalScrapeProvider : IMetadataProvider
                 MyAnimeListId = malId,
                 Source = MetadataSource.MyAnimeList,
                 Title = animeTitle,
-                PosterUrl = poster,
+                PosterUrl = BestPoster(poster),
                 Summary = blurb,
                 Year = null,
                 Score = scoreVal > 0 ? scoreVal : null,
@@ -300,7 +300,7 @@ public partial class MalScrapeProvider : IMetadataProvider
             JapaneseTitle = string.IsNullOrWhiteSpace(japanese) ? null : japanese,
             OriginalTitle = string.IsNullOrWhiteSpace(japanese) ? null : japanese,
             Summary = synopsis,
-            PosterUrl = poster,
+            PosterUrl = BestPoster(poster),
             Status = status ?? string.Empty,
             Year = year,
             Score = score > 0 ? score : null,
@@ -322,6 +322,18 @@ public partial class MalScrapeProvider : IMetadataProvider
             "manga" => ContentFormat.Manga,
             _ => ContentFormat.Unknown,
         };
+    }
+
+    public static string? BestPoster(string? url)
+    {
+        if (string.IsNullOrWhiteSpace(url))
+        {
+            return url;
+        }
+
+        var clean = url.Trim();
+        var m = PosterRegex().Match(clean);
+        return m.Success ? $"{m.Groups[1].Value}l.{m.Groups[2].Value}" : clean;
     }
 
     private static async Task ThrottleAsync(CancellationToken ct)
@@ -353,6 +365,9 @@ public partial class MalScrapeProvider : IMetadataProvider
 
     [GeneratedRegex(@"/anime/(\d+)")]
     private static partial Regex MalIdRegex();
+
+    [GeneratedRegex(@"^(https://cdn\.myanimelist\.net/images/anime/\d+/\d+)\.(jpg|jpeg|png)$")]
+    private static partial Regex PosterRegex();
 
     [GeneratedRegex(@"\b(19\d\d|20\d\d)\b")]
     private static partial Regex YearRegex();

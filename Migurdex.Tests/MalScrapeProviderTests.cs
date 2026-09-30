@@ -89,8 +89,22 @@ public sealed class MalScrapeProviderTests
         Assert.Equal(ContentFormat.Tv, first.Format);
         Assert.Null(first.Year);
         Assert.StartsWith("Demon King", first.Summary);
+        Assert.Contains("138006", first.PosterUrl);
         Assert.Equal("MyAnimeList", provider.Name);
         Assert.Null(list[1].Score);
+    }
+
+    [Theory]
+    [InlineData("https://cdn.myanimelist.net/images/anime/1921/154528.jpg",
+        "https://cdn.myanimelist.net/images/anime/1921/154528l.jpg")]
+    [InlineData("https://cdn.myanimelist.net/images/anime/1921/154528l.jpg",
+        "https://cdn.myanimelist.net/images/anime/1921/154528l.jpg")]
+    [InlineData("https://cdn.myanimelist.net/r/50x70/images/anime/1921/154528.webp?s=abc",
+        "https://cdn.myanimelist.net/r/50x70/images/anime/1921/154528.webp?s=abc")]
+    [InlineData(null, null)]
+    public void BestPoster_UpgradesToLarge(string? input, string? expected)
+    {
+        Assert.Equal(expected, MalScrapeProvider.BestPoster(input));
     }
 
     [Fact]
