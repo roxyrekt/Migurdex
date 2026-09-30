@@ -15,7 +15,6 @@ public partial class MalScrapeProvider : IMetadataProvider
 
     private static readonly TimeSpan MinGap = TimeSpan.FromMilliseconds(500);
 
-    private const int MaxEnrich = 5;
     private static readonly SemaphoreSlim _enrichGate = new(5, 5);
 
     private readonly HttpClient _httpClient;
@@ -56,7 +55,7 @@ public partial class MalScrapeProvider : IMetadataProvider
         try
         {
             var light = await SearchHtmlAsync(q, limit, offset, cancellationToken);
-            return await EnrichTopAsync(light, cancellationToken);
+            return await EnrichAllAsync(light, cancellationToken);
         }
         catch (OperationCanceledException)
         {
@@ -68,7 +67,7 @@ public partial class MalScrapeProvider : IMetadataProvider
         }
     }
 
-    private async Task<List<MediaMetadata>> EnrichTopAsync(
+    private async Task<List<MediaMetadata>> EnrichAllAsync(
         List<MediaMetadata> light, CancellationToken ct)
     {
         if (light.Count == 0)
@@ -77,7 +76,6 @@ public partial class MalScrapeProvider : IMetadataProvider
         }
 
         var tasks = light
-            .Take(MaxEnrich)
             .Select(async m =>
             {
                 await _enrichGate.WaitAsync(ct);
