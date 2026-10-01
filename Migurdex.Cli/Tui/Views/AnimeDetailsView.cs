@@ -50,6 +50,103 @@ public class AnimeDetailsView : BaseView
         return string.IsNullOrWhiteSpace(title) ? "Detaylar" : title;
     }
 
+    /// <summary>
+    /// Bölüm seçme + toplu indirme ekranı.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Kullanıcı <c>Space</c> ile istediği bölümleri işaretler, <c>Enter</c> ile
+    /// onaylar. En üstteki <b>"Tüm bölümleri işaretle"</b> satırı işaretlemeyi tek
+    /// tuşla yapar; klavyede <c>Ctrl+A</c> aynı işi görür. 1000+ bölümlü dizilerde
+    /// (örn. One Piece — ölçülen örnek 1182 bölüm) tek tek gezmek pratik olmadığı
+    /// için bu kısayol zorunludur.
+    /// </para>
+    /// <para>
+    /// <b>Enter davranışı:</b> hiçbir şey işaretlenmemişse Enter imleçteki tek
+    /// bölümü seçer. Aksi hâlde işaretlemeyi unutan kullanıcı Enter'a basınca
+    /// hiçbir şey olmaz ve ekranı anlamaz.
+    /// </para>
+    /// </remarks>
+    private static Task<List<Episode>?> SelectEpisodesForBulkDownloadAsync(AnimeDetails           details,
+        IReadOnlyList<string>        headerLines,
+        IGrouping<int, Episode>?    currentSeasonGroup,
+        string                       selectAllSearchable)
+    {
+        var seasonEpisodes = currentSeasonGroup?.OrderBy(e => e.Number).ToList() ?? [];
+        if (seasonEpisodes.Count == 0)
+        {
+            return Task.FromResult<List<Episode>?>(null);
+        }
+
+        var bulkChoices = new List<FuzzyChoice>
+        {
+            new()
+            {
+                Display       = "[green]⌁ Tüm bölümleri işaretle[/]",
+                DisplayActive = "[bold white on green] ⌁ Tüm bölümleri işaretle [/]",
+                Searchable    = selectAllSearchable,
+                IsAction      = true
+            }
+        };
+
+        var choiceToEpisode = new Dictionary<string, Episode>();
+        var isMovie          = details.Format == ContentFormat.Movie;
+        var unitPrefix       = isMovie ? "Film" : "Bölüm";
+
+        foreach (var ep in seasonEpisodes)
+        {
+            // Arama metnine karışmasın diye anahtar önekli: kullanıcı "12" yazdığında
+            // yalnız 12. bölüm süzülür.
+            var searchable    = $"ep{ep.Number:0000}";
+            var titleTrimmed  = ep.Title?.Trim() ?? "";
+            var hasCustomName = !string.IsNullOrWhiteSpace(titleTrimmed)
+                                && !titleTrimmed.Equals($"{ep.Number}", StringComparison.OrdinalIgnoreCase)
+                                && !titleTrimmed.Equals($"Bölüm {ep.Number}", StringComparison.OrdinalIgnoreCase);
+
+            var label = hasCustomName
+                            ? $"{unitPrefix} {ep.Number:00} · {Theme.Ellipsize(ep.Title!, 44)}"
+                            : $"{unitPrefix} {ep.Number:00}";
+
+            bulkChoices.Add(new FuzzyChoice
+            {
+                Display       = $"[grey]{Markup.Escape(label)}[/]",
+                DisplayActive = $"[bold white]{Markup.Escape(label)}[/]",
+                Searchable    = searchable,
+                CanBeChecked  = true
+            });
+
+            choiceToEpisode[searchable] = ep;
+        }
+
+        bulkChoices.Add(TuiHelpers.Back());
+
+        var selected = FuzzyPrompt.ShowMulti(details.Title,
+                                            bulkChoices,
+                                            initialSelection: selectAllSearchable,
+                                            headerLines: headerLines,
+                                            footerHelp: "↑↓ gez • Space işaretle • Enter onayla • "
+                                                        + "Ctrl+A tümünü işaretle • Esc geri");
+
+        if (selected == null || selected.Count == 0)
+        {
+            return Task.FromResult<List<Episode>?>(null);
+        }
+
+        // "Tüm bölümleri işaretle" seçildiyse tüm liste hedefte; ayrıca onay
+        // menüsündeki "Tüm Bölümleri İndir" de aynı listeyi indirir.
+        var selectAllChosen = selected.Count == 1 && selected[0].Searchable == selectAllSearchable;
+        if (selectAllChosen)
+        {
+            return Task.FromResult<List<Episode>?>(seasonEpisodes);
+        }
+
+        var chosen = selected.Where(c => choiceToEpisode.ContainsKey(c.Searchable))
+                             .Select(c => choiceToEpisode[c.Searchable])
+                             .ToList();
+
+        return Task.FromResult(chosen.Count > 0 ? chosen : null);
+    }
+
     public override async Task RenderAsync(ITuiNavigator navigator)
     {
         if (string.IsNullOrEmpty(_provider) || string.IsNullOrEmpty(_animeId))
@@ -346,7 +443,8 @@ public class AnimeDetailsView : BaseView
                     {
                         Display       = display,
                         DisplayActive = displayActive,
-                        Searchable    = searchable
+                        Searchable    = searchable,
+                        CanBeChecked  = true
                     });
 
                     episodeMap[searchable] = ep;
@@ -354,14 +452,56 @@ public class AnimeDetailsView : BaseView
             }
         }
 
-        choices.Add(TuiHelpers.Back());
+        // Toplu indirme kısayolu yalnızca birden fazla bölüm varken anlamlıdır; tek
+// bölümlü içerikte (film) işaretleme kutusu gösterilmez.
+var selectAllSearchable = "Tüm Bölümleri İşaretle";
+if (!isSingleContent)
+{
+    choices.Insert(0,
+                   new FuzzyChoice
+                   {
+                       Display       = "[green]⌁ Tüm bölümleri işaretle[/]",
+                       DisplayActive = "[bold white on green] ⌁ Tüm bölümleri işaretle [/]",
+                       Searchable    = selectAllSearchable,
+                       IsAction      = true
+                   });
+}
 
-        var choice = FuzzyPrompt.Show(details.Title,
-                                      choices,
-                                      initialSelection: _lastSelectedSearchable,
-                                      headerLines: headerLines);
+choices.Add(TuiHelpers.Back());
 
-        if (choice == null || choice.Searchable == "Geri")
+// Çoklu bölüm varsa Space ile işaretleme ekranı açılır; tek bölümlü içerik
+// (film) eskiden olduğu gibi tekli seçim ekranıyla devam eder.
+if (!isSingleContent)
+{
+    var selectedEpisodes = await SelectEpisodesForBulkDownloadAsync(details,
+                                                                    headerLines,
+                                                                    currentSeasonGroup,
+                                                                    selectAllSearchable);
+
+    if (selectedEpisodes is { Count: > 0 })
+    {
+        await StartBulkDownloadFlowAsync(navigator, details, currentSeasonGroup, selectedEpisodes);
+        return;
+    }
+
+    // İptal (Esc) ya da hiçbir şey seçilmemesi: eski gezinme mantığıyla aynı.
+    if (isMultiSeason)
+    {
+        _selectedSeason         = null;
+        _lastSelectedSearchable = null;
+        return;
+    }
+
+    navigator.Pop();
+    return;
+}
+
+var choice = FuzzyPrompt.Show(details.Title,
+                              choices,
+                              initialSelection: _lastSelectedSearchable,
+                              headerLines: headerLines);
+
+if (choice == null || choice.Searchable == "Geri")
         {
             if (isMultiSeason)
             {
@@ -373,8 +513,6 @@ public class AnimeDetailsView : BaseView
             navigator.Pop();
             return;
         }
-
-        _lastSelectedSearchable = choice.Searchable;
 
         if (choice.Searchable is "Favorilere Ekle" or "Favorilerden Çıkar")
         {
@@ -423,4 +561,110 @@ public class AnimeDetailsView : BaseView
             navigator.Push(sourcesView);
         }
     }
+
+    /// <summary>
+    /// Seçilen bölümler için toplu indirme akışını başlatır.
+    /// </summary>
+    /// <remarks>
+    /// Kullanıcıya iki seçenek sunulur: <b>Tüm Bölümleri İndir</b> (sezonun
+    /// tamamı) ve <b>Sadece Seçtiğin Bölümleri İndir</b> (işaretlenenler).
+    /// "Tüm bölümleri" işaretlemeyi atlar; bu yüzden hiçbir bölüm seçilmeden de
+    /// erişilebilir olması için <c>Enter</c> hiçbir işaretleme olmasa bile imleçteki
+    /// tek bölümü hedefe alır.
+    /// </remarks>
+    private async Task StartBulkDownloadFlowAsync(ITuiNavigator          navigator,
+        AnimeDetails                         details,
+        IGrouping<int, Episode>?             currentSeasonGroup,
+        List<Episode>                        selectedEpisodes)
+    {
+        var bulkActions = new List<FuzzyChoice>
+        {
+            Theme.ActionChoice("Tüm Bölümleri İndir", Theme.Primary),
+            Theme.ActionChoice("Sadece Seçtiğin Bölümleri İndir", Theme.Primary),
+            TuiHelpers.Back()
+        };
+
+        var bulkAction = FuzzyPrompt.Show(details.Title,
+                                           bulkActions,
+                                           searchable: false,
+                                           headerLines:
+                                           [$"[grey]{Markup.Escape(TuiHelpers.EllipsizedTitle(details.Title))} › {selectedEpisodes.Count} bölüm seçildi[/]"],
+                                           footerHelp: "↑↓ gez • Enter seç • Esc geri");
+
+        if (bulkAction is null || bulkAction.Searchable == "Geri")
+        {
+            return;
+        }
+
+        // "Tüm bölümleri" sezonun tamamını hedefler; işaretlenen liste yalnız
+        // "seçtiğin bölümler" yolunda kullanılır.
+        var episodesToDownload = bulkAction.Searchable == "Tüm Bölümleri İndir"
+                                     ? currentSeasonGroup?.OrderBy(e => e.Number).ToList()
+                                       ?? selectedEpisodes
+                                     : selectedEpisodes;
+
+        if (!await ConfirmBulkDownloadAsync(details.Title, episodesToDownload))
+        {
+            return;
+        }
+
+        var bulkView = (BulkDownloadView) _serviceProvider.GetService(typeof(BulkDownloadView))!;
+        bulkView.SetTarget(_provider!, _animeId!, details.Title, episodesToDownload);
+        navigator.Push(bulkView);
+    }
+
+    /// <summary>
+    /// Toplu indirme öncesi onay ekranı. Bölüm sayısı büyükse uyarı gösterilir.
+    /// </summary>
+    /// <remarks>
+    /// Eşik: <see cref="BulkDownloadWarningThreshold"/> bölümün üzerindeyse kullanıcıya
+    /// sıralı indirmenin uzun süreceği ve disk kullanımı söylenir, ikinci onay istenir.
+    /// Bu eşiğin altındaki dizilerde ekran hiç çıkmaz — 24 bölümlük bir dizide
+    /// uyarı göstermek gürültüdür.
+    /// </remarks>
+    private static async Task<bool> ConfirmBulkDownloadAsync(string            animeTitle,
+        IReadOnlyList<Episode> episodes)
+    {
+        var count = episodes.Count;
+
+        if (count <= BulkDownloadWarningThreshold)
+        {
+            return true;
+        }
+
+        AnsiConsole.Clear();
+        AnsiConsole.MarkupLine($"[bold]{Markup.Escape(TuiHelpers.EllipsizedTitle(animeTitle))}[/]");
+        AnsiConsole.MarkupLine($"[yellow]{count} bölüm[/] sıralı olarak indirilecek.");
+        AnsiConsole.MarkupLine("[grey]Bölümler tek tek, sırayla iner. Bu birkaç saat sürebilir "
+                               + "ve diskte onlarca GB yer kaplayabilir.[/]");
+        AnsiConsole.WriteLine();
+
+        var confirm = new List<FuzzyChoice>
+        {
+            Theme.ActionChoice("Evet, indirmeye başla", Theme.Primary),
+            Theme.ActionChoice("Vazgeç", Theme.Danger),
+            TuiHelpers.Back()
+        };
+
+        var choice = FuzzyPrompt.Show("Onayla",
+                                      confirm,
+                                      searchable: false,
+                                      footerHelp: "↑↓ gez • Enter seç • Esc geri");
+
+        return choice is not null
+               && choice.Searchable != "Geri"
+               && choice.Searchable == "Evet, indirmeye başla";
+    }
+
+    /// <summary>
+    /// Bu sayının üzerindeki bölüm sayılarında toplu indirmeden önce ayrıca onay
+    /// istenir. Sıralı indirme uzun sürdüğü ve diskte çok yer kapladığı için
+    /// kullanıcı bilinçli karar vermelidir.
+    /// </summary>
+    /// <remarks>
+    /// 1000+ bölümlü dizilerde (örn. One Piece) hem ekranın hem diskin etkisi
+    /// büyüktür. Küçük dizilerde (<see cref="BulkDownloadWarningThreshold"/>) onay
+    /// ekranı hiç gösterilmez.
+    /// </remarks>
+    internal const int BulkDownloadWarningThreshold = 100;
 }

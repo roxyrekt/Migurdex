@@ -202,6 +202,24 @@ public static class FuzzyPrompt
         return $"[grey]{Markup.Escape(help)}{pos}[/]";
     }
 
+    /// <summary>
+    /// Çoklu seçimde kaç satırın işaretli olduğunu gösteren sayaç.
+    /// </summary>
+    /// <remarks>
+    /// Boş dize dönerse <paramref name="footer"/> içine yazılmaz; böylece çoklu
+    /// seçim kullanılmayan çağrıların görünümü <b>hiç değişmez</b>.
+    /// </remarks>
+    internal static string SelectionCounterMarkup(IEnumerable<FuzzyChoice> choices)
+    {
+        var checkedCount = choices.Count(c => c.IsChecked);
+        if (checkedCount == 0)
+        {
+            return string.Empty;
+        }
+
+        return $"[green]{checkedCount} bölüm seçili[/]";
+    }
+
     internal static Grid BuildGrid(
         string            title,
         List<string>?     headersList,
@@ -212,6 +230,30 @@ public static class FuzzyPrompt
         int               pageSize,
         string?           footerHelp,
         bool              searchable)
+    {
+        return BuildGrid(title,
+                         headersList,
+                         filtered,
+                         query,
+                         cursorIndex,
+                         textCursorIndex,
+                         pageSize,
+                         footerHelp,
+                         searchable,
+                         multiSelect: false);
+    }
+
+    internal static Grid BuildGrid(
+        string            title,
+        List<string>?     headersList,
+        List<FuzzyChoice> filtered,
+        string            query,
+        int               cursorIndex,
+        int               textCursorIndex,
+        int               pageSize,
+        string?           footerHelp,
+        bool              searchable,
+        bool              multiSelect)
     {
         var grid = new Grid();
         grid.AddColumn();
@@ -248,13 +290,30 @@ public static class FuzzyPrompt
         for (var i = startIdx; i < endIdx; i++)
         {
             var choice = filtered[i];
+
+            // Çoklu seçimde işaretlenebilir satırların başına onay işareti gelir.
+            // Kutu yalnız IsChecked/CanBeChecked bilinen satırlarda çizilir; aksiyon
+            // satırları (favoriye ekle, tümünü işaretle, geri) işaret almaz.
+            //
+            // ⭐ DİKKAT: kutu glifleri köşeli parantezle SARILMAZ. Satır gövdesi
+            // `Markup` olarak ayrıştırıldığı için "[X]" bir stil adı sanılır ve
+            // `InvalidOperationException: Could not find color or style 'X'`
+            // fırlatır. Bu hata ölçüldü (bkz. 04-TEST-GUNLUGU.md Bulgu 11).
+            var checkbox = "";
+            if (multiSelect && choice.CanBeChecked)
+            {
+                checkbox = choice.IsChecked ? "[green]✓[/] " : "[grey]·[/] ";
+            }
+
+            var prefix = i == cursorIndex ? "[bold cyan]›[/] " : "  ";
+
             if (i == cursorIndex)
             {
-                grid.AddRow(new Markup($"[bold cyan]›[/] {SelectedRowMarkup(choice, query)}"));
+                grid.AddRow(new Markup($"{prefix}{checkbox}{SelectedRowMarkup(choice, query)}"));
             }
             else
             {
-                grid.AddRow(new Markup($"  {UnselectedRowMarkup(choice, query)}"));
+                grid.AddRow(new Markup($"{prefix}{checkbox}{UnselectedRowMarkup(choice, query)}"));
             }
         }
 
@@ -366,6 +425,279 @@ public static class FuzzyPrompt
 
         AnsiConsole.Clear();
         return result;
+    }
+
+    /// <summary>
+    /// <see cref="Show"/> ile aynı gezinme davranışına ek olarak <c>Space</c> ile
+    /// çoklu işaretlemeye izin verir.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Enter</b> bu ekranda <i>tek satır seçmez</i>, <i>onaylar</i>: işaretli
+    /// satırlar döner. Kullanıcı işaretlemek için <c>Space</c>'e basar, sonra
+    /// <c>Enter</c> ile onaylar. Hiçbir şey işaretlenmemişse <c>Enter</c>
+    /// imleçteki tek satırı seçer — aksi hâlde işaretlemeyi unutan kullanıcı
+    /// tuşa basınca hiçbir şey olmaz ve ekranı anlamaz.
+    /// </para>
+    /// <para>
+    /// Filtreleme sırasında <b>gizli işaretli satırlar korunur</b>: imleç
+    /// süzülmüş listede gezer, işaretleme ise <see cref="FuzzyChoice"/> nesnesinde
+    /// durur. Kullanıcı "12" yazıp filtrelerken işaretlediği bölümler kaybolmaz.
+    /// </para>
+    /// <para>
+    /// Etkileşimsiz ortamda <see cref="Show"/> ile aynı davranış: uyarı yazılır ve
+    /// <see langword="null"/> döner. Etkileşimsiz ortamda çoklu seçim yapılamaz,
+    /// bu yüzden bu ekran çağrılmamalıdır.
+    /// </para>
+    /// </remarks>
+    /// <returns>
+    /// <see cref="FuzzyChoice"/> listesi — işaretli satırlar. Hiçbiri işaretli değilse
+    /// tek elemanlı liste döner (imleçteki satır).
+    /// </returns>
+    public static List<FuzzyChoice>? ShowMulti(
+        string                   title,
+        IEnumerable<FuzzyChoice> choices,
+        int                      pageSize         = 15,
+        string?                  initialSelection = null,
+        IEnumerable<string>?     headerLines      = null,
+        string?                  footerHelp       = null,
+        bool                     searchable       = true)
+    {
+        if (!TuiConsole.Interactive)
+        {
+            TuiConsole.ReportNonInteractive(title);
+            return null;
+        }
+
+        var choicesList     = choices.ToList();
+        var headersList     = headerLines?.Where(h => !string.IsNullOrWhiteSpace(h)).ToList();
+        var query           = string.Empty;
+        var cursorIndex     = ResolveInitialCursor(choicesList, initialSelection);
+        var textCursorIndex = 0;
+
+        FuzzyChoice? actionChoice = null;
+        var          isRunning   = true;
+
+        Grid BuildCurrentGrid(List<FuzzyChoice> filtered)
+            => BuildMultiGrid(title,
+                              headersList,
+                              filtered,
+                              query,
+                              cursorIndex,
+                              textCursorIndex,
+                              pageSize,
+                              footerHelp,
+                              searchable,
+                              choicesList);
+
+        AnsiConsole.Clear();
+        AnsiConsole.Live(BuildCurrentGrid(FuzzyMatcher.Rank(choicesList, query)))
+                   .Start(ctx =>
+                   {
+                       var lastQuery      = "\0";
+                       var lastCursor     = -1;
+                       var lastTextCursor = -1;
+                       var lastChecked    = -1;
+
+                       while (isRunning)
+                       {
+                           if (TuiApplicationCancellation.Token.IsCancellationRequested)
+                           {
+                               actionChoice = null;
+                               isRunning    = false;
+                               break;
+                           }
+
+                           var filtered = FuzzyMatcher.Rank(choicesList, query);
+
+                           if (cursorIndex >= filtered.Count)
+                           {
+                               cursorIndex = Math.Max(0, filtered.Count - 1);
+                           }
+
+                           var checkedCount = choicesList.Count(c => c.IsChecked);
+
+                           if (!query.Equals(lastQuery, StringComparison.Ordinal)
+                               || cursorIndex != lastCursor
+                               || textCursorIndex != lastTextCursor
+                               || checkedCount != lastChecked)
+                           {
+                               ctx.UpdateTarget(BuildCurrentGrid(filtered));
+                               lastQuery      = query;
+                               lastCursor     = cursorIndex;
+                               lastTextCursor = textCursorIndex;
+                               lastChecked    = checkedCount;
+                           }
+
+                           if (TuiConsole.TryReadKey(out var keyInfo))
+                           {
+                               HandleMultiKey(keyInfo,
+                                             filtered,
+                                             ref query,
+                                             ref cursorIndex,
+                                             ref textCursorIndex,
+                                             searchable,
+                                             ref actionChoice,
+                                             ref isRunning);
+                           }
+                           else
+                           {
+                               Thread.Sleep(15);
+                           }
+                       }
+                   });
+
+        AnsiConsole.Clear();
+
+        var selected = choicesList.Where(c => c.IsChecked).ToList();
+
+        // Enter'a basıldığında hiçbir şey işaretlenmemişse imleçteki satır seçilir.
+        // Aksi hâlde işaretlemeyi unutan kullanıcı Enter'a basınca hiçbir şey olmaz.
+        if (selected.Count == 0 && actionChoice != null && actionChoice.Searchable != "Geri")
+        {
+            selected = [actionChoice];
+        }
+
+        return selected;
+    }
+
+    private static Grid BuildMultiGrid(
+        string            title,
+        List<string>?     headersList,
+        List<FuzzyChoice> filtered,
+        string            query,
+        int               cursorIndex,
+        int               textCursorIndex,
+        int               pageSize,
+        string?           footerHelp,
+        bool              searchable,
+        List<FuzzyChoice> allChoices)
+    {
+        var grid = BuildGrid(title,
+                             headersList,
+                             filtered,
+                             query,
+                             cursorIndex,
+                             textCursorIndex,
+                             pageSize,
+                             footerHelp,
+                             searchable,
+                             multiSelect: true);
+
+        var counter = SelectionCounterMarkup(allChoices);
+        if (!string.IsNullOrEmpty(counter))
+        {
+            grid.AddRow(new Markup(counter));
+        }
+
+        return grid;
+    }
+
+    /// <summary>
+    /// Çoklu seçim tuş işleyicisi. Tekli seçimle aynı gezinme tuşlarını paylaşır,
+    /// ek olarak <c>Space</c> işaretleme ve <c>Ctrl+A</c> tümünü işaretleme ekler.
+    /// </summary>
+    private static void HandleMultiKey(
+        ConsoleKeyInfo     keyInfo,
+        List<FuzzyChoice> filtered,
+        ref string         query,
+        ref int            cursorIndex,
+        ref int            textCursorIndex,
+        bool               searchable,
+        ref FuzzyChoice?   actionChoice,
+        ref bool           isRunning)
+    {
+        if (searchable && IsWordDeleteKey(keyInfo))
+        {
+            DeleteWordBeforeCursor(ref query, ref textCursorIndex);
+            cursorIndex = 0;
+            return;
+        }
+
+        // Space: imleçteki satırı işaretle / işareti kaldır.
+        // Aynı zamanda yazım alanına karakter eklemeye de çalışır; bu yüzden
+        // searchable=false iken de çalışır (yazılacak bir şey yoktur).
+        if (keyInfo.Key == ConsoleKey.Spacebar)
+        {
+            if (filtered.Count > 0)
+            {
+                var target = filtered[cursorIndex];
+                if (target.CanBeChecked)
+                {
+                    target.IsChecked = !target.IsChecked;
+                }
+            }
+
+            return;
+        }
+
+        // Ctrl+A: işaretlenebilir tüm satırları işaretle (filtre gizli olanlar dahil).
+        // "Tümünü işaretle" kısayol satırına basılmasıyla aynı sonucu verir; klavye
+        // kısayolu uzun listede kısayol satırına kaydırmadan çalışır.
+        if (keyInfo.Key == ConsoleKey.A && keyInfo.Modifiers.HasFlag(ConsoleModifiers.Control))
+        {
+            foreach (var c in filtered)
+            {
+                if (c.CanBeChecked)
+                {
+                    c.IsChecked = true;
+                }
+            }
+
+            return;
+        }
+
+        switch (keyInfo.Key)
+        {
+            case ConsoleKey.UpArrow:
+                cursorIndex = filtered.Count > 0
+                                  ? (cursorIndex - 1 + filtered.Count) % filtered.Count
+                                  : 0;
+                break;
+            case ConsoleKey.DownArrow:
+                cursorIndex = filtered.Count > 0
+                                  ? (cursorIndex + 1) % filtered.Count
+                                  : 0;
+                break;
+            case ConsoleKey.Enter:
+                if (filtered.Count > 0)
+                {
+                    actionChoice = filtered[cursorIndex];
+                    isRunning    = false;
+                }
+
+                break;
+            case ConsoleKey.Escape:
+                actionChoice = null;
+                isRunning    = false;
+                break;
+            case ConsoleKey.Backspace:
+                if (searchable && textCursorIndex > 0)
+                {
+                    query = query[..(textCursorIndex - 1)] + query[textCursorIndex..];
+                    textCursorIndex--;
+                    cursorIndex = 0;
+                }
+
+                break;
+            case ConsoleKey.Delete:
+                if (searchable && textCursorIndex < query.Length)
+                {
+                    query       = query[..textCursorIndex] + query[(textCursorIndex + 1)..];
+                    cursorIndex = 0;
+                }
+
+                break;
+            default:
+                if (searchable && keyInfo.KeyChar != '\0' && !char.IsControl(keyInfo.KeyChar))
+                {
+                    query = query[..textCursorIndex] + keyInfo.KeyChar + query[textCursorIndex..];
+                    textCursorIndex++;
+                    cursorIndex = 0;
+                }
+
+                break;
+        }
     }
 
     public static DynamicPromptResult<T> ShowDynamic<T>(
