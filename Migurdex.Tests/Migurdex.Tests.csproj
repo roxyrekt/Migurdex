@@ -11,6 +11,7 @@
         <ProjectReference Include="..\Migurdex.Core\Migurdex.Core.csproj"/>
         <ProjectReference Include="..\Migurdex.Shared\Migurdex.Shared.csproj"/>
         <ProjectReference Include="..\Migurdex.Cli\Migurdex.Cli.csproj"/>
+        <ProjectReference Include="..\Plugins\Migurdex.Plugins.OpenAnime\Migurdex.Plugins.OpenAnime.csproj"/>
     </ItemGroup>
 
     <ItemGroup>

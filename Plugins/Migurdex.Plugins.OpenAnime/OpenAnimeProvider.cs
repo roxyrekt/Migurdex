@@ -426,11 +426,32 @@ public class OpenAnimeProvider : IAnimeProvider
         bool                                          isRetry           = false,
         CancellationToken                             cancellationToken = default)
     {
+        // BUGUN (KRİTİK): yeniden deneme, permit hâlâ tutulurken `SendRequestAsync`'i
+        // **yeniden çağırıyordu**. `SemaphoreSlim` yeniden girişe izin vermiyor:
+        //
+        //   satır 429  await _requestSemaphore.WaitAsync(...)   -> 1 permit alır
+        //   satır 458  return await SendRequestAsync(...)         -> 2. permit ister, AMA
+        //                                                             1. permit ancak
+        //                                                             `finally`de (473)
+        //                                                             serbest kalır
+        //
+        // `_requestSemaphore` 5 izinli. 401 alan **3 eşzamanlı** istek zaten
+        // 6 permit ister -> 5'i tükenir, 3'ü birden sonsuza kadar bloklanır.
+        // Kilitlenme semaforda olur, sokette değil; `HttpClient.Timeout` yardım etmez.
+        // Sağlayıcı `Task.WhenAll` ile sezon/episode/fansub isteklerini eşzamanlı
+        // yaptığı için bu sıradan bir yol.
+        //
+        // DÜZELTME: `finally` bloğu permiti **önce** serbest bırakır, yeniden deneme
+        // ancak ondan sonra yapılır. Daha derin bir yeniden deneme döngüsüne gerek yok:
+        // yeniden deneme sayısı zaten `isRetry` ile 1 ile sınırlıydı ve bu korunuyor.
+        T?  result = default;
+        var retry  = false;
+
         await _requestSemaphore.WaitAsync(cancellationToken);
         try
         {
             await EnsureTokenAsync(cancellationToken);
-            var request = new HttpRequestMessage(method ?? HttpMethod.Get, url);
+            using var request = new HttpRequestMessage(method ?? HttpMethod.Get, url);
             foreach (var header in _defaultHeaders)
             {
                 request.Headers.Add(header.Key, header.Value);
@@ -447,30 +468,40 @@ public class OpenAnimeProvider : IAnimeProvider
                 request.Content = JsonContent.Create(body);
             }
 
-            var response = await _httpClient.SendAsync(request, cancellationToken);
+            using var response = await _httpClient.SendAsync(request, cancellationToken);
             if ((response.StatusCode == HttpStatusCode.Unauthorized
                  || response.StatusCode == HttpStatusCode.Forbidden)
                 && !isRetry)
             {
+                // Oturum sıfırlanır, yalnızca **bayrak** ayarlanır. Buradan dönülmez:
+                // `finally` permiti serbest bırakıp asıl yeniden deneme aşağıda yapılır.
                 _sessionId    = null;
                 _gatewayToken = null;
-
-                return await SendRequestAsync<T>(url, method, body, true, cancellationToken);
+                retry         = true;
             }
-
-            if (!response.IsSuccessStatusCode)
+            else if (!response.IsSuccessStatusCode)
             {
                 return default;
             }
-
-            if (typeof(T) == typeof(string))
+            else if (typeof(T) == typeof(string))
             {
-                return (T) (object) await response.Content.ReadAsStringAsync(cancellationToken);
+                result = (T) (object) await response.Content.ReadAsStringAsync(cancellationToken);
             }
-
-            return await response.Content.ReadFromJsonAsync<T>(cancellationToken);
+            else
+            {
+                result = await response.Content.ReadFromJsonAsync<T>(cancellationToken);
+            }
         }
         finally { _requestSemaphore.Release(); }
+
+        // `finally` buraya ulaşmadan **önce** çalışmıştır, yani permit geride kalmaz:
+        // yeniden giriş kilitlenmesi imkânsız.
+        if (retry)
+        {
+            return await SendRequestAsync<T>(url, method, body, true, cancellationToken);
+        }
+
+        return result;
     }
 
     private async Task<List<SimpleEpisode>> GetSeasonEpisodesAsync(string slug,

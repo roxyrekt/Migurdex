@@ -467,7 +467,29 @@ public static class UpdateCommand
             }
 
             File.Move(dest, backup);
-            File.Copy(newFile, dest, true);
+
+            // GERİ AL (DÜZELTME): `File.Move` çalıştıktan sonra `File.Copy` hata
+            // verirse `dest` **artık yok** ve elde yalnızca `dest.old` kalır.
+            // Çağırdaki iki `catch` filtresi de aynı istisnada yeniden değerlendirildiği
+            // için (C# `when` semantiği) ikincisi devreye girip yeni ikiliyi
+            // `dest.new` olarak yazar. Sonuç: `migurdex` yok, `.old` ve `.new` var —
+            // ve `Program.CleanStaleBackup()` bir sonraki açılışta `.old`'u da sildiği
+            // için kurulum **kalıcı olarak** brick olur.
+            //
+            // Ölçülen zincir: File.Copy(exe) -> IOException (kilitli) -> filtre 1
+            // TrySwapLockedExe -> Move OK, Copy yine kilitli -> false -> filtre 2
+            // -> dest.new yaz.
+            try
+            {
+                File.Copy(newFile, dest, true);
+            }
+            catch
+            {
+                try { File.Move(backup, dest); }
+                catch { /* geri alma da başarısızsa aşağıdaki catch devreye girer */ }
+
+                throw;
+            }
 
             return true;
         }

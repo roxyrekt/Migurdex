@@ -134,8 +134,10 @@ public sealed class AniListOAuthTests
     [Fact]
     public async Task Loopback_Receives_Code_From_Callback()
     {
-        var       ct   = TestContext.Current.CancellationToken;
-        const int port = 46499;
+        var ct = TestContext.Current.CancellationToken;
+
+        // BULGU 51: sabit port yerine calisma zamaninda tahsis edilen port.
+        var port = FreeLoopbackPort.Next();
 
         var waitTask =
             LoopbackCodeReceiver.WaitForCodeAsync(port, "/callback", TimeSpan.FromSeconds(10), cancellationToken: ct);
@@ -155,8 +157,10 @@ public sealed class AniListOAuthTests
     [Fact]
     public async Task Loopback_Error_Param_Returns_Null()
     {
-        var       ct   = TestContext.Current.CancellationToken;
-        const int port = 46498;
+        var ct = TestContext.Current.CancellationToken;
+
+        // BULGU 51: sabit port yerine calisma zamaninda tahsis edilen port.
+        var port = FreeLoopbackPort.Next();
 
         var waitTask =
             LoopbackCodeReceiver.WaitForCodeAsync(port, "/callback", TimeSpan.FromSeconds(10), cancellationToken: ct);
@@ -171,7 +175,10 @@ public sealed class AniListOAuthTests
     public async Task Loopback_Timeout_Returns_Null()
     {
         var ct = TestContext.Current.CancellationToken;
-        var code = await LoopbackCodeReceiver.WaitForCodeAsync(46497,
+        // BULGU 51: sabit port yerine calisma zamaninda tahsis edilen port.
+        var port = FreeLoopbackPort.Next();
+
+        var code = await LoopbackCodeReceiver.WaitForCodeAsync(port,
                                                                "/callback",
                                                                TimeSpan.FromMilliseconds(200),
                                                                cancellationToken: ct);
