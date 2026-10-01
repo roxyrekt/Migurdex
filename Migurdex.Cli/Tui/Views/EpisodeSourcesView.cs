@@ -104,14 +104,14 @@ public class EpisodeSourcesView : BaseView
     }
 
     /// <summary>
-    /// Kaynak listesini seçim satÄ±rlarÄ±na çevirir.
+    /// Kaynak listesini seçim satşrlarşna çevirir.
     /// </summary>
     /// <remarks>
-    /// <c>BulkDownloadView</c> ilk bölüm için kaynak seçim ekranÄ±nÄ± bu metotla
-    /// kurar. SatÄ±r biçimi iki ekranda <b>birebir aynÄ±</b> olmalÄ±dÄ±r: kullanÄ±cÄ±
-    /// kaynaÄŸÄ± "kalite/hoster" olarak görüp seçiyor, sonraki bölümlerde aynÄ±
-    /// ölçütlere göre eÅŸleÅŸtirme yapÄ±lÄ±yor â€” biçim ayrÄ±ÅŸÄ±rsa kullanÄ±cÄ±nÄ±n seçtiÄŸi
-    /// ÅŸey ile uygulanan ÅŸey farklÄ±laÅŸÄ±r.
+    /// <c>BulkDownloadView</c> ilk bölüm için kaynak seçim ekranşnş bu metotla
+    /// kurar. Satşr biçimi iki ekranda <b>birebir aynş</b> olmalşdşr: kullanşcş
+    /// kaynaÄŸş "kalite/hoster" olarak görüp seçiyor, sonraki bölümlerde aynş
+    /// ölçütlere göre eÅŸleÅŸtirme yapşlşyor â€” biçim ayrşÅŸşrsa kullanşcşnşn seçtiÄŸi
+    /// ÅŸey ile uygulanan ÅŸey farklşlaÅŸşr.
     /// </remarks>
     internal static List<FuzzyChoice> FormatSourcesForSelection(List<VideoSource> usable,
         CliConfig                                                            config)
@@ -675,7 +675,7 @@ public class EpisodeSourcesView : BaseView
             }
             else if (progress.TotalBytes is > 0)
             {
-                detail += $" • {FormatBytes(progress.BytesDownloaded)} / {FormatBytes(progress.TotalBytes.Value)}";
+                detail += $" • {DownloadProgressFormatter.FormatBytes(progress.BytesDownloaded)} / {DownloadProgressFormatter.FormatBytes(progress.TotalBytes.Value)}";
             }
 
             if (progress.Percent is not null)
@@ -704,7 +704,7 @@ public class EpisodeSourcesView : BaseView
             var speed = tracker.CurrentSpeed;
             if (speed > 0)
             {
-                detail += $" • {FormatBytes((long)speed)}/s";
+                detail += $" • {DownloadProgressFormatter.FormatBytes((long)speed)}/s";
                 var eta = tracker.CurrentEta;
                 if (eta is not null)
                 {
@@ -720,87 +720,7 @@ public class EpisodeSourcesView : BaseView
         task.Description      = $"{stage} • Esc: iptal";
     }
 
-    private static string FormatBytes(long bytes)
-    {
-        string[] units = ["B", "KiB", "MiB", "GiB", "TiB"];
-        double value   = Math.Max(0, bytes);
-        var    unit    = 0;
-        while (value >= 1024 && unit < units.Length - 1)
-        {
-            value /= 1024;
-            unit++;
-        }
 
-        return unit == 0
-                   ? $"{bytes.ToString(CultureInfo.InvariantCulture)} {units[unit]}"
-                   : $"{value.ToString("0.##", CultureInfo.InvariantCulture)} {units[unit]}";
-    }
-
-    private sealed class DownloadProgressTracker : IProgress<DownloadProgress>
-    {
-        private readonly Lock _sync = new();
-        private readonly DownloadSpeedometer _speed = new();
-        private          DownloadProgress? _current;
-
-        public DownloadProgress? Current
-        {
-            get
-            {
-                lock (_sync)
-                {
-                    return _current;
-                }
-            }
-        }
-
-        public double CurrentSpeed
-        {
-            get
-            {
-                lock (_sync)
-                {
-                    return _current?.SpeedBytesPerSecond ?? _speed.BytesPerSecond;
-                }
-            }
-        }
-
-        public TimeSpan? CurrentEta
-        {
-            get
-            {
-                lock (_sync)
-                {
-                    if (_current is null)
-                    {
-                        return null;
-                    }
-
-                    if (_current.Eta is not null)
-                    {
-                        return _current.Eta;
-                    }
-
-                    if (_current.Eta is not null)
-                    {
-                        return _current.Eta;
-                    }
-
-                    return _speed.EstimateRemaining(_current.BytesDownloaded,
-                                                    _current.TotalBytes,
-                                                    _current.SpeedBytesPerSecond);
-                }
-            }
-        }
-
-        public void Report(DownloadProgress value)
-        {
-            lock (_sync)
-            {
-                _speed.Sample(value.BytesDownloaded, DateTimeOffset.UtcNow);
-                _current = value;
-            }
-        }
-    }
 
     private void PushPlaybackMenu(ITuiNavigator navigator,
         VideoSource                             selectedSource,

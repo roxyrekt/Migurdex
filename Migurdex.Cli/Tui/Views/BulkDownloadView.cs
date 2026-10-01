@@ -28,10 +28,17 @@ namespace Migurdex.Cli.Tui.Views;
 /// ekranda <b>değiştirilmeden</b> bırakılmıştır.
 /// </para>
 /// <para>
-/// <b>İlerleme arayüzü:</b> Spectre.Console <c>TaskGroup</c> kullanılır; her bölüm
-/// için ayrı satır açılır ve tamamlanan satır kalıcı kalır. Kullanıcı hangi bölümün
-/// nerede olduğunu görebilir — "3/120" gibi tek bir sayaç yeterli değildir.
-/// <c>Esc</c> kalan indirmeleri iptal eder, tamamlananlar diskte kalır.
+/// <b>İlerleme arayüzü:</b> <c>AnsiConsole.Status</c> tek satır kullanılır ve
+/// her 100 ms'de bayt / hız / ETA ile güncellenir
+/// (<see cref="DownloadProgressFormatter"/>). Kalıcı görev satırı
+/// (<c>TaskGroup</c>) <b>kullanılmaz</b> — Spectre.Console aynı anda tek canlı
+/// ekrana izin verir, kalıcı satırlar ikinci bir canlı ekran gerektirirdi.
+/// </para>
+/// <para>
+/// <b>İptal:</b> <c>Ctrl+C</c> ile durdurulur
+/// (<see cref="TuiApplicationCancellation"/>). Bölüm başına <c>Esc</c> yok —
+/// indirme sırasında okunan tek tuş <c>Esc</c>'dir ve o tüm indirmeyi keser.
+/// Tamamlanan bölümler diskte kalır.
 /// </para>
 /// </remarks>
 public class BulkDownloadView : BaseView
@@ -97,7 +104,7 @@ public class BulkDownloadView : BaseView
 
         var config      = _configService.Config;
         var summary     = await RunBulkDownloadAsync(config);
-        await ShowSummaryAsync(summary);
+        ShowSummary(summary);
 
         if (!TuiConsole.WaitForKey())
         {
@@ -138,9 +145,14 @@ public class BulkDownloadView : BaseView
     /// </remarks>
     private async Task<BulkDownloadSummary> RunBulkDownloadAsync(CliConfig config)
     {
-        var succeeded   = new List<string>();
-        var failed      = new List<string>();
-        var noSource    = new List<string>();
+        var succeeded = new List<string>();
+        var failed    = new List<string>();
+        var noSource  = new List<string>();
+
+        // ⭐ Başarısız bölümün NEDENİ. Bu liste olmadan kullanıcı yalnız
+        // "Bölüm 2" görür, ne olduğunu öğrenemez.
+        var failedReasons = new List<(string Label, string Reason)>();
+
         var userStopped = false;
         var preference  = new SourcePreference();
 
@@ -156,14 +168,14 @@ public class BulkDownloadView : BaseView
         if (firstSources is null || firstSources.Count == 0)
         {
             noSource.Add($"Bölüm {firstEpisode.Number}");
-            return new BulkDownloadSummary(succeeded, failed, noSource, false, _episodes.Count);
+            return new BulkDownloadSummary(succeeded, failed, noSource, false, _episodes.Count, failedReasons);
         }
 
         var firstChoice = AskSourceForFirstEpisodeAsync(firstEpisode, firstSources, config);
         if (firstChoice is null)
         {
             // Kullanıcı Esc ile vazgeçti.
-            return new BulkDownloadSummary(succeeded, failed, noSource, true, _episodes.Count);
+            return new BulkDownloadSummary(succeeded, failed, noSource, true, _episodes.Count, failedReasons);
         }
 
         preference.Capture(firstChoice);
@@ -222,11 +234,48 @@ public class BulkDownloadView : BaseView
                                                  continue;
                                              }
 
-                                             ctx.Status($"[grey]({index}/{_episodes.Count})[/] "
-                                                        + $"{Markup.Escape(epLabel)} • indiriliyor...");
+                                             // ⭐ Progress bağlanıyor: bu olmadan indirme
+                                             // motoru bayt/hız/ETA raporlamıyor ve
+                                             // ekranda hiçbir ilerleme bilgisi görünmüyor.
+                                             // Bayt / hiz / ETA satiri.
+                                             // EpisodeSourcesView'da bu bilgi var
+                                             // (:676-712) ama toplu indirmede yoktu:
+                                             // tracker baglanmadigi icin indirme motoru
+                                             // DownloadProgress raporlamiyordu.
+                                             var tracker      = new DownloadProgressTracker();
+                                             var timerStopped = false;
+
+                                             void Refresh()
+                                             {
+                                                 if (timerStopped)
+                                                 {
+                                                     return;
+                                                 }
+
+                                                 ctx.Status(
+                                                     $"[grey]({index}/{_episodes.Count})[/] "
+                                                     + $"{Markup.Escape(epLabel)} • "
+                                                     + DownloadProgressFormatter.Describe(tracker));
+                                             }
+
+                                             // EpisodeSourcesView:546 ile ayni aralik (100 ms).
+                                             using var ticker = new Timer(_ =>
+                                                                         {
+                                                                             if (!cancellation
+                                                                                         .IsCancellationRequested)
+                                                                             {
+                                                                                 Refresh();
+                                                                             }
+                                                                         },
+                                                                         null,
+                                                                         TimeSpan.Zero,
+                                                                         TimeSpan.FromMilliseconds(100));
 
                                              var ok = await DownloadEpisodeAsync(episode, chosen, config,
-                                                 cancellation.Token);
+                                                 cancellation.Token, tracker, failedReasons);
+
+                                             timerStopped = true;
+                                             Refresh();
 
                                              if (ok)
                                              {
@@ -239,7 +288,12 @@ public class BulkDownloadView : BaseView
                                          }
                                      });
 
-        return new BulkDownloadSummary(succeeded, failed, noSource, userStopped, _episodes.Count);
+        return new BulkDownloadSummary(succeeded,
+                                     failed,
+                                     noSource,
+                                     userStopped,
+                                     _episodes.Count,
+                                     failedReasons);
     }
 
     /// <summary>
@@ -311,10 +365,12 @@ public class BulkDownloadView : BaseView
     /// Tek bir bölümü indirir. İndirme hatası bu bölümü <b>başarısız</b> sayar,
     /// istisnayı yukarı taşımaz.
     /// </summary>
-    private async Task<bool> DownloadEpisodeAsync(Episode    episode,
-        VideoSource                                     source,
-        CliConfig                                       config,
-        CancellationToken                               token)
+    private async Task<bool> DownloadEpisodeAsync(Episode                 episode,
+        VideoSource                                      source,
+        CliConfig                                        config,
+        CancellationToken                                token,
+        DownloadProgressTracker                          tracker,
+        List<(string Label, string Reason)>               failedReasons)
     {
         try
         {
@@ -328,17 +384,36 @@ public class BulkDownloadView : BaseView
                 EpisodeNumber     = episode.Number,
                 Overwrite         = config.DownloadOverwrite,
                 Resume            = config.DownloadResume,
-                DownloadSubtitles = config.DownloadSubtitles
+                DownloadSubtitles = config.DownloadSubtitles,
+                Progress          = tracker
             }, token);
 
-            return result.Success && !result.IsCancelled;
+            if (result.Success && !result.IsCancelled)
+            {
+                return true;
+            }
+
+            // Hata metni DownloadService tarafinda ÜRETILIYOR ama burada
+            // okunmuyordu. Kullanici "başarısız" görüyor, NEDENİ göremiyordu.
+            var reason = result.IsCancelled
+                             ? "İptal edildi."
+                             : string.IsNullOrWhiteSpace(result.Error)
+                                 ? "Bilinmeyen hata."
+                                 : result.Error!;
+
+            failedReasons.Add(($"Bölüm {episode.Number}", reason));
+
+            return false;
         }
         catch (OperationCanceledException)
         {
+            failedReasons.Add(($"Bölüm {episode.Number}", "İptal edildi."));
             return false;
         }
-        catch
+        catch (Exception ex)
         {
+            // Çıplak catch istisnayı yok ediyordu; mesaj da alınmıyordu.
+            failedReasons.Add(($"Bölüm {episode.Number}", ex.Message));
             return false;
         }
     }
@@ -352,7 +427,7 @@ public class BulkDownloadView : BaseView
     /// yeterli değildir: 120 bölümlük bir listede hangi bölümlerin kaldığını
     /// kullanıcı bilmelidir, yoksa listeyi elle tek tek denetlemek zorunda kalır.
     /// </remarks>
-    private static async Task ShowSummaryAsync(BulkDownloadSummary summary)
+    private static void ShowSummary(BulkDownloadSummary summary)
     {
         AnsiConsole.Clear();
         Theme.WriteHeader("Toplu indirme tamamlandı");
@@ -373,15 +448,63 @@ public class BulkDownloadView : BaseView
             WriteEpisodeList(summary.NoSource);
         }
 
-        if (summary.Failed.Count > 0)
+        if (summary.FailedReasons.Count > 0)
         {
-            AnsiConsole.MarkupLine($"[red]✗ {summary.Failed.Count} bölüm başarısız:[/]");
-            WriteEpisodeList(summary.Failed);
+            AnsiConsole.MarkupLine($"[red]✗ {summary.FailedReasons.Count} bölüm başarısız:[/]");
+            WriteFailureReasons(summary.FailedReasons);
         }
 
         if (summary.Failed.Count == 0 && summary.NoSource.Count == 0 && !summary.UserStopped)
         {
             AnsiConsole.MarkupLine("[grey]Tüm bölümler indirildi.[/]");
+        }
+    }
+
+    /// <summary>
+    /// Başarısız bölümleri <b>nedenleriyle</b> listeler.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Uzun listeler kırpılır ama <b>her bölümün nedeni korunur</b>: aynı neden
+    /// 5 kez geçiyorsa "×5" olarak toplanır. Aksi hâlde 100 bölümlük bir
+    /// listede aynı mesaj 100 kez yazılır ve gerçek sorun kaybolur.
+    /// </para>
+    /// <para>
+    /// Önceki davranış: yalnız "Bölüm 2", "Bölüm 4" etiketleri.
+    /// <c>DownloadResult.Error</c> üretiliyordu ama <b>okunmuyordu</b> ve çıplak
+    /// <c>catch</c> istisnayı yok ediyordu. Kullanıcı hangi bölümün neden
+    /// başarısız olduğunu öğrenemiyordu.
+    /// </para>
+    /// </remarks>
+    private static void WriteFailureReasons(IReadOnlyList<(string Label, string Reason)> reasons)
+    {
+        const int maxShown = 12;
+
+        var groups = reasons.GroupBy(r => r.Reason)
+                            .OrderByDescending(g => g.Count())
+                            .ToList();
+        var shown = 0;
+
+        foreach (var group in groups)
+        {
+            if (shown >= maxShown)
+            {
+                break;
+            }
+
+            shown++;
+
+            var labels = string.Join(", ", group.Select(g => g.Label));
+            var count  = group.Count();
+            var suffix = count > 1 ? $" [grey](×{count})[/]" : string.Empty;
+
+            AnsiConsole.MarkupLine($"  [grey]•[/] {Markup.Escape(labels)}{suffix}");
+            AnsiConsole.MarkupLine($"    [red]{Markup.Escape(group.Key)}[/]");
+        }
+
+        if (shown < groups.Count)
+        {
+            AnsiConsole.MarkupLine($"  [grey]… ve {groups.Count - shown} farklı hata[/]");
         }
     }
 
@@ -414,9 +537,17 @@ public class BulkDownloadView : BaseView
 /// <param name="NoSource">İndirilebilir kaynak bulunamayan bölüm etiketleri.</param>
 /// <param name="UserStopped">Kullanıcı indirmeyi durdurdu mu.</param>
 /// <param name="TotalCount">Hedeflenen bölüm sayısı.</param>
+/// <param name="FailedReasons">
+/// ⭐ Başarısız bölümlerin <b>nedeni</b>. Önceki sürümde bu bilgi
+/// <c>DownloadResult.Error</c>'da üretiliyor ama <b>okunmuyordu</b>, çıplak
+/// <c>catch</c> istisnayı yok ediyordu; kullanıcı yalnız "Bölüm 2" görüyor,
+/// <b>nedenini</b> öğrenemiyordu. Tekli indirme akışı hatayı ekrana basıyor
+/// (<c>EpisodeSourcesView</c>), toplu akış atmıştı.
+/// </param>
 public sealed record BulkDownloadSummary(
-    IReadOnlyList<string> Succeeded,
-    IReadOnlyList<string> Failed,
-    IReadOnlyList<string> NoSource,
-    bool                  UserStopped,
-    int                   TotalCount);
+    IReadOnlyList<string>                        Succeeded,
+    IReadOnlyList<string>                        Failed,
+    IReadOnlyList<string>                        NoSource,
+    bool                                         UserStopped,
+    int                                          TotalCount,
+    IReadOnlyList<(string Label, string Reason)> FailedReasons);

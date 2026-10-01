@@ -460,7 +460,7 @@ public class AnimeDetailsView : BaseView
             return Task.FromResult<List<Episode>?>(null);
         }
 
-        const string selectAllSearchable = "Tüm Bölümleri Ä°ÅŸaretle";
+        const string selectAllSearchable = "Tüm Bölümleri İÅŸaretle";
 
         var bulkChoices = new List<FuzzyChoice>
         {
@@ -506,8 +506,8 @@ public class AnimeDetailsView : BaseView
                                             bulkChoices,
                                             initialSelection: selectAllSearchable,
                                             headerLines: headerLines,
-                                            footerHelp: "â†‘â†“ gez â€¢ Space iÅŸaretle â€¢ Enter onayla â€¢ "
-                                                        + "Ctrl+A tümünü iÅŸaretle â€¢ Esc geri");
+                                            footerHelp: "↑↓ gez • Space işaretle • Enter onayla • "
+                                                        + "Ctrl+A tümünü işaretle • Esc geri");
 
         if (selected == null || selected.Count == 0)
         {
