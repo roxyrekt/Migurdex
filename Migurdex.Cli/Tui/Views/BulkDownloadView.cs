@@ -238,14 +238,10 @@ public class BulkDownloadView : BaseView
                                                  continue;
                                              }
 
-                                             // ⭐ Progress bağlanıyor: bu olmadan indirme
-                                             // motoru bayt/hız/ETA raporlamıyor ve
-                                             // ekranda hiçbir ilerleme bilgisi görünmüyor.
-                                             // Bayt / hiz / ETA satiri.
-                                             // EpisodeSourcesView'da bu bilgi var
-                                             // (:676-712) ama toplu indirmede yoktu:
-                                             // tracker baglanmadigi icin indirme motoru
-                                             // DownloadProgress raporlamiyordu.
+                                             // ⭐ İlerleme bilgisi için tracker bağlanıyor.
+                                             // Bu olmadan indirme motoru DownloadProgress raporlamıyor ve
+                                             // ekranda bayt / hız / ETA görünmüyordu (tekli akışta
+                                             // EpisodeSourcesView bu bilgiyi yazıyor).
                                              var tracker      = new DownloadProgressTracker();
                                              var timerStopped = false;
 

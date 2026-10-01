@@ -466,8 +466,8 @@ public class AnimeDetailsView : BaseView
         {
             new()
             {
-                Display       = "[green]âŒ Tüm bölümleri işaretle[/]",
-                DisplayActive = "[bold white on green] âŒ Tüm bölümleri işaretle [/]",
+                Display       = "[green]⌁ Tüm bölümleri işaretle[/]",
+                DisplayActive = "[bold white on green] ⌁ Tüm bölümleri işaretle [/]",
                 Searchable    = selectAllSearchable,
                 IsAction      = true
             }
