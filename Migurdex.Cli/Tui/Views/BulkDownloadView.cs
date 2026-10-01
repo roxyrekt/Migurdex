@@ -28,21 +28,18 @@ namespace Migurdex.Cli.Tui.Views;
 /// ekranda <b>değiştirilmeden</b> bırakılmıştır.
 /// </para>
 /// <para>
-/// <b>İlerleme arayüzü:</b> <c>AnsiConsole.Status</c> tek satır kullanılır ve
-/// her 100 ms'de bayt / hız / ETA ile güncellenir
-/// (<see cref="DownloadProgressFormatter"/>). Kalıcı görev satırı
-/// (<c>TaskGroup</c>) <b>kullanılmaz</b> — Spectre.Console aynı anda tek canlı
-/// ekrana izin verir, kalıcı satırlar ikinci bir canlı ekran gerektirirdi.
+/// <b>İlerleme arayüzü:</b> <c>EpisodeSourcesView</c> ile <b>aynı</b> desen:
+/// <c>AnsiConsole.Progress</c>, yüzde + çubuk + açıklama + spinner sütunları,
+/// bölüm başına kalıcı görev satırı (<c>HideCompleted(false)</c>) ve 100 ms'de
+/// bir <c>UpdateDownloadTask</c> ile yenileme. Güncelleme canlı ekranın
+/// <b>kendi iş parçacığında</b> yapılır; ayrı bir <c>Timer</c> kullanılmaz.
 /// </para>
 /// <para>
-/// <b>İptal:</b> tek yol <c>Ctrl+C</c> — indirme döngüsü yalnız
-/// <see cref="TuiApplicationCancellation"/>'ı dinler.
-/// <b>Bu ekranda <c>Esc</c> çalışmaz</b>: döngü sırasında hiç tuş okunmaz
-/// (<c>KeyAvailable</c> / <c>ReadKey</c> çağrısı yoktur), çünkü Spectre.Console
-/// aynı anda tek canlı ekrana izin verir ve <c>Status</c> bloğu açıkken tuş
-/// okumak ekranı bozar. Tekli indirme ekranı (<c>EpisodeSourcesView</c>) tuş
-/// okur ve orada <c>Esc</c> gerçekten iptal eder; iki ekranın iptal davranışı
-/// bu yüzden farklıdır. Tamamlanan bölümler diskte kalır.
+/// <b>İptal:</b> <c>Esc</c> kalan indirmeleri durdurur,
+/// <c>Ctrl+C</c> de tüm ekranı keser. İptal edilen bölüm
+/// <b>başarısız sayılmaz</b> ve tamamlananlar diskte kalır. Tuş okuma
+/// <c>EpisodeSourcesView</c> ile aynı yerde, <c>Progress</c> döngüsünün
+/// içindedir; bu yüzden iki ekranın iptal davranışı artık aynıdır.
 /// </para>
 /// </remarks>
 public class BulkDownloadView : BaseView
@@ -311,117 +308,157 @@ public class BulkDownloadView : BaseView
         var resolvedFirst = firstChoice;
 
         // ---------------------------------------------------------- 2. İNDİRME DÖNGÜSÜ
-        await AnsiConsole.Status()
-                         .Spinner(Spinner.Known.Dots)
-                         .StartAsync($"{_episodes.Count} bölüm indiriliyor...",
-                                     async ctx =>
+        // ⭐ Depodaki EpisodeSourcesView deseninin AYNISI: AnsiConsole.Progress()
+        // + bölüm başına kalıcı görev satırı + 100 ms'de bir akışın KENDİSİ
+        // içinde yenileme. Önceden AnsiConsole.Status() + System.Threading.Timer
+        // kullanılıyordu; Timer thread-pool'dan ctx.Status() çağırıyor, çubuk ve
+        // yüzde hiç görünmüyordu.
+        //
+        // ⭐ Neden bu, göstermekten ibaret değil: MP4 indirmesi bittikten sonra
+        // Mp4Downloader segmentleri birleştirir ve bu sırada HİÇ Report çağırmaz
+        // (ölçülen: 943.6 MB ≈ 24 sn). Önceki gösterim "Stage" alanına bakmadığı
+        // için o pencere "943.6 MB / 943.6 MB • 158.9 MB/s" olarak donuyordu.
+        // UpdateDownloadTask Stage'e baktığı için "Tamamlanıyor" yazar.
+        await AnsiConsole.Progress()
+                         .AutoClear(false)
+                         .HideCompleted(false)
+                         .Columns(
+                             new PercentageColumn(),
+                             new ProgressBarColumn(),
+                             new TaskDescriptionColumn(),
+                             new SpinnerColumn())
+                         .StartAsync(async progressContext =>
+                         {
+                             // ⭐ Spectre 0.49.1'de ProgressTask.State SALT OKUNUR ve
+                             // IsCompleted üyesi yok; görevi durduran tek yol
+                             // Value == MaxValue. Ölçüldü (derleyici + probe).
+                             static void Complete(ProgressTask task, string description)
+                             {
+                                 task.IsIndeterminate = false;
+                                 task.MaxValue         = 100;
+                                 task.Value            = 100;
+                                 task.Description      = description;
+                             }
+
+                             var index = 0;
+                             foreach (var episode in _episodes)
+                             {
+                                 if (cancellation.IsCancellationRequested)
+                                 {
+                                     userStopped = true;
+                                     break;
+                                 }
+
+                                 index++;
+                                 var epLabel = $"Bölüm {episode.Number}";
+                                 var title   = $"({index}/{_episodes.Count}) {epLabel}";
+
+                                 // Bölüm başına kalıcı satır: HideCompleted(false)
+                                 // sayesinde tamamlananlar ekranda kalır, yani
+                                 // kullanıcı hangi bölümün bittiğini görür.
+                                 var task = progressContext.AddTask($"{title} • kaynak aranıyor...",
+                                                                  maxValue: 100);
+
+                                 VideoSource? chosen;
+
+                                 if (index == 1)
+                                 {
+                                     chosen = resolvedFirst;
+                                 }
+                                 else
+                                 {
+                                     var sources = await ResolveSourcesAsync(episode, cancellation.Token);
+                                     if (sources is null || sources.Count == 0)
                                      {
-                                         var index = 0;
-                                         foreach (var episode in _episodes)
-                                         {
-                                             if (cancellation.IsCancellationRequested)
-                                             {
-                                                 userStopped = true;
-                                                 break;
-                                             }
+                                         noSource.Add(epLabel);
+                                         Complete(task, $"{title} • kaynak yok");
+                                         continue;
+                                     }
 
-                                             index++;
-                                             var epLabel = $"Bölüm {episode.Number}";
+                                     chosen = preference.Match(sources);
+                                     if (chosen is null)
+                                     {
+                                         chosen = DownloadSourceResolver.SelectCandidates(sources,
+                                             DownloadSourceFormat.Auto,
+                                             config).FirstOrDefault();
+                                     }
+                                 }
 
-                                             VideoSource? chosen;
+                                 if (chosen is null || !DownloadSourceResolver.IsDirectDownloadable(chosen))
+                                 {
+                                     noSource.Add(epLabel);
+                                     Complete(task, $"{title} • indirilemeyen kaynak");
+                                     continue;
+                                 }
 
-                                             if (index == 1)
-                                             {
-                                                 chosen = resolvedFirst;
-                                             }
-                                             else
-                                             {
-                                                 ctx.Status($"[grey]({index}/{_episodes.Count})[/] "
-                                                            + $"{Markup.Escape(epLabel)} • kaynak aranıyor...");
+                                 // ⭐ Zaten indirilmiş bölüm: overwrite kapalıysa
+                                 // indirmeyi hiç denemek yerine atlanır. Önceden
+                                 // motor "Video hedefi zaten var; overwrite kapalı."
+                                 // hatası veriyor ve bölüm başarısız sayılıyordu.
+                                 if (!config.DownloadOverwrite
+                                     && FindExistingVideo(
+                                         BuildDestination(config, episode, chosen)) is not null)
+                                 {
+                                     skipped.Add(epLabel);
+                                     Complete(task, $"{title} • zaten indirilmiş, atlandı");
+                                     continue;
+                                 }
 
-                                                 var sources = await ResolveSourcesAsync(episode, cancellation.Token);
-                                                 if (sources is null || sources.Count == 0)
-                                                 {
-                                                     noSource.Add(epLabel);
-                                                     continue;
-                                                 }
+                                 // ⭐ İndirme ayrı görevde başlatılır; akış indirmeyi
+                                 // beklemeden ilerlemeyi tazeler. Böylece hem ekran
+                                 // akıcı kalır hem de güncelleme canlı ekranın
+                                 // KENDİ iş parçacığında olur.
+                                 var tracker      = new DownloadProgressTracker();
+                                 var downloadTask = DownloadEpisodeAsync(episode, chosen, config,
+                                                                      cancellation.Token,
+                                                                      tracker,
+                                                                      failedReasons);
 
-                                                 chosen = preference.Match(sources);
-                                                 if (chosen is null)
-                                                 {
-                                                     chosen = DownloadSourceResolver.SelectCandidates(sources,
-                                                         DownloadSourceFormat.Auto,
-                                                         config).FirstOrDefault();
-                                                 }
-                                             }
+                                 while (!downloadTask.IsCompleted)
+                                 {
+                                     if (Console.KeyAvailable
+                                         && Console.ReadKey(true).Key == ConsoleKey.Escape)
+                                     {
+                                         userStopped = true;
+                                         cancellation.Cancel();
+                                         break;
+                                     }
 
-                                             if (chosen is null || !DownloadSourceResolver.IsDirectDownloadable(chosen))
-                                             {
-                                                 noSource.Add(epLabel);
-                                                 continue;
-                                             }
+                                     DownloadProgressFormatter.UpdateDownloadTask(task, tracker);
+                                     await Task.Delay(100);
+                                 }
 
-                                             // ⭐ Zaten indirilmiş bölüm: overwrite kapalıysa
-                                             // indirmeyi hiç denemek yerine atlanır. Önceden
-                                             // motor "Video hedefi zaten var; overwrite kapalı."
-                                             // hatası veriyor ve bölüm başarısız sayılıyordu.
-                                             if (!config.DownloadOverwrite
-                                                 && FindExistingVideo(
-                                                     BuildDestination(config, episode, chosen)) is not null)
-                                             {
-                                                 skipped.Add(epLabel);
-                                                 continue;
-                                             }
+                                 DownloadProgressFormatter.UpdateDownloadTask(task, tracker);
 
-                                             // ⭐ İlerleme bilgisi için tracker bağlanıyor.
-                                             // Bu olmadan indirme motoru DownloadProgress raporlamıyor ve
-                                             // ekranda bayt / hız / ETA görünmüyordu (tekli akışta
-                                             // EpisodeSourcesView bu bilgiyi yazıyor).
-                                             var tracker      = new DownloadProgressTracker();
-                                             var timerStopped = false;
+                                 var ok = await downloadTask;
 
-                                             void Refresh()
-                                             {
-                                                 if (timerStopped)
-                                                 {
-                                                     return;
-                                                 }
+                                 if (cancellation.IsCancellationRequested)
+                                 {
+                                     // Esc ile durdurulan bölüm BAŞARISIZ sayılmaz.
+                                     // DownloadEpisodeAsync iptali başarısızlık
+                                     // olarak eklediği için o kayıt geri alınır.
+                                     if (failedReasons.Count > 0
+                                         && failedReasons[^1].Label == epLabel)
+                                     {
+                                         failedReasons.RemoveAt(failedReasons.Count - 1);
+                                     }
 
-                                                 ctx.Status(
-                                                     $"[grey]({index}/{_episodes.Count})[/] "
-                                                     + $"{Markup.Escape(epLabel)} • "
-                                                     + DownloadProgressFormatter.Describe(tracker));
-                                             }
+                                     Complete(task, $"{title} • iptal edildi");
+                                     break;
+                                 }
 
-                                             // EpisodeSourcesView:546 ile ayni aralik (100 ms).
-                                             using var ticker = new Timer(_ =>
-                                                                         {
-                                                                             if (!cancellation
-                                                                                         .IsCancellationRequested)
-                                                                             {
-                                                                                 Refresh();
-                                                                             }
-                                                                         },
-                                                                         null,
-                                                                         TimeSpan.Zero,
-                                                                         TimeSpan.FromMilliseconds(100));
-
-                                             var ok = await DownloadEpisodeAsync(episode, chosen, config,
-                                                 cancellation.Token, tracker, failedReasons);
-
-                                             timerStopped = true;
-                                             Refresh();
-
-                                             if (ok)
-                                             {
-                                                 succeeded.Add(epLabel);
-                                             }
-                                             else
-                                             {
-                                                 failed.Add(epLabel);
-                                             }
-                                         }
-                                     });
+                                 if (ok)
+                                 {
+                                     succeeded.Add(epLabel);
+                                     Complete(task, $"{title} • tamamlandı");
+                                 }
+                                 else
+                                 {
+                                     failed.Add(epLabel);
+                                     Complete(task, $"{title} • başarısız");
+                                 }
+                             }
+                         });
 
         return new BulkDownloadSummary(succeeded,
                                      failed,

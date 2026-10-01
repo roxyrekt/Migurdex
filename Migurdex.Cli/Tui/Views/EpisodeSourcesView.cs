@@ -543,11 +543,11 @@ public class EpisodeSourcesView : BaseView
                                          break;
                                      }
 
-                                     UpdateDownloadTask(task, progressTracker);
+                                     DownloadProgressFormatter.UpdateDownloadTask(task, progressTracker);
                                      await Task.Delay(100);
                                  }
 
-                                 UpdateDownloadTask(task, progressTracker);
+                                 DownloadProgressFormatter.UpdateDownloadTask(task, progressTracker);
                              });
 
             result = await downloadTask;
@@ -649,76 +649,6 @@ public class EpisodeSourcesView : BaseView
         return Task.CompletedTask;
     }
 
-    private static void UpdateDownloadTask(ProgressTask task, DownloadProgressTracker tracker)
-    {
-        var progress = tracker.Current;
-        if (progress is null)
-        {
-            task.IsIndeterminate = true;
-            task.Description      = "Hazırlanıyor • Esc: iptal";
-            return;
-        }
-
-        var stage = DownloadStageLabel.For(progress.Stage, progress.Track, progress.IsAudioTrack);
-
-        if (progress is { Stage: DownloadStage.Downloading })
-        {
-            var detail = stage;
-            if (!string.IsNullOrWhiteSpace(progress.Track))
-            {
-                detail += $" • {Markup.Escape(progress.Track)}";
-            }
-
-            if (progress is { FragmentsTotal: > 0, FragmentsDone: not null })
-            {
-                detail += $" • frag {progress.FragmentsDone.Value}/{progress.FragmentsTotal.Value}";
-            }
-            else if (progress.TotalBytes is > 0)
-            {
-                detail += $" • {DownloadProgressFormatter.FormatBytes(progress.BytesDownloaded)} / {DownloadProgressFormatter.FormatBytes(progress.TotalBytes.Value)}";
-            }
-
-            if (progress.Percent is not null)
-            {
-                task.IsIndeterminate = false;
-                task.MaxValue         = 100;
-                task.Value            = Math.Clamp(progress.Percent.Value, 0, 100);
-            }
-            else if (progress is { FragmentsTotal: > 0, FragmentsDone: not null })
-            {
-                task.IsIndeterminate = false;
-                task.MaxValue         = progress.FragmentsTotal.Value;
-                task.Value            = Math.Min(progress.FragmentsDone.Value, progress.FragmentsTotal.Value);
-            }
-            else if (progress.TotalBytes is > 0)
-            {
-                task.IsIndeterminate = false;
-                task.MaxValue         = progress.TotalBytes.Value;
-                task.Value            = Math.Min(progress.BytesDownloaded, progress.TotalBytes.Value);
-            }
-            else
-            {
-                task.IsIndeterminate = true;
-            }
-
-            var speed = tracker.CurrentSpeed;
-            if (speed > 0)
-            {
-                detail += $" • {DownloadProgressFormatter.FormatBytes((long)speed)}/s";
-                var eta = tracker.CurrentEta;
-                if (eta is not null)
-                {
-                    detail += $" • {DownloadSpeedometer.FormatEta(eta.Value)}";
-                }
-            }
-
-            task.Description = detail + " • Esc: iptal";
-            return;
-        }
-
-        task.IsIndeterminate = true;
-        task.Description      = $"{stage} • Esc: iptal";
-    }
 
 
 

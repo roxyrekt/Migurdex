@@ -1,4 +1,5 @@
 using Migurdex.Cli.Services.Downloads;
+using Spectre.Console;
 
 namespace Migurdex.Cli.Tui;
 
@@ -92,7 +93,22 @@ internal sealed class DownloadProgressTracker : IProgress<DownloadProgress>
     }
 }
 
-/// <summary>Bayt sayısını okunabilir birim metnine çevirir.</summary>
+/// <summary>
+/// İndirme ilerlemesini okunabilir metne ve Spectre görev satırına çevirir.
+/// </summary>
+/// <remarks>
+/// <para>
+/// Burada iki şey yaşar: bayt/hız metni (<see cref="FormatBytes(long)"/>) ve
+/// <c>EpisodeSourcesView</c> ile paylaşılan görev satırı güncellemesi
+/// (<see cref="UpdateDownloadTask"/>).
+/// </para>
+/// <para>
+/// ⭐ Görev satırı güncellemesi <b>tekli akışta yazılmış, toplu akışta
+/// kopyalanmamıştı</b>; iki ekran farklı gösteri üretiyordu. Toplu indirme
+/// ekranı da aynı fonksiyonu kullanır, böylece "Tamamlanıyor" gibi aşama
+/// metinleri her iki ekranda da görünür.
+/// </para>
+/// </remarks>
 /// <remarks>
 /// Ölçülen ayrım: <c>1000</c> tabanlı (KB/MB/GB) kullanılır; indirme hızı için
 /// ikili taban daha doğru olsa da <b>mevcut ekranlarla aynı biçim</b> şart —
@@ -132,48 +148,75 @@ internal static class DownloadProgressFormatter
         return $"{bytes:0.#} {Units[unit]}";
     }
 
-    /// <summary>
-    /// Tek satırlık ilerleme özeti:
-    /// <c>58.2 MB / 120.4 MB • 3.4 MB/s • ETA 00:18</c>
-    /// </summary>
-    /// <remarks>
-    /// ⭐ <b>Toplam bilinmiyorsa yalnız indirilen bayt yazılır.</b> Boyut yokken
-    /// <c>0 B / -</c> gibi sahte bir gösterim yapmak, kullanıcının indirme
-    /// takıldı sanmasına yol açar.
-    /// </remarks>
-    public static string Describe(DownloadProgressTracker tracker)
+
+    internal static void UpdateDownloadTask(ProgressTask task, DownloadProgressTracker tracker)
     {
-        ArgumentNullException.ThrowIfNull(tracker);
-
-        var current = tracker.Current;
-        if (current is null)
+        var progress = tracker.Current;
+        if (progress is null)
         {
-            return "Hazırlanıyor...";
+            task.IsIndeterminate = true;
+            task.Description      = "Hazırlanıyor • Esc: iptal";
+            return;
         }
 
-        var parts = new List<string>(4);
+        var stage = DownloadStageLabel.For(progress.Stage, progress.Track, progress.IsAudioTrack);
 
-        if (current.TotalBytes > 0)
+        if (progress is { Stage: DownloadStage.Downloading })
         {
-            parts.Add($"{FormatBytes(current.BytesDownloaded)} / {FormatBytes(current.TotalBytes!.Value)}");
-        }
-        else if (current.BytesDownloaded > 0)
-        {
-            parts.Add(FormatBytes(current.BytesDownloaded));
+            var detail = stage;
+            if (!string.IsNullOrWhiteSpace(progress.Track))
+            {
+                detail += $" • {Markup.Escape(progress.Track)}";
+            }
+
+            if (progress is { FragmentsTotal: > 0, FragmentsDone: not null })
+            {
+                detail += $" • frag {progress.FragmentsDone.Value}/{progress.FragmentsTotal.Value}";
+            }
+            else if (progress.TotalBytes is > 0)
+            {
+                detail += $" • {DownloadProgressFormatter.FormatBytes(progress.BytesDownloaded)} / {DownloadProgressFormatter.FormatBytes(progress.TotalBytes.Value)}";
+            }
+
+            if (progress.Percent is not null)
+            {
+                task.IsIndeterminate = false;
+                task.MaxValue         = 100;
+                task.Value            = Math.Clamp(progress.Percent.Value, 0, 100);
+            }
+            else if (progress is { FragmentsTotal: > 0, FragmentsDone: not null })
+            {
+                task.IsIndeterminate = false;
+                task.MaxValue         = progress.FragmentsTotal.Value;
+                task.Value            = Math.Min(progress.FragmentsDone.Value, progress.FragmentsTotal.Value);
+            }
+            else if (progress.TotalBytes is > 0)
+            {
+                task.IsIndeterminate = false;
+                task.MaxValue         = progress.TotalBytes.Value;
+                task.Value            = Math.Min(progress.BytesDownloaded, progress.TotalBytes.Value);
+            }
+            else
+            {
+                task.IsIndeterminate = true;
+            }
+
+            var speed = tracker.CurrentSpeed;
+            if (speed > 0)
+            {
+                detail += $" • {DownloadProgressFormatter.FormatBytes((long)speed)}/s";
+                var eta = tracker.CurrentEta;
+                if (eta is not null)
+                {
+                    detail += $" • {DownloadSpeedometer.FormatEta(eta.Value)}";
+                }
+            }
+
+            task.Description = detail + " • Esc: iptal";
+            return;
         }
 
-        var speed = tracker.CurrentSpeed;
-        if (speed > 0)
-        {
-            parts.Add($"{FormatBytes(speed)}/s");
-        }
-
-        var eta = tracker.CurrentEta;
-        if (eta is { } remaining && remaining > TimeSpan.Zero)
-        {
-            parts.Add(DownloadSpeedometer.FormatEta(remaining));
-        }
-
-        return parts.Count == 0 ? "Hazırlanıyor..." : string.Join(" • ", parts);
+        task.IsIndeterminate = true;
+        task.Description      = $"{stage} • Esc: iptal";
     }
 }
