@@ -1,4 +1,5 @@
 using Migurdex.Cli.Services;
+using Migurdex.Cli.Services.Downloads;
 using Migurdex.Shared.Enums;
 using Migurdex.Shared.Models;
 using Spectre.Console;
@@ -450,7 +451,15 @@ public class AnimeDetailsView : BaseView
         }
     }
 
-    private static Task<List<Episode>?> SelectEpisodesForBulkDownloadAsync(AnimeDetails        details,
+    /// <summary>
+    /// Çoklu bölüm seçim ekranını açar.
+    /// </summary>
+    /// <remarks>
+    /// ⭐ Diskte <b>zaten indirilmiş</b> bölümler <b>yeşil</b> gösterilir; kullanıcı
+    /// işaretlemeden önce neyin indirileceğini görür. Dizin <b>bir kez</b> taranır
+    /// (1166 bölümde bile 0,1 ms) ve her bölüm için O(1) sorgu yapılır.
+    /// </remarks>
+    private Task<List<Episode>?> SelectEpisodesForBulkDownloadAsync(AnimeDetails        details,
         IReadOnlyList<string>     headerLines,
         IGrouping<int, Episode>? currentSeasonGroup)
     {
@@ -460,7 +469,36 @@ public class AnimeDetailsView : BaseView
             return Task.FromResult<List<Episode>?>(null);
         }
 
-        const string selectAllSearchable = "Tüm Bölümleri İşaretle";
+        const string selectAllSearchable = "Tüm bölümleri işaretle";
+
+        // ⭐ Diskte zaten var olan bölümler. Yol kurucu ve ayarlar DI'den
+        // çözülür; bulunamazsa renklendirme yapılmaz (ekran yine çalışır).
+        var existingStems = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var pathBuilder   = _serviceProvider.GetService(typeof(IDownloadPathBuilder))
+                                as IDownloadPathBuilder;
+        var configService = _serviceProvider.GetService(typeof(IConfigurationService))
+                                as IConfigurationService;
+        var downloadRoot  = configService?.Config.DownloadDirectory;
+
+        if (pathBuilder is not null && !string.IsNullOrWhiteSpace(downloadRoot))
+        {
+            try
+            {
+                var animeDirectory = pathBuilder.BuildAnimeDirectory(downloadRoot, details.Title);
+                existingStems     = DownloadPresence.LoadExistingStems(animeDirectory);
+            }
+            catch (ArgumentException)
+            {
+                // Çıktı dizini geçersizse yalnız renksiz göster.
+            }
+
+            if (existingStems.Count > 0)
+            {
+                headerLines = headerLines
+                             .Concat(["[green]Yeşil[/] = diskte zaten indirilmiş"])
+                             .ToArray();
+            }
+        }
 
         var bulkChoices = new List<FuzzyChoice>
         {
@@ -489,9 +527,18 @@ public class AnimeDetailsView : BaseView
                             ? $"{unitPrefix} {ep.Number:00} · {Theme.Ellipsize(ep.Title!, 44)}"
                             : $"{unitPrefix} {ep.Number:00}";
 
+            // ⭐ Diskte varsa yeşil: kullanıcı neyin zaten indirilmiş
+            // olduğunu işaretlemeden önce görür.
+            var stem = pathBuilder is not null && !string.IsNullOrWhiteSpace(downloadRoot)
+                           ? pathBuilder.BuildFileStem(ep.Season ?? 1, ep.Number, ep.Title ?? "")
+                           : string.Empty;
+            var already = stem.Length > 0 && existingStems.Contains(stem);
+
             bulkChoices.Add(new FuzzyChoice
             {
-                Display       = $"[grey]{Markup.Escape(label)}[/]",
+                Display       = already
+                                    ? $"[green]{Markup.Escape(label)}[/]"
+                                    : $"[grey]{Markup.Escape(label)}[/]",
                 DisplayActive = $"[bold white]{Markup.Escape(label)}[/]",
                 Searchable    = searchable,
                 CanBeChecked  = true

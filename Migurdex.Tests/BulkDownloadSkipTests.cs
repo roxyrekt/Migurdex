@@ -55,7 +55,7 @@ public sealed class BulkDownloadSkipTests : IDisposable
         var stem = "S01E02 - Test";
         File.WriteAllText(Path.Combine(dir, stem + ".mp4"), "x");
 
-        var bulunan = BulkDownloadView.FindExistingVideo(Mp4Path(dir, stem));
+        var bulunan = DownloadPresence.FindExistingVideo(Mp4Path(dir, stem));
 
         Assert.NotNull(bulunan);
         Assert.EndsWith(".mp4", bulunan, StringComparison.OrdinalIgnoreCase);
@@ -67,7 +67,7 @@ public sealed class BulkDownloadSkipTests : IDisposable
         var dir = Path.Combine(_root, "Anime");
         Directory.CreateDirectory(dir);
 
-        Assert.Null(BulkDownloadView.FindExistingVideo(Mp4Path(dir, "S01E09 - Yok")));
+        Assert.Null(DownloadPresence.FindExistingVideo(Mp4Path(dir, "S01E09 - Yok")));
     }
 
     [Fact]
@@ -83,7 +83,7 @@ public sealed class BulkDownloadSkipTests : IDisposable
 
         File.WriteAllText(Path.Combine(dir, stem + ".mkv"), "x");
 
-        var bulunan = BulkDownloadView.FindExistingVideo(path);
+        var bulunan = DownloadPresence.FindExistingVideo(path);
 
         Assert.NotNull(bulunan);
         Assert.EndsWith(".mkv", bulunan, StringComparison.OrdinalIgnoreCase);
@@ -100,7 +100,7 @@ public sealed class BulkDownloadSkipTests : IDisposable
 
         var path = new DownloadPath(_root, dir, stem, null);
 
-        Assert.Null(BulkDownloadView.FindExistingVideo(path));
+        Assert.Null(DownloadPresence.FindExistingVideo(path));
     }
 
     [Fact]
@@ -113,7 +113,7 @@ public sealed class BulkDownloadSkipTests : IDisposable
 
         var path = new DownloadPath(_root, dir, stem, null);
 
-        Assert.Null(BulkDownloadView.FindExistingVideo(path));
+        Assert.Null(DownloadPresence.FindExistingVideo(path));
     }
 
     [Fact]
@@ -127,7 +127,7 @@ public sealed class BulkDownloadSkipTests : IDisposable
         File.WriteAllText(Path.Combine(dir, stem + ".mp4"), "x");
 
         var path = new DownloadPath(_root, dir, stem, null);
-        var bulunan = BulkDownloadView.FindExistingVideo(path);
+        var bulunan = DownloadPresence.FindExistingVideo(path);
 
         Assert.NotNull(bulunan);
         Assert.Equal(stem + ".mp4", Path.GetFileName(bulunan));
@@ -139,6 +139,48 @@ public sealed class BulkDownloadSkipTests : IDisposable
         var dir = Path.Combine(_root, "YokBoyleBirDizin");
         var path = new DownloadPath(_root, dir, "S01E10", ".mp4");
 
-        Assert.Null(BulkDownloadView.FindExistingVideo(path));
+        Assert.Null(DownloadPresence.FindExistingVideo(path));
+    }
+
+    [Fact]
+    public void LoadExistingStems_FindsOnlyVideoContainers()
+    {
+        var dir = Path.Combine(_root, "Anime");
+        Directory.CreateDirectory(dir);
+
+        foreach (var ad in new[]
+                 {
+                     "S01E01 - Bir", "S01E02 - Iki.mp4", "S01E03 - Uc.mkv",
+                     "S01E04 - Dort.en.vtt", "S01E05 - Bes.mp4.part"
+                 })
+        {
+            File.WriteAllText(Path.Combine(dir, ad), "x");
+        }
+
+        var stemler = DownloadPresence.LoadExistingStems(dir);
+
+        // UZANTISIZ dosya sayilmaz: gercek bir HLS ciktisi her zaman bir
+        // kaplayiciya sahiptir; uzantisiz dosya yarim kalmis bir is kalintisidir.
+        // Ilk yazimda 3 bekleniyordu ve test dustu - KOD dogruydu.
+        Assert.Equal(2, stemler.Count);
+        Assert.Contains("S01E02 - Iki", stemler);
+        Assert.Contains("S01E03 - Uc", stemler);
+        Assert.DoesNotContain("S01E01 - Bir", stemler);
+        Assert.DoesNotContain("S01E04 - Dort.en", stemler);
+        Assert.DoesNotContain("S01E05 - Bes", stemler);
+    }
+
+    [Fact]
+    public void LoadExistingStems_MissingDirectory_ReturnsEmpty()
+    {
+        var stemler = DownloadPresence.LoadExistingStems(Path.Combine(_root, "YokBoyle"));
+        Assert.Empty(stemler);
+    }
+
+    [Fact]
+    public void LoadExistingStems_NullOrBlank_ReturnsEmpty()
+    {
+        Assert.Empty(DownloadPresence.LoadExistingStems(null));
+        Assert.Empty(DownloadPresence.LoadExistingStems("   "));
     }
 }

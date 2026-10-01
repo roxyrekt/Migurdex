@@ -216,6 +216,23 @@ internal static class DownloadProgressFormatter
             return;
         }
 
+        // ⭐ Birleştirme (Finalizing) bayt bilgisiyle geliyorsa çubuk
+        // ilerler. Ölçülen bu pencere 967 MB dosyada 10–21 sn sürüyordu ve
+        // motor hiç bildirim vermediği için ekran donmuş görünüyordu.
+        if (progress is { TotalBytes: > 0, BytesDownloaded: > 0 })
+        {
+            var mergedTotal = progress.TotalBytes.Value;
+            var mergedDone  = Math.Min(progress.BytesDownloaded, mergedTotal);
+
+            task.IsIndeterminate = false;
+            task.MaxValue         = mergedTotal;
+            task.Value            = mergedDone;
+            task.Description      =
+                $"{stage} • {DownloadProgressFormatter.FormatBytes(mergedDone)} / " +
+                $"{DownloadProgressFormatter.FormatBytes(mergedTotal)} • Esc: iptal";
+            return;
+        }
+
         task.IsIndeterminate = true;
         task.Description      = $"{stage} • Esc: iptal";
     }

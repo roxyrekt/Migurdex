@@ -79,12 +79,6 @@ public class BulkDownloadView : BaseView
     /// aranır; <c>.part</c> ve <c>.vtt</c> bilerek <b>sayılmaz</b> (yarım
     /// indirme ve altyazı, indirilmiş video demek değildir).
     /// </summary>
-    private static readonly HashSet<string> VideoExtensions =
-        new(StringComparer.OrdinalIgnoreCase)
-        {
-            ".mp4", ".mkv", ".webm", ".avi", ".mov", ".m4v", ".ts", ".flv"
-        };
-
     /// <summary>
     /// Hedef yol kurucusunu çözer.
     /// </summary>
@@ -96,90 +90,6 @@ public class BulkDownloadView : BaseView
     private IDownloadPathBuilder PathBuilder
         => _serviceProvider.GetService(typeof(IDownloadPathBuilder)) as IDownloadPathBuilder
            ?? new DownloadPathBuilder();
-
-    /// <summary>
-    /// Bölümün indirileceği hedefi kurar.
-    /// </summary>
-    /// <remarks>
-    /// ⭐ Uzantı kuralı <c>DownloadService</c> ile <b>birebir aynı</b> olmalı;
-    /// farklı olursa burada "yok" deyip motorun "zaten var" demesine yol açarız.
-    /// MP4 dışında uzantı <c>null</c> verilir, çünkü HLS'de gerçek kapsayıcıyı
-    /// <c>yt-dlp</c> belirler.
-    /// </remarks>
-    private DownloadPath BuildDestination(CliConfig  config,
-                                          Episode     episode,
-                                          VideoSource source)
-    {
-        var extension = source.Type == VideoType.Mp4 ? ".mp4" : null;
-
-        return PathBuilder.Build(config.DownloadDirectory,
-                                 _animeTitle ?? string.Empty,
-                                 episode.Title ?? string.Empty,
-                                 episode.Season ?? 1,
-                                 episode.Number,
-                                 extension);
-    }
-
-    /// <summary>
-    /// Hedef video dosyası zaten diskte mi?
-    /// </summary>
-    /// <remarks>
-    /// <para>
-    /// ⭐ <b>Neden <c>MediaPath</c> tek başına yetmez:</b>
-    /// <c>GetMediaPath(null)</c> uzantı bilinmediğinde dosya adını
-    /// <b>uzantısız</b> üretir, bu yüzden HLS bölümünde <c>File.Exists</c>
-    /// her zaman <c>false</c> döner. Bu yüzden <c>FileStem</c> + <c>.*</c>
-    /// taranır.
-    /// </para>
-    /// <para>
-    /// ⭐ <b>Neden <c>GetFileNameWithoutExtension</c> kullanılmıyor:</b> bölüm
-    /// adında nokta varsa ("Bölüm 1.5") stem'i kırpar ve eşleşme bulunamaz.
-    /// Doğrudan <c>FileStem</c> kullanılır.
-    /// </para>
-    /// </remarks>
-    internal static string? FindExistingVideo(DownloadPath destination)
-    {
-        if (destination is null)
-        {
-            return null;
-        }
-
-        if (!string.IsNullOrWhiteSpace(destination.MediaPath) && File.Exists(destination.MediaPath))
-        {
-            return destination.MediaPath;
-        }
-
-        var directory = destination.AnimeDirectory;
-        var stem      = destination.FileStem;
-
-        if (string.IsNullOrWhiteSpace(directory) || string.IsNullOrWhiteSpace(stem)
-            || !Directory.Exists(directory))
-        {
-            return null;
-        }
-
-        try
-        {
-            foreach (var candidate in Directory.EnumerateFiles(directory, stem + ".*"))
-            {
-                if (VideoExtensions.Contains(Path.GetExtension(candidate)))
-                {
-                    return candidate;
-                }
-            }
-        }
-        catch (IOException)
-        {
-            // Dizin okunamıyorsa "yok" say: indirmeyi engellememeli.
-        }
-        catch (UnauthorizedAccessException)
-        {
-            // Aynı gerekçe.
-        }
-
-        return null;
-    }
-
     public void SetTarget(string provider, string animeId, string animeTitle, List<Episode> episodes)
     {
         _provider   = provider;
@@ -324,7 +234,10 @@ public class BulkDownloadView : BaseView
                          .HideCompleted(false)
                          .Columns(
                              new PercentageColumn(),
-                             new ProgressBarColumn(),
+                                 // ⭐ SABIT genişlik. Ölçüldü: otomatik ölçeklenen çubuk
+                                 // kolonunda dolu satırların metni sağa itilip devam eden
+                                 // satırla hizasız görünüyordu.
+                                 new ProgressBarColumn { Width = 30 },
                              new TaskDescriptionColumn(),
                              new SpinnerColumn())
                          .StartAsync(async progressContext =>
@@ -396,8 +309,9 @@ public class BulkDownloadView : BaseView
                                  // motor "Video hedefi zaten var; overwrite kapalı."
                                  // hatası veriyor ve bölüm başarısız sayılıyordu.
                                  if (!config.DownloadOverwrite
-                                     && FindExistingVideo(
-                                         BuildDestination(config, episode, chosen)) is not null)
+                                     && DownloadPresence.FindExistingVideo(
+                                         DownloadPresence.BuildDestination(
+                                             PathBuilder, config, _animeTitle, episode, chosen)) is not null)
                                  {
                                      skipped.Add(epLabel);
                                      Complete(task, $"{title} • zaten indirilmiş, atlandı");
