@@ -115,6 +115,27 @@ public class BulkDownloadView : BaseView
     /// <b>indir</b>. İlk bölümde kaynak kullanıcıdan seçilir, sonrakiler için
     /// <see cref="SourcePreference"/> aynı tercihi arar.
     /// </remarks>
+    /// <summary>
+    /// Bölümleri sırayla indirir ve sonucu özetler.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Her bölüm üç aşamadan geçer: <b>kaynak bul</b> → <b>kaynak uydur</b> →
+    /// <b>indir</b>. İlk bölümde kaynak kullanıcıdan seçilir, sonrakiler için
+    /// <see cref="SourcePreference"/> aynı tercihi arar.
+    /// </para>
+    /// <para>
+    /// ⭐ <b>Neden kaynak seçimi döngüden önce yapılıyor?</b> Kullanıcıdan
+    /// girdi isteyen her ekran bir <i>canlı ekran</i>dır
+    /// (<c>FuzzyPrompt.Show</c> → <c>AnsiConsole.Live</c>). Spectre.Console
+    /// aynı anda yalnız bir canlı ekrana izin verir; ikinciyi başlatmak
+    /// <c>InvalidOperationException: Trying to run one or more interactive
+    /// functions concurrently</c> fırlatır. Depodaki doğru desen
+    /// (<c>EpisodeSourcesView</c>) de prompt'u canlı ekran bloğunun
+    /// <b>dışına</b> taşıyor. Bu yüzden ilk bölümün kaynağı indirme döngüsüne
+    /// girmeden, <c>Status</c> bloğu başlamadan sorulur.
+    /// </para>
+    /// </remarks>
     private async Task<BulkDownloadSummary> RunBulkDownloadAsync(CliConfig config)
     {
         var succeeded   = new List<string>();
@@ -122,11 +143,35 @@ public class BulkDownloadView : BaseView
         var noSource    = new List<string>();
         var userStopped = false;
         var preference  = new SourcePreference();
-        var isFirst     = true;
 
         using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(
             TuiApplicationCancellation.Token);
 
+        // ---------------------------------------------------------- 1. KAYNAK SEÇİMİ
+        // Bu adım bilinçli olarak canlı ekranların DIŞINDA: kullanıcıdan kaynak
+        // seçmesi isteniyor, dolayısıyla tek başına bir canlı ekran kullanılır.
+        var firstEpisode = _episodes[0];
+        var firstSources = await ResolveSourcesAsync(firstEpisode, cancellation.Token);
+
+        if (firstSources is null || firstSources.Count == 0)
+        {
+            noSource.Add($"Bölüm {firstEpisode.Number}");
+            return new BulkDownloadSummary(succeeded, failed, noSource, false, _episodes.Count);
+        }
+
+        var firstChoice = AskSourceForFirstEpisodeAsync(firstEpisode, firstSources, config);
+        if (firstChoice is null)
+        {
+            // Kullanıcı Esc ile vazgeçti.
+            return new BulkDownloadSummary(succeeded, failed, noSource, true, _episodes.Count);
+        }
+
+        preference.Capture(firstChoice);
+
+        // İlk bölümün kaynağı hazır; döngüde tekrar sorulmaz.
+        var resolvedFirst = firstChoice;
+
+        // ---------------------------------------------------------- 2. İNDİRME DÖNGÜSÜ
         await AnsiConsole.Status()
                          .Spinner(Spinner.Known.Dots)
                          .StartAsync($"{_episodes.Count} bölüm indiriliyor...",
@@ -144,40 +189,24 @@ public class BulkDownloadView : BaseView
                                              index++;
                                              var epLabel = $"Bölüm {episode.Number}";
 
-                                             ctx.Status($"[grey]({index}/{_episodes.Count})[/] "
-                                                        + $"{Markup.Escape(epLabel)} • kaynak aranıyor...");
-
-                                             var sources = await ResolveSourcesAsync(episode, cancellation.Token);
-                                             if (sources is null || sources.Count == 0)
-                                             {
-                                                 noSource.Add(epLabel);
-                                                 continue;
-                                             }
-
                                              VideoSource? chosen;
-                                             if (isFirst)
+
+                                             if (index == 1)
                                              {
-                                                 // İlk bölüm: kullanıcıdan seç. Bu ekran
-                                                 // kaynak listesinin ilk açılışıdır, o yüzden
-                                                 // ayrı bir "seçim ekranı" yazmaya gerek yok —
-                                                 // mevcut kaynak ekranı kullanılır.
-                                                 chosen = await AskSourceForFirstEpisodeAsync(episode,
-                                                                                    sources,
-                                                                                    config);
-
-                                                 if (chosen is null)
-                                                 {
-                                                     userStopped = true;
-                                                     break;
-                                                 }
-
-                                                 // Kullanıcının tercihi sonraki bölümler için
-                                                 // referans alınır.
-                                                 preference.Capture(chosen);
-                                                 isFirst = false;
+                                                 chosen = resolvedFirst;
                                              }
                                              else
                                              {
+                                                 ctx.Status($"[grey]({index}/{_episodes.Count})[/] "
+                                                            + $"{Markup.Escape(epLabel)} • kaynak aranıyor...");
+
+                                                 var sources = await ResolveSourcesAsync(episode, cancellation.Token);
+                                                 if (sources is null || sources.Count == 0)
+                                                 {
+                                                     noSource.Add(epLabel);
+                                                     continue;
+                                                 }
+
                                                  chosen = preference.Match(sources);
                                                  if (chosen is null)
                                                  {
@@ -248,7 +277,7 @@ public class BulkDownloadView : BaseView
     /// <summary>
     /// İlk bölüm için kaynak seçimi. Kullanıcı bir kaynak seçmezse döner.
     /// </summary>
-    private async Task<VideoSource?> AskSourceForFirstEpisodeAsync(Episode    episode,
+    private VideoSource? AskSourceForFirstEpisodeAsync(Episode    episode,
         List<VideoSource>                            sources,
         CliConfig                                    config)
     {

@@ -367,7 +367,7 @@ public class AnimeDetailsView : BaseView
 
             if (selectedEpisodes is { Count: > 0 })
             {
-                await StartBulkDownloadFlowAsync(navigator, details, currentSeasonGroup, selectedEpisodes);
+                await StartBulkDownloadFlowAsync(navigator, details, selectedEpisodes);
                 return;
             }
 
@@ -460,14 +460,14 @@ public class AnimeDetailsView : BaseView
             return Task.FromResult<List<Episode>?>(null);
         }
 
-        const string selectAllSearchable = "TÃ¼m BÃ¶lÃ¼mleri Ä°ÅŸaretle";
+        const string selectAllSearchable = "Tüm Bölümleri Ä°ÅŸaretle";
 
         var bulkChoices = new List<FuzzyChoice>
         {
             new()
             {
-                Display       = "[green]âŒ TÃ¼m bÃ¶lÃ¼mleri iÅŸaretle[/]",
-                DisplayActive = "[bold white on green] âŒ TÃ¼m bÃ¶lÃ¼mleri iÅŸaretle [/]",
+                Display       = "[green]âŒ Tüm bölümleri iÅŸaretle[/]",
+                DisplayActive = "[bold white on green] âŒ Tüm bölümleri iÅŸaretle [/]",
                 Searchable    = selectAllSearchable,
                 IsAction      = true
             }
@@ -475,7 +475,7 @@ public class AnimeDetailsView : BaseView
 
         var choiceToEpisode = new Dictionary<string, Episode>();
         var isMovie          = details.Format == ContentFormat.Movie;
-        var unitPrefix       = isMovie ? "Film" : "BÃ¶lÃ¼m";
+        var unitPrefix       = isMovie ? "Film" : "Bölüm";
 
         foreach (var ep in seasonEpisodes)
         {
@@ -483,10 +483,10 @@ public class AnimeDetailsView : BaseView
             var titleTrimmed  = ep.Title?.Trim() ?? "";
             var hasCustomName = !string.IsNullOrWhiteSpace(titleTrimmed)
                                 && !titleTrimmed.Equals($"{ep.Number}", StringComparison.OrdinalIgnoreCase)
-                                && !titleTrimmed.Equals($"BÃ¶lÃ¼m {ep.Number}", StringComparison.OrdinalIgnoreCase);
+                                && !titleTrimmed.Equals($"Bölüm {ep.Number}", StringComparison.OrdinalIgnoreCase);
 
             var label = hasCustomName
-                            ? $"{unitPrefix} {ep.Number:00} Â· {Theme.Ellipsize(ep.Title!, 44)}"
+                            ? $"{unitPrefix} {ep.Number:00} · {Theme.Ellipsize(ep.Title!, 44)}"
                             : $"{unitPrefix} {ep.Number:00}";
 
             bulkChoices.Add(new FuzzyChoice
@@ -507,7 +507,7 @@ public class AnimeDetailsView : BaseView
                                             initialSelection: selectAllSearchable,
                                             headerLines: headerLines,
                                             footerHelp: "â†‘â†“ gez â€¢ Space iÅŸaretle â€¢ Enter onayla â€¢ "
-                                                        + "Ctrl+A tÃ¼mÃ¼nÃ¼ iÅŸaretle â€¢ Esc geri");
+                                                        + "Ctrl+A tümünü iÅŸaretle â€¢ Esc geri");
 
         if (selected == null || selected.Count == 0)
         {
@@ -527,42 +527,45 @@ public class AnimeDetailsView : BaseView
         return Task.FromResult(chosen.Count > 0 ? chosen : null);
     }
 
-    private async Task StartBulkDownloadFlowAsync(ITuiNavigator      navigator,
+    /// <summary>
+    /// Seçilen bölümler için toplu indirme akışını başlatır.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// ⭐ <b>Menü yok.</b> Kullanıcı isteği: bölüm listesinde
+    /// <c>Space</c> ile bölümleri işaretledikten veya
+    /// <c>⌁ Tüm bölümleri işaretle</c> kısayolunu kullandıktan sonra
+    /// <b>Enter'a basınca indirme doğrudan başlar</b>. Önceki sürümde
+    /// "Tüm Bölümleri İndir / Sadece Seçtiğin Bölümleri İndir" ikili bir menü
+    /// vardı; bu menü hem kullanıcı isteği dışıydı hem de
+    /// <c>FuzzyPrompt.Show</c> çağrısını bir canlı ekranın içine düşürdüğü
+    /// için <c>InvalidOperationException</c> doğuruyordu.
+    /// </para>
+    /// <para>
+    /// <b>Neden "tümünü indir" ayrı bir seçenek değil?</b> Listenin başındaki
+    /// <c>⌁ Tüm bölümleri işaretle</c> kısayolu zaten tüm bölümleri işaretler.
+    /// Kullanıcı o kısayola basıp Enter'a bastığında sezonun tamamı indirilir;
+    /// ayrı bir menü satırına gerek yoktur.
+    /// </para>
+    /// <para>
+    /// <b>Onay ekranı:</b> yalnızca bölüm sayısı
+    /// <see cref="BulkDownloadWarningThreshold"/> üzerindeyse çıkar. Küçük
+    /// dizilerde ekran hiç gösterilmez — 12 bölümlük bir dizide uyarı
+    /// göstermek gürültüdür.
+    /// </para>
+    /// </remarks>
+    private async Task StartBulkDownloadFlowAsync(ITuiNavigator  navigator,
         AnimeDetails                     details,
-        IGrouping<int, Episode>?         currentSeasonGroup,
         List<Episode>                    selectedEpisodes)
     {
-        var bulkActions = new List<FuzzyChoice>
-        {
-            Theme.ActionChoice("TÃ¼m BÃ¶lÃ¼mleri Ä°ndir", Theme.Primary),
-            Theme.ActionChoice("Sadece SeÃ§tiÄŸin BÃ¶lÃ¼mleri Ä°ndir", Theme.Primary),
-            TuiHelpers.Back()
-        };
-
-        var bulkAction = FuzzyPrompt.Show(details.Title,
-                                           bulkActions,
-                                           searchable: false,
-                                           headerLines:
-                                           [$"[grey]{Markup.Escape(TuiHelpers.EllipsizedTitle(details.Title))} â€º {selectedEpisodes.Count} bÃ¶lÃ¼m[/]"],
-                                           footerHelp: "â†‘â†“ gez â€¢ Enter seÃ§ â€¢ Esc geri");
-
-        if (bulkAction is null || bulkAction.Searchable == "Geri")
-        {
-            return;
-        }
-
-        var episodesToDownload = bulkAction.Searchable == "TÃ¼m BÃ¶lÃ¼mleri Ä°ndir"
-                                     ? currentSeasonGroup?.OrderBy(e => e.Number).ToList() ?? selectedEpisodes
-                                     : selectedEpisodes;
-
-        if (episodesToDownload.Count > BulkDownloadWarningThreshold
-            && !await ConfirmBulkDownloadAsync(details.Title, episodesToDownload))
+        if (selectedEpisodes.Count > BulkDownloadWarningThreshold
+            && !await ConfirmBulkDownloadAsync(details.Title, selectedEpisodes))
         {
             return;
         }
 
         var bulkView = (BulkDownloadView) _serviceProvider.GetService(typeof(BulkDownloadView))!;
-        bulkView.SetTarget(_provider!, _animeId!, details.Title, episodesToDownload);
+        bulkView.SetTarget(_provider!, _animeId!, details.Title, selectedEpisodes);
         navigator.Push(bulkView);
     }
 
@@ -571,32 +574,37 @@ public class AnimeDetailsView : BaseView
     {
         AnsiConsole.Clear();
         AnsiConsole.MarkupLine($"[bold]{Markup.Escape(TuiHelpers.EllipsizedTitle(animeTitle))}[/]");
-        AnsiConsole.MarkupLine($"[yellow]{episodes.Count} bÃ¶lÃ¼m[/] sÄ±ralÄ± olarak indirilecek.");
-        AnsiConsole.MarkupLine("[grey]BÃ¶lÃ¼mler tek tek, sÄ±rayla iner. Bu birkaÃ§ saat sÃ¼rebilir "
+        AnsiConsole.MarkupLine($"[yellow]{episodes.Count} bölüm[/] sıralı olarak indirilecek.");
+        AnsiConsole.MarkupLine("[grey]Bölümler tek tek, sırayla iner. Bu birkaç saat sürebilir "
                                + "ve diskte onlarca GB yer kaplayabilir.[/]");
         AnsiConsole.WriteLine();
 
         var confirm = new List<FuzzyChoice>
         {
-            Theme.ActionChoice("Evet, indirmeye baÅŸla", Theme.Primary),
-            Theme.ActionChoice("VazgeÃ§", Theme.Danger),
+            Theme.ActionChoice("Evet, indirmeye başla", Theme.Primary),
+            Theme.ActionChoice("Vazgeç", Theme.Danger),
             TuiHelpers.Back()
         };
 
         var choice = FuzzyPrompt.Show("Onayla",
                                       confirm,
                                       searchable: false,
-                                      footerHelp: "â†‘â†“ gez â€¢ Enter seÃ§ â€¢ Esc geri");
+                                      footerHelp: "↑↓ gez • Enter seç • Esc geri");
 
         return choice is not null
                && choice.Searchable != "Geri"
-               && choice.Searchable == "Evet, indirmeye baÅŸla";
+               && choice.Searchable == "Evet, indirmeye başla";
     }
 
     /// <summary>
-    /// Bu sayÄ±nÄ±n Ã¼zerindeki bÃ¶lÃ¼m sayÄ±larÄ±nda toplu indirmeden Ã¶nce ayrÄ±ca onay
-    /// istenir. SÄ±ralÄ± indirme uzun sÃ¼rdÃ¼ÄŸÃ¼ ve diskte Ã§ok yer kapladÄ±ÄŸÄ± iÃ§in
-    /// kullanÄ±cÄ± bilinÃ§li karar vermelidir.
+    /// Bu sayının üzerindeki bölüm sayılarında toplu indirmeden önce ayrıca onay
+    /// istenir. Sıralı indirme uzun sürdüğü ve diskte çok yer kapladığı için
+    /// kullanıcı bilinçli karar vermelidir.
     /// </summary>
+    /// <remarks>
+    /// Küçük dizilerde (<c>12</c> bölüm gibi) onay ekranı <b>hiç gösterilmez</b>;
+    /// uyarı göstermek gürültü olurdu. 1000+ bölümlü dizilerde hem ekranın hem
+    /// diskin etkisi büyüktür.
+    /// </remarks>
     internal const int BulkDownloadWarningThreshold = 100;
 }
