@@ -65,8 +65,8 @@ public class BulkEpisodeScreenPerformanceTests
 
         list.Add(new FuzzyChoice
         {
-            Display       = "[green]⌁ Tüm bölümleri işaretle[/]",
-            DisplayActive = "[bold white on green] ⌁ Tüm bölümleri işaretle [/]",
+            Display       = "[green]Tüm bölümleri işaretle[/]",
+            DisplayActive = "[bold white on green] Tüm bölümleri işaretle [/]",
             Searchable    = "Tüm Bölümleri İşaretle",
             IsAction      = true
         });

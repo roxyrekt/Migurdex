@@ -466,8 +466,8 @@ public class AnimeDetailsView : BaseView
         {
             new()
             {
-                Display       = "[green]⌁ Tüm bölümleri işaretle[/]",
-                DisplayActive = "[bold white on green] ⌁ Tüm bölümleri işaretle [/]",
+                Display       = "[green]Tüm bölümleri işaretle[/]",
+                DisplayActive = "[bold white on green] Tüm bölümleri işaretle [/]",
                 Searchable    = selectAllSearchable,
                 IsAction      = true
             }
@@ -534,7 +534,7 @@ public class AnimeDetailsView : BaseView
     /// <para>
     /// ⭐ <b>Menü yok.</b> Kullanıcı isteği: bölüm listesinde
     /// <c>Space</c> ile bölümleri işaretledikten veya
-    /// <c>⌁ Tüm bölümleri işaretle</c> kısayolunu kullandıktan sonra
+    /// <c>Tüm bölümleri işaretle</c> kısayolunu kullandıktan sonra
     /// <b>Enter'a basınca indirme doğrudan başlar</b>. Önceki sürümde
     /// "Tüm Bölümleri İndir / Sadece Seçtiğin Bölümleri İndir" ikili bir menü
     /// vardı; bu menü hem kullanıcı isteği dışıydı hem de
@@ -543,7 +543,7 @@ public class AnimeDetailsView : BaseView
     /// </para>
     /// <para>
     /// <b>Neden "tümünü indir" ayrı bir seçenek değil?</b> Listenin başındaki
-    /// <c>⌁ Tüm bölümleri işaretle</c> kısayolu zaten tüm bölümleri işaretler.
+    /// <c>Tüm bölümleri işaretle</c> kısayolu zaten tüm bölümleri işaretler.
     /// Kullanıcı o kısayola basıp Enter'a bastığında sezonun tamamı indirilir;
     /// ayrı bir menü satırına gerek yoktur.
     /// </para>
