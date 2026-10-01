@@ -333,6 +333,7 @@ public static class Program
         services.AddTransient<SearchResultsView>();
         services.AddTransient<AnimeDetailsView>();
         services.AddTransient<EpisodeSourcesView>();
+        services.AddTransient<BulkDownloadView>();
         services.AddTransient<PlaybackMenuView>();
         services.AddTransient<FavoritesView>();
         services.AddTransient<WatchHistoryView>();

@@ -346,7 +346,8 @@ public class AnimeDetailsView : BaseView
                     {
                         Display       = display,
                         DisplayActive = displayActive,
-                        Searchable    = searchable
+                        Searchable    = searchable,
+                        CanBeChecked  = true
                     });
 
                     episodeMap[searchable] = ep;
@@ -355,6 +356,31 @@ public class AnimeDetailsView : BaseView
         }
 
         choices.Add(TuiHelpers.Back());
+
+        // Coklu bolum varsa Space ile isaretleme ekrani acilir; tek bolumlu icerik
+        // (film) eskiden oldugu gibi tekli secim ekraniyla devam eder.
+        if (!isSingleContent)
+        {
+            var selectedEpisodes = await SelectEpisodesForBulkDownloadAsync(details,
+                                                                            headerLines,
+                                                                            currentSeasonGroup);
+
+            if (selectedEpisodes is { Count: > 0 })
+            {
+                await StartBulkDownloadFlowAsync(navigator, details, currentSeasonGroup, selectedEpisodes);
+                return;
+            }
+
+            if (isMultiSeason)
+            {
+                _selectedSeason         = null;
+                _lastSelectedSearchable = null;
+                return;
+            }
+
+            navigator.Pop();
+            return;
+        }
 
         var choice = FuzzyPrompt.Show(details.Title,
                                       choices,
@@ -423,4 +449,154 @@ public class AnimeDetailsView : BaseView
             navigator.Push(sourcesView);
         }
     }
+
+    private static Task<List<Episode>?> SelectEpisodesForBulkDownloadAsync(AnimeDetails        details,
+        IReadOnlyList<string>     headerLines,
+        IGrouping<int, Episode>? currentSeasonGroup)
+    {
+        var seasonEpisodes = currentSeasonGroup?.OrderBy(e => e.Number).ToList() ?? [];
+        if (seasonEpisodes.Count == 0)
+        {
+            return Task.FromResult<List<Episode>?>(null);
+        }
+
+        const string selectAllSearchable = "TÃ¼m BÃ¶lÃ¼mleri Ä°ÅŸaretle";
+
+        var bulkChoices = new List<FuzzyChoice>
+        {
+            new()
+            {
+                Display       = "[green]âŒ TÃ¼m bÃ¶lÃ¼mleri iÅŸaretle[/]",
+                DisplayActive = "[bold white on green] âŒ TÃ¼m bÃ¶lÃ¼mleri iÅŸaretle [/]",
+                Searchable    = selectAllSearchable,
+                IsAction      = true
+            }
+        };
+
+        var choiceToEpisode = new Dictionary<string, Episode>();
+        var isMovie          = details.Format == ContentFormat.Movie;
+        var unitPrefix       = isMovie ? "Film" : "BÃ¶lÃ¼m";
+
+        foreach (var ep in seasonEpisodes)
+        {
+            var searchable    = $"ep{ep.Number:0000}";
+            var titleTrimmed  = ep.Title?.Trim() ?? "";
+            var hasCustomName = !string.IsNullOrWhiteSpace(titleTrimmed)
+                                && !titleTrimmed.Equals($"{ep.Number}", StringComparison.OrdinalIgnoreCase)
+                                && !titleTrimmed.Equals($"BÃ¶lÃ¼m {ep.Number}", StringComparison.OrdinalIgnoreCase);
+
+            var label = hasCustomName
+                            ? $"{unitPrefix} {ep.Number:00} Â· {Theme.Ellipsize(ep.Title!, 44)}"
+                            : $"{unitPrefix} {ep.Number:00}";
+
+            bulkChoices.Add(new FuzzyChoice
+            {
+                Display       = $"[grey]{Markup.Escape(label)}[/]",
+                DisplayActive = $"[bold white]{Markup.Escape(label)}[/]",
+                Searchable    = searchable,
+                CanBeChecked  = true
+            });
+
+            choiceToEpisode[searchable] = ep;
+        }
+
+        bulkChoices.Add(TuiHelpers.Back());
+
+        var selected = FuzzyPrompt.ShowMulti(details.Title,
+                                            bulkChoices,
+                                            initialSelection: selectAllSearchable,
+                                            headerLines: headerLines,
+                                            footerHelp: "â†‘â†“ gez â€¢ Space iÅŸaretle â€¢ Enter onayla â€¢ "
+                                                        + "Ctrl+A tÃ¼mÃ¼nÃ¼ iÅŸaretle â€¢ Esc geri");
+
+        if (selected == null || selected.Count == 0)
+        {
+            return Task.FromResult<List<Episode>?>(null);
+        }
+
+        var selectAllChosen = selected.Count == 1 && selected[0].Searchable == selectAllSearchable;
+        if (selectAllChosen)
+        {
+            return Task.FromResult<List<Episode>?>(seasonEpisodes);
+        }
+
+        var chosen = selected.Where(c => choiceToEpisode.ContainsKey(c.Searchable))
+                             .Select(c => choiceToEpisode[c.Searchable])
+                             .ToList();
+
+        return Task.FromResult(chosen.Count > 0 ? chosen : null);
+    }
+
+    private async Task StartBulkDownloadFlowAsync(ITuiNavigator      navigator,
+        AnimeDetails                     details,
+        IGrouping<int, Episode>?         currentSeasonGroup,
+        List<Episode>                    selectedEpisodes)
+    {
+        var bulkActions = new List<FuzzyChoice>
+        {
+            Theme.ActionChoice("TÃ¼m BÃ¶lÃ¼mleri Ä°ndir", Theme.Primary),
+            Theme.ActionChoice("Sadece SeÃ§tiÄŸin BÃ¶lÃ¼mleri Ä°ndir", Theme.Primary),
+            TuiHelpers.Back()
+        };
+
+        var bulkAction = FuzzyPrompt.Show(details.Title,
+                                           bulkActions,
+                                           searchable: false,
+                                           headerLines:
+                                           [$"[grey]{Markup.Escape(TuiHelpers.EllipsizedTitle(details.Title))} â€º {selectedEpisodes.Count} bÃ¶lÃ¼m[/]"],
+                                           footerHelp: "â†‘â†“ gez â€¢ Enter seÃ§ â€¢ Esc geri");
+
+        if (bulkAction is null || bulkAction.Searchable == "Geri")
+        {
+            return;
+        }
+
+        var episodesToDownload = bulkAction.Searchable == "TÃ¼m BÃ¶lÃ¼mleri Ä°ndir"
+                                     ? currentSeasonGroup?.OrderBy(e => e.Number).ToList() ?? selectedEpisodes
+                                     : selectedEpisodes;
+
+        if (episodesToDownload.Count > BulkDownloadWarningThreshold
+            && !await ConfirmBulkDownloadAsync(details.Title, episodesToDownload))
+        {
+            return;
+        }
+
+        var bulkView = (BulkDownloadView) _serviceProvider.GetService(typeof(BulkDownloadView))!;
+        bulkView.SetTarget(_provider!, _animeId!, details.Title, episodesToDownload);
+        navigator.Push(bulkView);
+    }
+
+    private static async Task<bool> ConfirmBulkDownloadAsync(string            animeTitle,
+        IReadOnlyList<Episode> episodes)
+    {
+        AnsiConsole.Clear();
+        AnsiConsole.MarkupLine($"[bold]{Markup.Escape(TuiHelpers.EllipsizedTitle(animeTitle))}[/]");
+        AnsiConsole.MarkupLine($"[yellow]{episodes.Count} bÃ¶lÃ¼m[/] sÄ±ralÄ± olarak indirilecek.");
+        AnsiConsole.MarkupLine("[grey]BÃ¶lÃ¼mler tek tek, sÄ±rayla iner. Bu birkaÃ§ saat sÃ¼rebilir "
+                               + "ve diskte onlarca GB yer kaplayabilir.[/]");
+        AnsiConsole.WriteLine();
+
+        var confirm = new List<FuzzyChoice>
+        {
+            Theme.ActionChoice("Evet, indirmeye baÅŸla", Theme.Primary),
+            Theme.ActionChoice("VazgeÃ§", Theme.Danger),
+            TuiHelpers.Back()
+        };
+
+        var choice = FuzzyPrompt.Show("Onayla",
+                                      confirm,
+                                      searchable: false,
+                                      footerHelp: "â†‘â†“ gez â€¢ Enter seÃ§ â€¢ Esc geri");
+
+        return choice is not null
+               && choice.Searchable != "Geri"
+               && choice.Searchable == "Evet, indirmeye baÅŸla";
+    }
+
+    /// <summary>
+    /// Bu sayÄ±nÄ±n Ã¼zerindeki bÃ¶lÃ¼m sayÄ±larÄ±nda toplu indirmeden Ã¶nce ayrÄ±ca onay
+    /// istenir. SÄ±ralÄ± indirme uzun sÃ¼rdÃ¼ÄŸÃ¼ ve diskte Ã§ok yer kapladÄ±ÄŸÄ± iÃ§in
+    /// kullanÄ±cÄ± bilinÃ§li karar vermelidir.
+    /// </summary>
+    internal const int BulkDownloadWarningThreshold = 100;
 }

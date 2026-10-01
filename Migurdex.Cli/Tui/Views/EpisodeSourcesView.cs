@@ -103,6 +103,19 @@ public class EpisodeSourcesView : BaseView
         }
     }
 
+    /// <summary>
+    /// Kaynak listesini seÃ§im satÄ±rlarÄ±na Ã§evirir.
+    /// </summary>
+    /// <remarks>
+    /// <c>BulkDownloadView</c> ilk bÃ¶lÃ¼m iÃ§in kaynak seÃ§im ekranÄ±nÄ± bu metotla
+    /// kurar. SatÄ±r biÃ§imi iki ekranda <b>birebir aynÄ±</b> olmalÄ±dÄ±r: kullanÄ±cÄ±
+    /// kaynaÄŸÄ± "kalite/hoster" olarak gÃ¶rÃ¼p seÃ§iyor, sonraki bÃ¶lÃ¼mlerde aynÄ±
+    /// Ã¶lÃ§Ã¼tlere gÃ¶re eÅŸleÅŸtirme yapÄ±lÄ±yor â€” biÃ§im ayrÄ±ÅŸÄ±rsa kullanÄ±cÄ±nÄ±n seÃ§tiÄŸi
+    /// ÅŸey ile uygulanan ÅŸey farklÄ±laÅŸÄ±r.
+    /// </remarks>
+    internal static List<FuzzyChoice> FormatSourcesForSelection(List<VideoSource> usable,
+        CliConfig                                                            config)
+        => FormatSources(usable, config);
     internal static List<FuzzyChoice> FormatSources(List<VideoSource> rawList, CliConfig config)
     {
         var sorted = SourceSelector.SortVideoSources(rawList, config);
