@@ -104,14 +104,14 @@ public class EpisodeSourcesView : BaseView
     }
 
     /// <summary>
-    /// Kaynak listesini seçim satşrlarşna çevirir.
+    /// Kaynak listesini seçim satırlarına çevirir.
     /// </summary>
     /// <remarks>
-    /// <c>BulkDownloadView</c> ilk bölüm için kaynak seçim ekranşnş bu metotla
-    /// kurar. Satşr biçimi iki ekranda <b>birebir aynş</b> olmalşdşr: kullanşcş
-    /// kaynaÄŸş "kalite/hoster" olarak görüp seçiyor, sonraki bölümlerde aynş
-    /// ölçütlere göre eÅŸleÅŸtirme yapşlşyor â€” biçim ayrşÅŸşrsa kullanşcşnşn seçtiÄŸi
-    /// ÅŸey ile uygulanan ÅŸey farklşlaÅŸşr.
+    /// <c>BulkDownloadView</c> ilk bölüm için kaynak seçim ekranını bu metotla
+    /// kurar. Satır biçimi iki ekranda <b>birebir aynı</b> olmalıdır: kullanıcı
+    /// kaynağı "kalite/hoster" olarak görüp seçiyor, sonraki bölümlerde aynı
+    /// ölçütlere göre eşleştirme yapılıyor — biçim ayrışırsa kullanıcının seçtiği
+    /// şey ile uygulanan şey farklılaşır.
     /// </remarks>
     internal static List<FuzzyChoice> FormatSourcesForSelection(List<VideoSource> usable,
         CliConfig                                                            config)

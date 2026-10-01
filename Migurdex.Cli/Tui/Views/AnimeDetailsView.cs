@@ -460,14 +460,14 @@ public class AnimeDetailsView : BaseView
             return Task.FromResult<List<Episode>?>(null);
         }
 
-        const string selectAllSearchable = "Tüm Bölümleri İÅŸaretle";
+        const string selectAllSearchable = "Tüm Bölümleri İşaretle";
 
         var bulkChoices = new List<FuzzyChoice>
         {
             new()
             {
-                Display       = "[green]âŒ Tüm bölümleri iÅŸaretle[/]",
-                DisplayActive = "[bold white on green] âŒ Tüm bölümleri iÅŸaretle [/]",
+                Display       = "[green]âŒ Tüm bölümleri işaretle[/]",
+                DisplayActive = "[bold white on green] âŒ Tüm bölümleri işaretle [/]",
                 Searchable    = selectAllSearchable,
                 IsAction      = true
             }
