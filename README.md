@@ -26,7 +26,7 @@ Terminalden Türkçe anime aramak ve izlemek için araç. TUI + yerel HTTP API +
 - AniList ve MAL ile bilgi/poster çekme ve izleme durumu eşitleme
 - MPV ile kaldığın yerden devam etme
 - Anime indirme desteği (TUI ve CLI, paralel MP4 + HLS)
-- Toplu bölüm indirme (çoklu seçim, sıralı, bayt / hız / ETA ilerlemesi)
+- Toplu bölüm indirme (çoklu seçim, sıralı, bölüm başına kalıcı çubuk)
 - Geçmiş, favoriler, arama geçmişi
 - Discord RPC (ayarlanabilir)
 - Otomatik kaynak seçimi (sunucu / kalite / tür kuralları, uymazsa manuel liste)
@@ -118,15 +118,21 @@ Detay ekranında birden çok bölüm tek akışta indirilir:
 2. 100'den fazla bölüm işaretlendiyse ayrıca onay ekranı çıkar.
 3. İlk bölümde kaynağı elle seçersin; sonraki bölümlerde **aynı tercih**
    (hoster / kalite / tür) otomatik eşleştirilir, liste yeniden açılmaz.
-4. Bölümler **sıralı** indirilir. Durum satırı 100 ms'de bir
-   `bayt indirilen / toplam • hız • ETA` bilgisiyle güncellenir.
-5. `Ctrl+C` indirmeyi durdurur; **indirilmiş bölümler diskte kalır.**
-6. Özet ekranı üç kümeyi gösterir: indirilenler, kaynağı bulunamayanlar ve
-   başarısızlar. Başarısızların **nedeni** de yazılır; aynı neden birden çok
-   bölümde tekrarlanmışsa `×N` olarak gruplanır.
-
-> Toplu indirmede `Esc` iptal etmez (tekli indirmede ettiği gibi) — indirme
-> döngüsü tuş okumaz. İptal için `Ctrl+C` kullanılır.
+4. Bölümler **sıralı** indirilir. Her bölüm ekranda **kalıcı bir
+   satır** tutar: yüzde, çubuk, açıklama ve spinner. Satır 100 ms'de bir
+   tazelenir ve aşamayı yazar — `Video indiriliyor`, `Tamamlanıyor`,
+   `Tamamlandı`. MP4 indirmesi bittikten sonra segmentler birleştirilir
+   (~25 saniye); bu sırada `Tamamlanıyor` görünür.
+5. `Esc` kalan indirmeleri durdurur, `Ctrl+C` tüm ekranı keser.
+   Durdurulan bölüm **başarısız sayılmaz**; indirilmiş
+   bölümler diskte kalır.
+6. `DownloadOverwrite` kapalıyken (varsayılan) hedef dosya zaten diskte
+   varsa bölüm yeniden indirilmez, **atlanır**. Çönkü dosyayı
+   silmek istiyorsan `DownloadOverwrite` anahtarını `true` yap.
+7. Özet ekranı **dört** kümeyi gösterir: indirilenler, **atlananlar**,
+   kaynağı bulunamayanlar ve başarısızlar. Başarısızların
+   **nedeni** de yazılır; aynı neden birden çok bölümde tekrarlanmışsa
+   `×N` olarak gruplanır.
 
 ### Komut satırı modu (non-interactive)
 
