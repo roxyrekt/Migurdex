@@ -35,10 +35,14 @@ namespace Migurdex.Cli.Tui.Views;
 /// ekrana izin verir, kalıcı satırlar ikinci bir canlı ekran gerektirirdi.
 /// </para>
 /// <para>
-/// <b>İptal:</b> <c>Ctrl+C</c> ile durdurulur
-/// (<see cref="TuiApplicationCancellation"/>). Bölüm başına <c>Esc</c> yok —
-/// indirme sırasında okunan tek tuş <c>Esc</c>'dir ve o tüm indirmeyi keser.
-/// Tamamlanan bölümler diskte kalır.
+/// <b>İptal:</b> tek yol <c>Ctrl+C</c> — indirme döngüsü yalnız
+/// <see cref="TuiApplicationCancellation"/>'ı dinler.
+/// <b>Bu ekranda <c>Esc</c> çalışmaz</b>: döngü sırasında hiç tuş okunmaz
+/// (<c>KeyAvailable</c> / <c>ReadKey</c> çağrısı yoktur), çünkü Spectre.Console
+/// aynı anda tek canlı ekrana izin verir ve <c>Status</c> bloğu açıkken tuş
+/// okumak ekranı bozar. Tekli indirme ekranı (<c>EpisodeSourcesView</c>) tuş
+/// okur ve orada <c>Esc</c> gerçekten iptal eder; iki ekranın iptal davranışı
+/// bu yüzden farklıdır. Tamamlanan bölümler diskte kalır.
 /// </para>
 /// </remarks>
 public class BulkDownloadView : BaseView
