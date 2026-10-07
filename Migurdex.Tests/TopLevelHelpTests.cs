@@ -54,6 +54,7 @@ public sealed class TopLevelHelpTests
         Assert.Contains("migurdex play <sorgu>", help, StringComparison.Ordinal);
         Assert.Contains("migurdex continue", help, StringComparison.Ordinal);
         Assert.Contains("migurdex download <sorgu>", help, StringComparison.Ordinal);
+        Assert.Contains("migurdex blame", help, StringComparison.Ordinal);
         Assert.Contains("migurdex --version", help, StringComparison.Ordinal);
         Assert.Contains("migurdex --help", help, StringComparison.Ordinal);
         Assert.DoesNotContain(EscapeChar.ToString(), help, StringComparison.Ordinal); // yönlendirilmiş çıktıda ANSI kaçmaz

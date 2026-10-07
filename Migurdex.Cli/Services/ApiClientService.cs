@@ -582,6 +582,27 @@ public class ApiClientService : IApiClientService
         cancellationToken.ThrowIfCancellationRequested();
     }
 
+    public async Task<ApiResult<BlameReport?>> GetBlameReportAsync(CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var report = await _httpClient.GetFromJsonAsync<BlameReport>("api/v1/stats",
+                                                                          JsonOpts,
+                                                                          cancellationToken);
+            return report is not null
+                       ? ApiResult<BlameReport?>.Ok(report)
+                       : ApiResult<BlameReport?>.Fail(null, "İstatistik alınamadı.");
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch
+        {
+            return ApiResult<BlameReport?>.Fail(null, "İstatistik alınamadı.");
+        }
+    }
+
     public async Task<ApiResult<IReadOnlyList<string>>> GetExtractorsAsync(CancellationToken cancellationToken =
         default)
     {

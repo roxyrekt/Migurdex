@@ -63,6 +63,12 @@ builder.Services.AddSingleton<TrackerMappingStore>(sp =>
                                                        new TrackerMappingStore(
                                                            sp.GetRequiredService<MigurdexDatabase>()));
 builder.Services.AddSingleton<ITrackerIdResolver, TrackerIdResolver>();
+var blamePath      = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+                                  "migurdex",
+                                  "blame.json");
+var blameCollector = BlameCollector.TryLoad(blamePath) ?? new BlameCollector { PersistPath = blamePath };
+blameCollector.PersistPath = blamePath;
+builder.Services.AddSingleton<IBlameCollector>(blameCollector);
 builder.Services.AddMemoryCache();
 builder.Services.AddSingleton<ISeasonChainService, SeasonChainService>();
 
@@ -102,6 +108,19 @@ app.Use(async (context, next) =>
                         context.Request.Path,
                         context.Response.StatusCode,
                         sw.ElapsedMilliseconds);
+        var operation = $"{context.Request.Method} " +
+                        ((context.GetEndpoint() as RouteEndpoint)?.RoutePattern.RawText ?? context.Request.Path.Value);
+        try
+        {
+            context.RequestServices.GetRequiredService<IBlameCollector>()
+                   .RecordOperation(operation,
+                                    sw.ElapsedMilliseconds,
+                                    context.Response.StatusCode >= 500,
+                                    context.Response.StatusCode is >= 400 and < 500);
+        }
+        catch
+        {
+        }
     }
 });
 
@@ -122,6 +141,7 @@ app.MapMetadataEndpoints();
 app.MapExtractorEndpoints();
 app.MapTrackerResolveEndpoints();
 app.MapTrackerSeasonEndpoints();
+app.MapStatsEndpoints();
 
 app.Run();
 
