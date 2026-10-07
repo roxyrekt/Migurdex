@@ -66,6 +66,9 @@ public partial class AnimeDetails
     [GeneratedRegex(@"\b(\d+)(?:st|nd|rd|th)?\.?\s*(?:Season|Sezon|Part|K[ıi]s[ıi]m)\b", RegexOptions.IgnoreCase)]
     private static partial Regex SeasonSuffixRegex();
 
+    [GeneratedRegex(@"\b[Ss](\d+)\b")]
+    private static partial Regex SeasonShortRegex();
+
     [GeneratedRegex(@"\b(I|II|III|IV|V|VI|VII|VIII|IX|X)\b$", RegexOptions.IgnoreCase)]
     private static partial Regex RomanNumeralRegex();
 
@@ -162,6 +165,12 @@ public partial class AnimeDetails
         if (suffixMatch.Success && int.TryParse(suffixMatch.Groups[1].Value, out var sNum2))
         {
             return sNum2;
+        }
+
+        var shortMatch = SeasonShortRegex().Match(title);
+        if (shortMatch.Success && int.TryParse(shortMatch.Groups[1].Value, out var sNum3))
+        {
+            return sNum3;
         }
 
         var titleTrimmed = title.Trim();

@@ -82,6 +82,23 @@ public interface IApiClientService
         double                                                            episode,
         CancellationToken                                                 cancellationToken = default);
 
+    Task<ApiResult<IReadOnlyList<CanonicalAnime>>> SearchCanonicalAsync(string query,
+        CancellationToken                                                   cancellationToken = default);
+
+    Task<ApiResult<CanonicalEpisodeResult?>> GetCanonicalEpisodesAsync(string canonicalId,
+        CancellationToken                                                           cancellationToken = default);
+
+    Task<ApiResult<IReadOnlyList<VideoSource>>> GetCanonicalSourcesAsync(string canonicalId,
+        double                                                                     number,
+        string?                                                                    group             = null,
+        CancellationToken                                                          cancellationToken = default);
+
+    IAsyncEnumerable<VideoSource> GetCanonicalSourcesStreamAsync(string canonicalId,
+        double                                                                          number,
+        string?                                                                         group             = null,
+        CancellationToken                                                               cancellationToken = default,
+        StreamScanStats?                                                                stats             = null);
+
     Task<bool> SaveTrackerMappingAsync(string provider,
         string                                providerId,
         string                                anilistId,

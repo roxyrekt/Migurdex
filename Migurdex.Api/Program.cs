@@ -52,17 +52,21 @@ builder.Services.AddSingleton<PluginLoader>(sp =>
     return loader;
 });
 
+builder.Services.AddSingleton<IAnimeProviderRegistry>(sp => sp.GetRequiredService<PluginLoader>());
+
 builder.Services.AddCoreExtractors();
 
-builder.Services.AddTransient<IMetadataProvider, AniListProvider>();
-builder.Services.AddTransient<IMetadataProvider, JikanProvider>();
-builder.Services.AddTransient<IMetadataProvider, MalScrapeProvider>();
+builder.Services.AddSingleton<IMetadataProvider, AniListProvider>();
+builder.Services.AddSingleton<IMetadataProvider, JikanProvider>();
+builder.Services.AddSingleton<IMetadataProvider, MalScrapeProvider>();
 
 builder.Services.AddSingleton<MigurdexDatabase>();
 builder.Services.AddSingleton<TrackerMappingStore>(sp =>
                                                        new TrackerMappingStore(
                                                            sp.GetRequiredService<MigurdexDatabase>()));
 builder.Services.AddSingleton<ITrackerIdResolver, TrackerIdResolver>();
+builder.Services.AddSingleton<ICanonicalResolver, CanonicalResolver>();
+builder.Services.AddSingleton<ICanonicalEpisodeService, CanonicalEpisodeService>();
 builder.Services.AddMemoryCache();
 builder.Services.AddSingleton<ISeasonChainService, SeasonChainService>();
 
@@ -122,6 +126,7 @@ app.MapMetadataEndpoints();
 app.MapExtractorEndpoints();
 app.MapTrackerResolveEndpoints();
 app.MapTrackerSeasonEndpoints();
+app.MapCanonicalEndpoints();
 
 app.Run();
 

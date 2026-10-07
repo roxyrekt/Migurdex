@@ -9,6 +9,7 @@ public class SearchView : BaseView
     private readonly IServiceProvider _serviceProvider;
 
     private string? _lastSelectedSearchable;
+    private bool    _unifiedSearch;
 
     public SearchView(IHistoryService historyService, IServiceProvider serviceProvider)
     {
@@ -25,6 +26,19 @@ public class SearchView : BaseView
     {
         var searchHistory = _historyService.GetSearchHistory();
         var choices       = searchHistory.Select(q => Theme.MenuItem(q)).ToList();
+
+        choices.Insert(0,
+                       new FuzzyChoice
+                       {
+                           Display = _unifiedSearch
+                                         ? "[cyan]Kaynak:[/] AniList • MAL [grey](Türkçe isimler için Sağlayıcılar)[/]"
+                                         : "[cyan]Kaynak:[/] Sağlayıcılar [grey](14 site)[/]",
+                           DisplayActive = _unifiedSearch
+                                               ? "[bold white]Kaynak: AniList • MAL[/]"
+                                               : "[bold white]Kaynak: Sağlayıcılar[/]",
+                           Searchable = "Kaynak Değiştir",
+                           IsAction   = true
+                       });
 
         if (searchHistory.Count > 0)
         {
@@ -56,6 +70,12 @@ public class SearchView : BaseView
             return Task.CompletedTask;
         }
 
+        if (preChoice.Searchable == "Kaynak Değiştir")
+        {
+            _unifiedSearch = !_unifiedSearch;
+            return Task.CompletedTask;
+        }
+
         if (preChoice.Searchable == "Geçmişi Yönet...")
         {
             ShowManageHistory();
@@ -70,6 +90,15 @@ public class SearchView : BaseView
 
     private void PushResults(ITuiNavigator navigator, string query)
     {
+        if (_unifiedSearch)
+        {
+            var canonicalView =
+                (CanonicalEpisodesView) _serviceProvider.GetService(typeof(CanonicalEpisodesView))!;
+            canonicalView.SetTarget(query, query);
+            navigator.Push(canonicalView);
+            return;
+        }
+
         var resultsView = (SearchResultsView) _serviceProvider.GetService(typeof(SearchResultsView))!;
         resultsView.SetTarget(query);
         navigator.Push(resultsView);

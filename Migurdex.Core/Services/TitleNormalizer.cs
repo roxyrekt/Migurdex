@@ -66,6 +66,28 @@ public static partial class TitleNormalizer
             return s;
         }
 
+        m = Regex.Match(normalized, @"\b([2-9])$");
+        if (m.Success && int.TryParse(m.Groups[1].Value, out var bare))
+        {
+            return bare;
+        }
+
+        m = Regex.Match(normalized, @"\b(ii|iii|iv|v|vi|vii|viii)\.?$");
+        if (m.Success)
+        {
+            return m.Groups[1].Value switch
+            {
+                "ii"   => 2,
+                "iii"  => 3,
+                "iv"   => 4,
+                "v"    => 5,
+                "vi"   => 6,
+                "vii"  => 7,
+                "viii" => 8,
+                _      => 1
+            };
+        }
+
         return 1;
     }
 
@@ -130,6 +152,6 @@ public static partial class TitleNormalizer
     private static partial Regex WhitespaceRegex();
 
     [GeneratedRegex(
-        @"\b\d{1,2}(?:st|nd|rd|th)?\s*\.?\s*(?:season|sezon|part|k[ıi]s[ıi]m)\b|\b(?:season|sezon|part|k[ıi]s[ıi]m)\s*\d{1,2}(?:st|nd|rd|th)?\b|\bs\d{1,2}\b")]
+        @"\b\d{1,2}(?:st|nd|rd|th)?\s*\.?\s*(?:season|sezon|part|k[ıi]s[ıi]m)\b|\b(?:season|sezon|part|k[ıi]s[ıi]m)\s*\d{1,2}(?:st|nd|rd|th)?\b|\bs\d{1,2}\b|\b(?:ii|iii|iv|v|vi|vii|viii)\.?$|\b[2-9]$")]
     private static partial Regex SeasonSuffixRegex();
 }

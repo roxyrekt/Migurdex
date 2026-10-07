@@ -53,6 +53,10 @@ public sealed class TitleNormalizerTests
     [InlineData("Jujutsu Kaisen 2nd Season", "jujutsu kaisen", 2)]
     [InlineData("Attack on Titan Final Season", "attack on titan final season", 1)]
     [InlineData("Fate Stay Night Part 2", "fate stay night", 2)]
+    [InlineData("Sword Art Online II", "sword art online", 2)]
+    [InlineData("Sword Art Online 2", "sword art online", 2)]
+    [InlineData("Hawaii", "hawaii", 1)]
+    [InlineData("Steins;Gate 0", "steins gate 0", 1)]
     public void SplitSeason_Ordinals(string input, string expectedBase, int expectedSeason)
     {
         var (baseTitle, season) = TitleNormalizer.SplitSeason(input);
@@ -489,6 +493,7 @@ public sealed class TrackerIdResolverTests
     [Fact]
     public async Task AniList_Relations_429_RetriesOnce()
     {
+        AniListProvider.ClearCache();
         const string relationsJson = """
                                      {"data":{"Media":{"relations":{"edges":[
                                        {"relationType":"SEQUEL","node":{"id":145064,"type":"ANIME","format":"TV"}}
@@ -534,6 +539,7 @@ public sealed class TrackerIdResolverTests
     [Fact]
     public async Task AniList_LongCooldown_DoesNotRetry()
     {
+        AniListProvider.ClearCache();
         var throttled = new HttpResponseMessage(HttpStatusCode.TooManyRequests);
         throttled.Headers.RetryAfter =
             new RetryConditionHeaderValue(TimeSpan.FromSeconds(60));
@@ -551,6 +557,7 @@ public sealed class TrackerIdResolverTests
     [Fact]
     public async Task AniList_NonNumericId_ReturnsNullWithoutRequest()
     {
+        AniListProvider.ClearCache();
         var handler = new ScriptedHandler([]);
         var provider = new AniListProvider(
             new StubBridge(new HttpClient(handler)));
@@ -565,6 +572,7 @@ public sealed class TrackerIdResolverTests
     [Fact]
     public async Task AniList_429_RetriesOnce()
     {
+        AniListProvider.ClearCache();
         var handler = new ScriptedHandler(
         [
             TooManyRequests(),
@@ -585,8 +593,43 @@ public sealed class TrackerIdResolverTests
     }
 
     [Fact]
+    public async Task AniList_Search_SecondCallServedFromCacheUntilCleared()
+    {
+        AniListProvider.ClearCache();
+        var title = $"Cache Probe {Guid.NewGuid():N}";
+        var handler = new ScriptedHandler(
+        [
+            new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(AniListPageJson)
+            },
+            new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(AniListPageJson)
+            }
+        ]);
+        var provider = new AniListProvider(
+            new StubBridge(new HttpClient(handler)));
+        var ct = TestContext.Current.CancellationToken;
+
+        var first = await provider.SearchMetadataAsync(title, cancellationToken: ct);
+        var second = await provider.SearchMetadataAsync(title, cancellationToken: ct);
+
+        Assert.Single(first);
+        Assert.Single(second);
+        Assert.Equal(1, handler.Calls);
+
+        AniListProvider.ClearCache();
+        var third = await provider.SearchMetadataAsync(title, cancellationToken: ct);
+
+        Assert.Single(third);
+        Assert.Equal(2, handler.Calls);
+    }
+
+    [Fact]
     public async Task AniList_Persistent429_ReturnsEmpty()
     {
+        AniListProvider.ClearCache();
         var handler = new ScriptedHandler([TooManyRequests(), TooManyRequests()]);
         var provider = new AniListProvider(
             new StubBridge(new HttpClient(handler)));

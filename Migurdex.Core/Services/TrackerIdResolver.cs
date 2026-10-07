@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging;
 using Migurdex.Shared.Enums;
 using Migurdex.Shared.Interfaces;
@@ -8,14 +9,9 @@ namespace Migurdex.Core.Services;
 
 public sealed class TrackerIdResolver : ITrackerIdResolver
 {
-    public const     double                     MinSimilarity         = 0.80;
-    private const    double                     AmbiguityGap          = 0.05;
-    private const    double                     ExactTieEpsilon       = 1e-9;
-    private const    double                     YearBonus             = 0.05;
-    private const    double                     FormatBonus           = 0.03;
-    private const    double                     SeasonBonus           = 0.05;
-    private const    double                     SeasonMismatchPenalty = -0.10;
-    private const    double                     ContainmentFloor      = 0.90;
+    private static readonly MemoryCache _metaCache = new(new MemoryCacheOptions { SizeLimit = 2048 });
+    private static readonly MemoryCacheEntryOptions _metaOpts =
+        new() { AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(30), Size = 1 };
     private const    int                        MaxTitlesToQuery      = 2;
     private readonly ILogger<TrackerIdResolver> _logger;
 
@@ -237,7 +233,7 @@ public sealed class TrackerIdResolver : ITrackerIdResolver
 
         var top = ranked[0];
 
-        if (top.Raw < MinSimilarity)
+        if (top.Raw < TitleMatcher.MinSimilarity)
         {
             _logger.LogInformation("tracker resolve: below threshold ({Score:F2}) for '{Title}'",
                                    top.Raw,
@@ -249,9 +245,9 @@ public sealed class TrackerIdResolver : ITrackerIdResolver
             };
         }
 
-        if (ranked.Length > 1 && top.Raw - ranked[1].Raw < AmbiguityGap)
+        if (ranked.Length > 1 && top.Raw - ranked[1].Raw < TitleMatcher.AmbiguityGap)
         {
-            var tied = ranked.TakeWhile(x => top.Raw - x.Raw < ExactTieEpsilon).ToArray();
+            var tied = ranked.TakeWhile(x => top.Raw - x.Raw < 1e-9).ToArray();
             if (tied.Length > 1)
             {
                 var winner = tied
@@ -293,37 +289,60 @@ public sealed class TrackerIdResolver : ITrackerIdResolver
         string?           malId,
         CancellationToken cancellationToken = default)
     {
-        if (!string.IsNullOrWhiteSpace(anilistId) && AniList is not null)
+        var cleanAni = string.IsNullOrWhiteSpace(anilistId) ? null : anilistId.Trim();
+        var cleanMal = string.IsNullOrWhiteSpace(malId) ? null : malId.Trim();
+
+        if (cleanAni is not null && _metaCache.TryGetValue($"anilist:{cleanAni}", out MediaMetadata? cachedAni))
+        {
+            return cachedAni;
+        }
+
+        if (cleanMal is not null && _metaCache.TryGetValue($"mal:{cleanMal}", out MediaMetadata? cachedMal))
+        {
+            return cachedMal;
+        }
+
+        void Cache(MediaMetadata m)
+        {
+            if (!string.IsNullOrWhiteSpace(m.AniListId)) _metaCache.Set($"anilist:{m.AniListId.Trim()}", m, _metaOpts);
+            if (m.Source == MetadataSource.AniList && !string.IsNullOrWhiteSpace(m.ExternalId)) _metaCache.Set($"anilist:{m.ExternalId.Trim()}", m, _metaOpts);
+            if (!string.IsNullOrWhiteSpace(m.MyAnimeListId)) _metaCache.Set($"mal:{m.MyAnimeListId.Trim()}", m, _metaOpts);
+            if (m.Source == MetadataSource.MyAnimeList && !string.IsNullOrWhiteSpace(m.ExternalId)) _metaCache.Set($"mal:{m.ExternalId.Trim()}", m, _metaOpts);
+        }
+
+        if (cleanAni is not null && AniList is not null)
         {
             try
             {
-                var meta = await AniList.GetMetadataByIdAsync(anilistId.Trim(), cancellationToken);
+                var meta = await AniList.GetMetadataByIdAsync(cleanAni, cancellationToken);
                 if (meta is not null)
                 {
+                    Cache(meta);
                     return meta;
                 }
             }
             catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
             {
-                _logger.LogWarning(ex, "tracker lookup: anilist id failed '{Id}'", anilistId);
+                _logger.LogWarning(ex, "tracker lookup: anilist id failed '{Id}'", cleanAni);
             }
         }
 
-        if (!string.IsNullOrWhiteSpace(malId))
+        if (cleanMal is not null)
         {
             if (AniList is AniListProvider aniList)
             {
                 try
                 {
-                    var meta = await aniList.GetMetadataByMalIdAsync(malId.Trim(), cancellationToken);
+                    var meta = await aniList.GetMetadataByMalIdAsync(cleanMal, cancellationToken);
                     if (meta is not null)
                     {
+                        Cache(meta);
                         return meta;
                     }
                 }
                 catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
                 {
-                    _logger.LogWarning(ex, "tracker lookup: anilist mal bridge failed '{Id}'", malId);
+                    _logger.LogWarning(ex, "tracker lookup: anilist mal bridge failed '{Id}'", cleanMal);
                 }
             }
 
@@ -336,15 +355,16 @@ public sealed class TrackerIdResolver : ITrackerIdResolver
 
                 try
                 {
-                    var byId = await fallback.GetMetadataByIdAsync(malId.Trim(), cancellationToken);
+                    var byId = await fallback.GetMetadataByIdAsync(cleanMal, cancellationToken);
                     if (byId is not null)
                     {
+                        Cache(byId);
                         return byId;
                     }
                 }
                 catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
                 {
-                    _logger.LogWarning(ex, "tracker lookup: {Provider} id failed '{Id}'", fallback.Name, malId);
+                    _logger.LogWarning(ex, "tracker lookup: {Provider} id failed '{Id}'", fallback.Name, cleanMal);
                 }
             }
         }
@@ -452,7 +472,7 @@ public sealed class TrackerIdResolver : ITrackerIdResolver
 
                 if (candSeason > 1 && providerSeason == 1)
                 {
-                    baseRatio += SeasonMismatchPenalty;
+                    baseRatio += TitleMatcher.SeasonMismatchPenalty;
                 }
 
                 variantBest = Math.Max(variantBest, Math.Max(exactRatio, baseRatio));
@@ -460,14 +480,14 @@ public sealed class TrackerIdResolver : ITrackerIdResolver
 
             if (providerSeason > 1)
             {
-                variantBest += candSeason == providerSeason ? SeasonBonus : SeasonMismatchPenalty;
+                variantBest += candSeason == providerSeason ? TitleMatcher.SeasonBonus : TitleMatcher.SeasonMismatchPenalty;
             }
 
-            if (variantBest < ContainmentFloor
+            if (variantBest < TitleMatcher.ContainmentFloor
                 && (candSeason == providerSeason || providerSeason <= 1)
-                && VariantContained(variant, candBase, providerTitles))
+                && TitleMatcher.VariantContained(variant, candBase, providerTitles))
             {
-                variantBest = ContainmentFloor;
+                variantBest = TitleMatcher.ContainmentFloor;
             }
 
             best = Math.Max(best, variantBest);
@@ -475,14 +495,14 @@ public sealed class TrackerIdResolver : ITrackerIdResolver
 
         if (providerYear.HasValue && candidate.Year.HasValue && providerYear == candidate.Year)
         {
-            best += YearBonus;
+            best += TitleMatcher.YearBonus;
         }
 
         if (providerFormat.HasValue
             && providerFormat != ContentFormat.Unknown
             && candidate.Format == providerFormat)
         {
-            best += FormatBonus;
+            best += TitleMatcher.FormatBonus;
         }
 
         return best;
@@ -519,70 +539,6 @@ public sealed class TrackerIdResolver : ITrackerIdResolver
         }
 
         return queries;
-    }
-
-    internal static bool VariantContained(string variant, string candBase, string[] providerTitles)
-    {
-        var variantTokens = TitleNormalizer.Normalize(variant)
-                                           .Split(' ', StringSplitOptions.RemoveEmptyEntries);
-        var baseTokens = TitleNormalizer.Normalize(candBase)
-                                        .Split(' ', StringSplitOptions.RemoveEmptyEntries);
-
-        foreach (var pt in providerTitles)
-        {
-            var ptTokens = TitleNormalizer.Normalize(pt)
-                                          .Split(' ', StringSplitOptions.RemoveEmptyEntries);
-            var (ptBase, _) = TitleNormalizer.SplitSeason(pt);
-            var ptBaseTokens = ptBase.Split(' ', StringSplitOptions.RemoveEmptyEntries);
-
-            if (variantTokens.Length >= 2 && IsSubset(variantTokens, ptTokens))
-            {
-                return true;
-            }
-
-            if (baseTokens.Length >= 2 && IsSubset(baseTokens, ptBaseTokens))
-            {
-                return true;
-            }
-
-            if (IsValidQuerySubset(ptTokens, variantTokens))
-            {
-                return true;
-            }
-
-            if (IsValidQuerySubset(ptBaseTokens, baseTokens))
-            {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
-    private static bool IsValidQuerySubset(string[] queryTokens, string[] candidateTokens)
-    {
-        if (queryTokens.Length == 0 || candidateTokens.Length == 0 || queryTokens.Length > candidateTokens.Length)
-        {
-            return false;
-        }
-
-        if (queryTokens.Length == 1 && queryTokens[0].Length < 5)
-        {
-            return false;
-        }
-
-        return IsSubset(queryTokens, candidateTokens);
-    }
-
-    private static bool IsSubset(string[] small, string[] big)
-    {
-        if (small.Length == 0 || big.Length == 0 || small.Length > big.Length)
-        {
-            return false;
-        }
-
-        var set = new HashSet<string>(big, StringComparer.Ordinal);
-        return small.All(set.Contains);
     }
 
     internal static IReadOnlyList<string> FallbackTokens(string[] distinctTitles)

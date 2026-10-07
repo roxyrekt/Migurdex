@@ -9,8 +9,10 @@ namespace Migurdex.Core.PluginSystem;
 public class PluginLoader(
     ISharedBridge         bridge,
     ILogger<PluginLoader> logger,
-    ILoggerFactory        loggerFactory)
+    ILoggerFactory        loggerFactory) : IAnimeProviderRegistry
 {
+    IReadOnlyList<IAnimeProvider> IAnimeProviderRegistry.AnimeProviders =>
+        Providers.OfType<IAnimeProvider>().ToArray();
     private readonly ConcurrentDictionary<string, AssemblyLoadContext> _contexts =
         new(StringComparer.OrdinalIgnoreCase);
 

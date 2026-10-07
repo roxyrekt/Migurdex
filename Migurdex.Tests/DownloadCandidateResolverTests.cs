@@ -2,6 +2,7 @@ using Migurdex.Cli.Configuration;
 using Migurdex.Cli.Services;
 using Migurdex.Shared.Enums;
 using Migurdex.Shared.Models;
+using System.Runtime.CompilerServices;
 using System.Text.Json;
 using Xunit;
 
@@ -209,5 +210,33 @@ public sealed class DownloadCandidateResolverTests
             string?           matchedTitle      = null,
             CancellationToken cancellationToken = default)
             => Task.FromResult(true);
+
+        public Task<ApiResult<IReadOnlyList<CanonicalAnime>>> SearchCanonicalAsync(
+            string            query,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult(ApiResult<IReadOnlyList<CanonicalAnime>>.Ok([]));
+
+        public Task<ApiResult<CanonicalEpisodeResult?>> GetCanonicalEpisodesAsync(
+            string            canonicalId,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult(ApiResult<CanonicalEpisodeResult?>.Ok(null));
+
+        public Task<ApiResult<IReadOnlyList<VideoSource>>> GetCanonicalSourcesAsync(
+            string            canonicalId,
+            double            number,
+            string?           group             = null,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult(ApiResult<IReadOnlyList<VideoSource>>.Ok([]));
+
+        public async IAsyncEnumerable<VideoSource> GetCanonicalSourcesStreamAsync(
+            string                                      canonicalId,
+            double                                      number,
+            string?                                     group             = null,
+            [EnumeratorCancellation] CancellationToken cancellationToken = default,
+            StreamScanStats?                            stats             = null)
+        {
+            await Task.CompletedTask;
+            yield break;
+        }
     }
 }

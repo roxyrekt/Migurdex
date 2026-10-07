@@ -90,8 +90,8 @@ public partial class AcheriyaProvider : IAnimeProvider
                 {
                     Id           = slug,
                     Title        = title,
-                    EnglishTitle = englishTitle,
-                    RomajiTitle  = romajiTitle,
+                    EnglishTitle = null,
+                    RomajiTitle  = null,
                     PosterUrl    = poster,
                     Year         = yearStr,
                     Categories   = categories,

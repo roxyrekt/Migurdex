@@ -349,7 +349,23 @@ public sealed class SeasonChainService : ISeasonChainService
 
         if (alignment.Seasons.Count == 0)
         {
-            var titleSeason = AnimeDetails.ParseSeasonNumber(details.Title);
+            var parsedSeason = AnimeDetails.ParseSeasonNumber(details.Title);
+            SeasonChainEntry? directMatch = null;
+            if (parsedSeason <= 1)
+            {
+                var (detailsBase, _) = TitleNormalizer.SplitSeason(details.Title);
+                directMatch = chain.Entries.FirstOrDefault(e =>
+                    !string.IsNullOrWhiteSpace(e.Title)
+                    && (TitleNormalizer.Normalize(e.Title) == TitleNormalizer.Normalize(details.Title)
+                        || TitleMatcher.ScorePair(details.Title, e.Title) >= TitleMatcher.MinSimilarity));
+            }
+
+            var titleSeason = parsedSeason > 1
+                ? parsedSeason
+                : directMatch?.SeasonNumber > 0
+                    ? directMatch.SeasonNumber
+                    : 1;
+
             if (providerSeasons.Length == 1)
             {
                 var startIdx = titleSeason > 1 && titleSeason <= tv.Count
@@ -367,7 +383,7 @@ public sealed class SeasonChainService : ISeasonChainService
                 }
                 else
                 {
-                    var target = tv[startIdx];
+                    var target = directMatch ?? tv[startIdx];
                     alignment.Seasons.Add(new AlignedSeason
                     {
                         ProviderSeasonNumber  = providerSeasons[0],
@@ -617,7 +633,7 @@ public sealed class SeasonChainService : ISeasonChainService
 
     private static bool IsSeasonFormat(ContentFormat format)
     {
-        return format is ContentFormat.Tv or ContentFormat.Ova or ContentFormat.Unknown;
+        return format is ContentFormat.Tv or ContentFormat.Ova or ContentFormat.Special or ContentFormat.Unknown;
     }
 
     private static SeasonChainEntry ToEntry(int seasonNumber, MediaMetadata meta)
@@ -656,7 +672,8 @@ public sealed class SeasonChainService : ISeasonChainService
             }
 
             var sum = slice.Sum(e => e.TotalEpisodes!.Value);
-            if (episodeCount < sum - 2 || episodeCount > sum + 5)
+            var isFullTail = k == tv.Count - startIdx;
+            if (episodeCount < sum - 2 || (!isFullTail && episodeCount > sum + 5))
             {
                 continue;
             }
@@ -691,7 +708,8 @@ public sealed class SeasonChainService : ISeasonChainService
             }
 
             var sum = slice.Sum(e => e.TotalEpisodes!.Value);
-            if (episodeCount < sum - 2 || episodeCount > sum + 5)
+            var isFullTail = k == tv.Count - startIdx;
+            if (episodeCount < sum - 2 || (!isFullTail && episodeCount > sum + 5))
             {
                 continue;
             }
@@ -741,7 +759,7 @@ public sealed class SeasonChainService : ISeasonChainService
 
         var canonicalTotal = tv.Sum(c => c.TotalEpisodes ?? 0);
 
-        if (canonicalTotal > 0 && episodes.Count >= canonicalTotal - 2 && episodes.Count <= canonicalTotal + 5)
+        if (canonicalTotal > 0 && episodes.Count >= canonicalTotal - 2)
         {
             var maxCanonicalSingle = tv.Max(c => c.TotalEpisodes ?? 0);
             if (episodes.Count > maxCanonicalSingle)

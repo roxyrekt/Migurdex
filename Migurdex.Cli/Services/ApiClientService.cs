@@ -582,6 +582,186 @@ public class ApiClientService : IApiClientService
         cancellationToken.ThrowIfCancellationRequested();
     }
 
+    public async Task<ApiResult<IReadOnlyList<CanonicalAnime>>> SearchCanonicalAsync(string query,
+        CancellationToken                                                                  cancellationToken = default)
+    {
+        try
+        {
+            if (string.IsNullOrWhiteSpace(query))
+            {
+                return ApiResult<IReadOnlyList<CanonicalAnime>>.Fail([], "Arama sorgusu boş olamaz.");
+            }
+
+            var url = $"api/v1/canonical/search?q={Uri.EscapeDataString(query.Trim())}";
+            var results =
+                await _httpClient.GetFromJsonAsync<List<CanonicalAnime>>(url, JsonOpts, cancellationToken);
+            return ApiResult<IReadOnlyList<CanonicalAnime>>.Ok(results ?? []);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch
+        {
+            return ApiResult<IReadOnlyList<CanonicalAnime>>.Fail([], "Birleştirilmiş arama yapılamadı.");
+        }
+    }
+
+    public async Task<ApiResult<CanonicalEpisodeResult?>> GetCanonicalEpisodesAsync(string canonicalId,
+        CancellationToken                                                                        cancellationToken = default)
+    {
+        try
+        {
+            if (string.IsNullOrWhiteSpace(canonicalId))
+            {
+                return ApiResult<CanonicalEpisodeResult?>.Fail(null, "canonicalId boş olamaz.");
+            }
+
+            var url =
+                $"api/v1/canonical/episodes?canonicalId={Uri.EscapeDataString(canonicalId.Trim())}";
+            var result =
+                await _httpClient.GetFromJsonAsync<CanonicalEpisodeResult>(url, JsonOpts, cancellationToken);
+            return result is not null
+                       ? ApiResult<CanonicalEpisodeResult?>.Ok(result)
+                       : ApiResult<CanonicalEpisodeResult?>.Fail(null, "Birleştirilmiş bölüm listesi alınamadı.");
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch
+        {
+            return ApiResult<CanonicalEpisodeResult?>.Fail(null, "Birleştirilmiş bölüm listesi alınamadı.");
+        }
+    }
+
+    public async Task<ApiResult<IReadOnlyList<VideoSource>>> GetCanonicalSourcesAsync(string canonicalId,
+        double                                                                     number,
+        string?                                                                    group             = null,
+        CancellationToken                                                          cancellationToken = default)
+    {
+        try
+        {
+            var url =
+                $"api/v1/canonical/sources?canonicalId={Uri.EscapeDataString(canonicalId.Trim())}"
+                + $"&number={number.ToString(CultureInfo.InvariantCulture)}";
+            if (!string.IsNullOrEmpty(group))
+            {
+                url += $"&group={Uri.EscapeDataString(group)}";
+            }
+
+            var sources = await _httpClient.GetFromJsonAsync<List<VideoSource>>(url, JsonOpts, cancellationToken);
+            return ApiResult<IReadOnlyList<VideoSource>>.Ok(sources ?? []);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch
+        {
+            return ApiResult<IReadOnlyList<VideoSource>>.Fail([], "Birleştirilmiş kaynaklar alınamadı.");
+        }
+    }
+
+    public async IAsyncEnumerable<VideoSource> GetCanonicalSourcesStreamAsync(string canonicalId,
+        double                                                                          number,
+        string?                                                                         group             = null,
+        [EnumeratorCancellation] CancellationToken                                      cancellationToken = default,
+        StreamScanStats?                                                                stats             = null)
+    {
+        var url =
+            $"api/v1/canonical/sources?canonicalId={Uri.EscapeDataString(canonicalId.Trim())}"
+            + $"&number={number.ToString(CultureInfo.InvariantCulture)}&stream=true";
+        if (!string.IsNullOrEmpty(group))
+        {
+            url += $"&group={Uri.EscapeDataString(group)}";
+        }
+
+        using var request = new HttpRequestMessage(HttpMethod.Get, url);
+        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("text/event-stream"));
+
+        using var response =
+            await _httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
+        if (!response.IsSuccessStatusCode)
+        {
+            if (stats is not null)
+            {
+                Interlocked.Increment(ref stats.Errors);
+            }
+
+            yield break;
+        }
+
+        await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
+        using var       reader = new StreamReader(stream);
+
+        string? currentEvent = null;
+
+        while (!cancellationToken.IsCancellationRequested)
+        {
+            var line = await reader.ReadLineAsync(cancellationToken);
+            if (line == null)
+            {
+                break;
+            }
+
+            if (string.IsNullOrEmpty(line))
+            {
+                continue;
+            }
+
+            if (line.StartsWith("event:", StringComparison.Ordinal))
+            {
+                currentEvent = line["event:".Length..].Trim();
+                continue;
+            }
+
+            if (line.StartsWith("data:", StringComparison.Ordinal))
+            {
+                var data = line["data:".Length..].Trim();
+                var evt  = currentEvent;
+                currentEvent = null;
+
+                if (string.Equals(evt, "done", StringComparison.OrdinalIgnoreCase))
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    yield break;
+                }
+
+                if (string.Equals(evt, "error", StringComparison.OrdinalIgnoreCase))
+                {
+                    if (stats is not null)
+                    {
+                        Interlocked.Increment(ref stats.Errors);
+                    }
+
+                    continue;
+                }
+
+                VideoSource? source = null;
+                try
+                {
+                    source = JsonSerializer.Deserialize<VideoSource>(data, JsonOpts);
+                }
+                catch
+                {
+                }
+
+                if (source != null)
+                {
+                    if (stats is not null)
+                    {
+                        Interlocked.Increment(ref stats.Received);
+                    }
+
+                    yield return source;
+                }
+            }
+        }
+
+        cancellationToken.ThrowIfCancellationRequested();
+    }
+
     public async Task<ApiResult<IReadOnlyList<string>>> GetExtractorsAsync(CancellationToken cancellationToken =
         default)
     {

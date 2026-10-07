@@ -10,6 +10,7 @@ public class VideoSource
     public string?                     Hoster    { get; set; }
     public string?                     Group     { get; set; }
     public string?                     Language  { get; set; }
+    public string?                     ProviderName { get; set; }
     public Dictionary<string, string>? Headers   { get; set; }
     public List<Subtitle>?             Subtitles { get; set; }
 }

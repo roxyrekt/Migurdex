@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Migurdex.Shared.Enums;
@@ -12,6 +13,26 @@ namespace Migurdex.Core.Services;
 
 public partial class AniListProvider : IMetadataProvider
 {
+    private static readonly MemoryCache _searchCache = new(new MemoryCacheOptions { SizeLimit = 1024 });
+    private static readonly MemoryCache _idCache = new(new MemoryCacheOptions { SizeLimit = 4096 });
+    private static readonly MemoryCache _malIdCache = new(new MemoryCacheOptions { SizeLimit = 4096 });
+    private static readonly MemoryCache _relationsCache = new(new MemoryCacheOptions { SizeLimit = 2048 });
+
+    private static readonly MemoryCacheEntryOptions _searchOpts =
+        new() { AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(5), Size = 1 };
+    private static readonly MemoryCacheEntryOptions _idOpts =
+        new() { AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(30), Size = 1 };
+    private static readonly MemoryCacheEntryOptions _relationsOpts =
+        new() { AbsoluteExpirationRelativeToNow = TimeSpan.FromHours(1), Size = 1 };
+
+    public static void ClearCache()
+    {
+        _searchCache.Compact(1.0);
+        _idCache.Compact(1.0);
+        _malIdCache.Compact(1.0);
+        _relationsCache.Compact(1.0);
+    }
+
     private readonly HttpClient               _httpClient;
     private readonly ILogger<AniListProvider> _logger;
 
@@ -32,6 +53,14 @@ public partial class AniListProvider : IMetadataProvider
     {
         limit = Math.Clamp(limit, 1, 50);
         offset = Math.Max(0, offset);
+
+        var cacheKey = $"{title}:{expectedFormat}:{limit}:{offset}";
+        if (_searchCache.TryGetValue(cacheKey, out List<MediaMetadata>? cachedSearch)
+            && cachedSearch is not null)
+        {
+            return cachedSearch;
+        }
+
         const string query = """
 
                                      query ($search: String, $type: MediaType, $page: Int, $perPage: Int) {
@@ -69,11 +98,33 @@ public partial class AniListProvider : IMetadataProvider
             perPage = limit
         };
 
-        return await FetchListFromAniList(query, variables, cancellationToken);
+        var list = await FetchListFromAniList(query, variables, cancellationToken);
+        if (list.Count > 0)
+        {
+            _searchCache.Set(cacheKey, list, _searchOpts);
+            foreach (var m in list)
+            {
+                if (!string.IsNullOrWhiteSpace(m.ExternalId)) _idCache.Set(m.ExternalId.Trim(), m, _idOpts);
+                if (!string.IsNullOrWhiteSpace(m.MyAnimeListId)) _malIdCache.Set(m.MyAnimeListId.Trim(), m, _idOpts);
+            }
+        }
+
+        return list;
     }
 
     public async Task<MediaMetadata?> GetMetadataByIdAsync(string id, CancellationToken cancellationToken = default)
     {
+        if (string.IsNullOrWhiteSpace(id))
+        {
+            return null;
+        }
+
+        var cleanId = id.Trim();
+        if (_idCache.TryGetValue(cleanId, out MediaMetadata? cached))
+        {
+            return cached;
+        }
+
         const string query = """
 
                                      query ($id: Int) {
@@ -101,7 +152,7 @@ public partial class AniListProvider : IMetadataProvider
                                      }
                              """;
 
-        if (!int.TryParse(id, out var numericId))
+        if (!int.TryParse(cleanId, out var numericId))
         {
             return null;
         }
@@ -112,13 +163,33 @@ public partial class AniListProvider : IMetadataProvider
         };
 
         var list = await FetchListFromAniList(query, variables, cancellationToken);
+        var result = list.FirstOrDefault();
+        if (result is not null)
+        {
+            _idCache.Set(cleanId, result, _idOpts);
+            if (!string.IsNullOrWhiteSpace(result.MyAnimeListId))
+            {
+                _malIdCache.Set(result.MyAnimeListId.Trim(), result, _idOpts);
+            }
+        }
 
-        return list.FirstOrDefault();
+        return result;
     }
 
     public async Task<MediaMetadata?> GetMetadataByMalIdAsync(string malId,
         CancellationToken                                            cancellationToken = default)
     {
+        if (string.IsNullOrWhiteSpace(malId))
+        {
+            return null;
+        }
+
+        var cleanMal = malId.Trim();
+        if (_malIdCache.TryGetValue(cleanMal, out MediaMetadata? cached))
+        {
+            return cached;
+        }
+
         const string query = """
 
                                      query ($idMal: Int) {
@@ -150,12 +221,21 @@ public partial class AniListProvider : IMetadataProvider
         {
             var variables = new
             {
-                idMal = int.Parse(malId)
+                idMal = int.Parse(cleanMal)
             };
 
             var list = await FetchListFromAniList(query, variables, cancellationToken);
+            var result = list.FirstOrDefault();
+            if (result is not null)
+            {
+                _malIdCache.Set(cleanMal, result, _idOpts);
+                if (!string.IsNullOrWhiteSpace(result.ExternalId))
+                {
+                    _idCache.Set(result.ExternalId.Trim(), result, _idOpts);
+                }
+            }
 
-            return list.FirstOrDefault();
+            return result;
         }
         catch (Exception) when (!cancellationToken.IsCancellationRequested)
         {
@@ -177,6 +257,18 @@ public partial class AniListProvider : IMetadataProvider
         string            id,
         CancellationToken cancellationToken = default)
     {
+        if (string.IsNullOrWhiteSpace(id))
+        {
+            return [];
+        }
+
+        var cleanId = id.Trim();
+        if (_relationsCache.TryGetValue(cleanId, out IReadOnlyList<RelationEdge>? cachedRelations)
+            && cachedRelations is not null)
+        {
+            return cachedRelations;
+        }
+
         const string query = """
                              query ($id: Int) {
                                Media(id: $id) {
@@ -203,7 +295,7 @@ public partial class AniListProvider : IMetadataProvider
                 query,
                 variables = new
                 {
-                    id = int.Parse(id)
+                    id = int.Parse(cleanId)
                 }
             };
 
@@ -246,6 +338,8 @@ public partial class AniListProvider : IMetadataProvider
                     });
                 }
             }
+
+            _relationsCache.Set(cleanId, result, _relationsOpts);
         }
         catch (Exception) when (!cancellationToken.IsCancellationRequested)
         {

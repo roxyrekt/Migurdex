@@ -330,6 +330,8 @@ public static class Program
 
         services.AddTransient<MainMenuView>();
         services.AddTransient<SearchView>();
+        services.AddTransient<CanonicalEpisodesView>();
+        services.AddTransient<CanonicalSourcesView>();
         services.AddTransient<SearchResultsView>();
         services.AddTransient<AnimeDetailsView>();
         services.AddTransient<EpisodeSourcesView>();
