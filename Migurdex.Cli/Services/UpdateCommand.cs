@@ -44,7 +44,7 @@ public static class UpdateCommand
             {
                 if (++i >= args.Length || string.IsNullOrWhiteSpace(args[i]))
                 {
-                    AnsiConsole.MarkupLine("[red]--channel için değer gerekli (stable|prerelease).[/]");
+                    AnsiConsole.MarkupLine("[red]--channel için değer gerekli (stable|prerelease|nightly).[/]");
                     return 2;
                 }
 
@@ -130,6 +130,18 @@ public static class UpdateCommand
         if (updateStatus != 0)
         {
             return updateStatus;
+        }
+
+        if (result.LatestVersion.StartsWith("nightly@", StringComparison.Ordinal))
+        {
+            configService.Config.SkippedVersion = result.LatestVersion;
+            try
+            {
+                configService.Save();
+            }
+            catch
+            {
+            }
         }
 
         if (!noRestart && !Console.IsInputRedirected)
@@ -604,7 +616,7 @@ public static class UpdateCommand
 
     private static void Help()
     {
-        AnsiConsole.WriteLine("Kullanım: migurdex update [--check] [--channel stable|prerelease] [-y] [--no-restart]");
+        AnsiConsole.WriteLine("Kullanım: migurdex update [--check] [--channel stable|prerelease|nightly] [-y] [--no-restart]");
         AnsiConsole.WriteLine("  (bayraksız)    Yeni sürüm varsa indirip kurar ve yeniden başlatır (onaylı).");
         AnsiConsole.WriteLine("  --check        Sadece kontrol eder, kurmaz.");
         AnsiConsole.WriteLine("  --channel      Bu seferlik kanal seçer, ayarı değiştirmez.");

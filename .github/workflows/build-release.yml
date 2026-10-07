@@ -203,3 +203,40 @@ jobs:
                     generate_release_notes: true
                     draft: false
                     prerelease: ${{ contains(github.ref, '-') }}
+
+    nightly:
+        name: Update Nightly
+        needs: build
+        if: github.ref == 'refs/heads/main'
+        runs-on: ubuntu-latest
+        permissions:
+            contents: write
+        steps:
+            -   uses: actions/checkout@v7
+
+            -   name: Move nightly tag
+                run: |
+                    git tag -f nightly ${{ github.sha }}
+                    git push -f origin nightly
+
+            -   name: Download Artifacts
+                uses: actions/download-artifact@v8
+                with:
+                    path: artifacts
+
+            -   name: Flatten Artifacts
+                run: |
+                    mkdir release-files
+                    find artifacts -type f \( -name "*.tar.gz" -o -name "*.zip" -o -name "*.AppImage" -o -name "*.zsync" -o -name "*.txt" \) -exec cp {} release-files/ \;
+
+            -   name: Publish Nightly Release
+                uses: softprops/action-gh-release@v3
+                with:
+                    tag_name: nightly
+                    files: release-files/*
+                    draft: false
+                    prerelease: true
+                    make_latest: false
+                    body: |
+                        Etiketsiz son `main` derlemesi (${{ github.sha }}).
+                        Stabil sürüm için `latest`'e bakın.

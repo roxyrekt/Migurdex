@@ -1,4 +1,5 @@
 using Migurdex.Shared.Update;
+using Migurdex.Cli.Configuration;
 using System.Diagnostics;
 using System.Net;
 using System.Runtime.InteropServices;
@@ -41,10 +42,19 @@ public class UpdateService : IUpdateService
                                     ? IsPrereleaseChannel(channelOverride)
                                     : IsPrereleaseChannel(config.UpdateChannel);
 
+        var useNightly = channelOverride is not null
+                               ? IsNightlyChannel(channelOverride)
+                               : IsNightlyChannel(config.UpdateChannel);
+
         try
         {
             using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             cts.CancelAfter(TimeSpan.FromSeconds(CheckTimeoutSeconds));
+
+            if (useNightly)
+            {
+                return await CheckNightlyAsync(config, cts.Token);
+            }
 
             var release = includePrerelease
                               ? await GetLatestFromListAsync(cts.Token)
@@ -129,6 +139,11 @@ public class UpdateService : IUpdateService
         }
     }
 
+    public static bool IsNightlyChannel(string? channel)
+    {
+        return channel?.Trim().Equals("nightly", StringComparison.OrdinalIgnoreCase) == true;
+    }
+
     public static bool IsPrereleaseChannel(string? channel)
     {
         return channel?.Trim().Equals("prerelease", StringComparison.OrdinalIgnoreCase) == true
@@ -182,6 +197,49 @@ public class UpdateService : IUpdateService
         return ReleaseSelector.SelectRelease(releases, true);
     }
 
+    private async Task<UpdateCheckResult?> CheckNightlyAsync(CliConfig config, CancellationToken cancellationToken)
+    {
+        var nightly = await GetNightlyAsync(cancellationToken);
+        if (nightly is null)
+        {
+            return null;
+        }
+
+        var marker = nightly.PublishedAt == default
+                         ? $"nightly@{nightly.Tag.Trim()}"
+                         : $"nightly@{nightly.PublishedAt:yyyyMMddTHHmmss}";
+
+        return new UpdateCheckResult(
+            AppInfo.GetVersion(),
+            marker,
+            !marker.Equals(config.SkippedVersion, StringComparison.Ordinal),
+            true,
+            nightly.HtmlUrl,
+            nightly.Notes,
+            ResolveAsset(nightly, out var assetUrl, out var assetSize),
+            assetUrl,
+            assetSize,
+            ResolveChecksumUrl(nightly));
+    }
+
+    private async Task<GitHubRelease?> GetNightlyAsync(CancellationToken cancellationToken)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Get,
+                                                   $"https://api.github.com/repos/{Repo}/releases/tags/nightly");
+        AddGitHubHeaders(request);
+
+        using var response = await _httpClient.SendAsync(request, cancellationToken);
+        if (response.StatusCode == HttpStatusCode.NotFound)
+        {
+            return null;
+        }
+
+        response.EnsureSuccessStatusCode();
+
+        using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync(cancellationToken));
+        return ParseRelease(doc.RootElement);
+    }
+
     private static void AddGitHubHeaders(HttpRequestMessage request)
     {
         request.Headers.TryAddWithoutValidation("User-Agent", "migurdex");
@@ -228,7 +286,12 @@ public class UpdateService : IUpdateService
             el.TryGetProperty("draft", out var draft) && draft.ValueKind == JsonValueKind.True,
             el.TryGetProperty("html_url", out var html) ? html.GetString() ?? string.Empty : string.Empty,
             el.TryGetProperty("body", out var body) ? body.GetString() ?? string.Empty : string.Empty,
-            assets);
+            assets,
+            el.TryGetProperty("published_at", out var pub)
+                && pub.ValueKind == JsonValueKind.String
+                && DateTimeOffset.TryParse(pub.GetString(), out var published)
+                ? published
+                : default);
     }
 
     private static string GetArchLabel()

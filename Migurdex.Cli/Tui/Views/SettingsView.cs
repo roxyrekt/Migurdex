@@ -152,7 +152,7 @@ public class SettingsView : BaseView
             {
                 Id          = "UpdateChannel",
                 Label       = "Güncelleme Kanalı",
-                ValueGetter = c => UpdateService.IsPrereleaseChannel(c.UpdateChannel) ? "Pre-release" : "Stabil"
+                ValueGetter = c => ChannelLabel(c.UpdateChannel)
             },
             new()
             {
@@ -363,6 +363,26 @@ public class SettingsView : BaseView
     private static string NormalizeRpcTitleMode(string? mode)
     {
         return _rpcTitleModes.Contains(mode) ? mode! : "İçerik";
+    }
+
+    private static string ChannelLabel(string? channel)
+    {
+        if (UpdateService.IsNightlyChannel(channel))
+        {
+            return "Nightly";
+        }
+
+        return UpdateService.IsPrereleaseChannel(channel) ? "Pre-release" : "Stabil";
+    }
+
+    private static string NextChannel(string? channel)
+    {
+        if (!UpdateService.IsPrereleaseChannel(channel) && !UpdateService.IsNightlyChannel(channel))
+        {
+            return "prerelease";
+        }
+
+        return UpdateService.IsPrereleaseChannel(channel) ? "nightly" : "stable";
     }
 
     private string AniListStatus()
@@ -678,8 +698,7 @@ public class SettingsView : BaseView
                 config.UpdateCheckEnabled = !config.UpdateCheckEnabled;
                 break;
             case "UpdateChannel":
-                config.UpdateChannel =
-                    UpdateService.IsPrereleaseChannel(config.UpdateChannel) ? "stable" : "prerelease";
+                config.UpdateChannel = NextChannel(config.UpdateChannel);
                 config.SkippedVersion = null;
                 break;
             case "CheckUpdate":
@@ -1260,7 +1279,7 @@ public class SettingsView : BaseView
             "AutoPlay" or "Rpc" or "Incognito" or "PlayerLogs" or "UpdateCheck"
                 or "AutoDownload" or "DownloadSubtitles" or "DownloadResume" or "DownloadOverwrite" =>
                 value == "Açık" ? "green" : "grey",
-            "UpdateChannel" => value == "Pre-release" ? "yellow" : "green",
+            "UpdateChannel" => value == "Pre-release" ? "yellow" : value == "Nightly" ? "blue" : "green",
             "AniList" or "MyAnimeList" => value.Contains("Süresi dolmuş")
                                               ? "red"
                                               : value.StartsWith("Bağlı (yenilenecek)")

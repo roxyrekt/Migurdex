@@ -8,7 +8,8 @@ public sealed record GitHubRelease(
     bool                       IsDraft,
     string                     HtmlUrl,
     string                     Notes,
-    IReadOnlyList<GitHubAsset> Assets)
+    IReadOnlyList<GitHubAsset> Assets,
+    DateTimeOffset             PublishedAt = default)
 {
     public string Version => AppInfo.NormalizeTag(Tag);
 }
@@ -20,6 +21,11 @@ public static class ReleaseSelector
         foreach (var r in releases)
         {
             if (r.IsDraft)
+            {
+                continue;
+            }
+
+            if (r.Tag.Trim().Equals("nightly", StringComparison.OrdinalIgnoreCase))
             {
                 continue;
             }
