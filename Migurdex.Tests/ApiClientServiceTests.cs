@@ -22,6 +22,23 @@ public sealed class ApiClientServiceTests
     }
 
     [Fact]
+    public async Task GetBlameReportAsync_ParsesReport()
+    {
+        var handler = new OkHandler(
+            """{"since":"2026-10-07T00:00:00Z","operations":[{"operation":"GET /x","calls":2,"avgMs":150,"maxMs":200,"errors":0}],"providers":[]}""");
+        var service = new ApiClientService(new HttpClient(handler) { BaseAddress = new Uri("http://localhost/") },
+                                           new TestConfigurationService());
+
+        var result = await service.GetBlameReportAsync(TestContext.Current.CancellationToken);
+
+        Assert.True(result.IsSuccess);
+        Assert.NotNull(result.Data);
+        var op = Assert.Single(result.Data!.Operations);
+        Assert.Equal("GET /x", op.Operation);
+        Assert.Empty(result.Data.Providers);
+    }
+
+    [Fact]
     public async Task IsApiOnlineAsync_RethrowsUserCancellationInsteadOfReturningFalse()
     {
         var handler = new CancelingHandler();
@@ -33,6 +50,18 @@ public sealed class ApiClientServiceTests
         cts.Cancel();
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(async () => await request);
+    }
+
+    private sealed class OkHandler(string json) : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request,
+            CancellationToken                                                     cancellationToken)
+        {
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(json)
+            });
+        }
     }
 
     private sealed class CancelingHandler : HttpMessageHandler

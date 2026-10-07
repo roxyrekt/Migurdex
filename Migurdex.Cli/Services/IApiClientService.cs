@@ -88,6 +88,8 @@ public interface IApiClientService
         string?                               malId             = null,
         string?                               matchedTitle      = null,
         CancellationToken                     cancellationToken = default);
+
+    Task<ApiResult<BlameReport?>> GetBlameReportAsync(CancellationToken cancellationToken = default);
 }
 
 public class ProviderInfo

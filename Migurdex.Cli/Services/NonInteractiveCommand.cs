@@ -19,7 +19,8 @@ public static class NonInteractiveCommand
         return arg.Equals("search", StringComparison.OrdinalIgnoreCase)
                || arg.Equals("play", StringComparison.OrdinalIgnoreCase)
                || arg.Equals("continue", StringComparison.OrdinalIgnoreCase)
-               || arg.Equals("download", StringComparison.OrdinalIgnoreCase);
+               || arg.Equals("download", StringComparison.OrdinalIgnoreCase)
+               || arg.Equals("blame", StringComparison.OrdinalIgnoreCase);
     }
 
     private static void PrintLine(string plain, string markup)
@@ -43,6 +44,7 @@ public static class NonInteractiveCommand
             "play"     => await PlayAsync(args[1..], services),
             "continue" => await ContinueAsync(args[1..], services),
             "download" => await DownloadCommand.RunAsync(args[1..], services),
+            "blame"    => await BlameAsync(args[1..], services),
             _          => UsageError($"Bilinmeyen komut: {args[0]}")
         };
     }
@@ -408,6 +410,104 @@ public static class NonInteractiveCommand
                ?? (opts.Episode.HasValue || opts.Season.HasValue ? null : list.OrderBy(e => e.Number).First());
     }
 
+    private static async Task<int> BlameAsync(string[] args, IServiceProvider services)
+    {
+        var json = args.Any(a => a.Equals("--json", StringComparison.OrdinalIgnoreCase));
+        var showHelp = args.Any(a => a is "--help" or "-h");
+        var unknown = args.FirstOrDefault(a => a.StartsWith("--", StringComparison.Ordinal)
+                                               && !a.Equals("--json", StringComparison.OrdinalIgnoreCase)
+                                               && !a.Equals("--help", StringComparison.OrdinalIgnoreCase)
+                                               && !a.Equals("-h", StringComparison.Ordinal));
+        if (unknown is not null)
+        {
+            return UsageError($"Bilinmeyen bayrak: {unknown}");
+        }
+
+        if (showHelp)
+        {
+            Console.WriteLine("Kullanım: migurdex blame [--json]");
+            Console.WriteLine("API daemon'un gördüğü süreleri yazar: endpoint'ler ve sağlayıcılar.");
+            return 0;
+        }
+
+        var api = services.GetRequiredService<IApiClientService>();
+        if (!await EnsureApiOnlineAsync(api))
+        {
+            return 1;
+        }
+
+        var result = await api.GetBlameReportAsync();
+        if (!result.IsSuccess || result.Data is null)
+        {
+            await Console.Error.WriteLineAsync($"Hata: {result.Error ?? "İstatistik alınamadı."}");
+            return 1;
+        }
+
+        var report = result.Data;
+        if (report.Operations.Count == 0 && report.Providers.Count == 0)
+        {
+            Console.WriteLine("Henüz ölçüm yok (daemon yeni başladı, önce arama/bölüm çağırın).");
+            return 0;
+        }
+
+        if (json)
+        {
+            Console.WriteLine(JsonSerializer.Serialize(report, _jsonOpts));
+            return 0;
+        }
+
+        if (!Console.IsOutputRedirected)
+        {
+            var ops = new Table().Border(TableBorder.Rounded).Title("[cyan]İşlemler[/]");
+            ops.AddColumns("İşlem", "Çağrı", "Ort", "Max", "Hata", "4xx");
+            foreach (var o in report.Operations)
+            {
+                ops.AddRow(Markup.Escape(o.Operation),
+                           o.Calls.ToString(),
+                           $"{o.AvgMs:0}ms",
+                           $"{o.MaxMs}ms",
+                           o.Errors.ToString(),
+                           o.ClientErrors.ToString());
+            }
+
+            AnsiConsole.Write(ops);
+
+            if (report.Providers.Count > 0)
+            {
+                var prov = new Table().Border(TableBorder.Rounded).Title("[cyan]Sağlayıcılar[/]");
+                prov.AddColumns("Sağlayıcı", "İş", "Çağrı", "Ort", "Max", "Timeout", "Uyumsuz", "Başarılı");
+                foreach (var p in report.Providers)
+                {
+                    prov.AddRow(Markup.Escape(p.Provider),
+                                Markup.Escape(p.Operation),
+                                p.Calls.ToString(),
+                                $"{p.AvgMs:0}ms",
+                                $"{p.MaxMs}ms",
+                                p.Timeouts.ToString(),
+                                p.Mismatches.ToString(),
+                                p.Matched.ToString());
+                }
+
+                AnsiConsole.Write(prov);
+            }
+
+            return 0;
+        }
+
+        foreach (var o in report.Operations)
+        {
+            Console.WriteLine($"{o.Operation} | calls={o.Calls} avg={o.AvgMs:0}ms max={o.MaxMs}ms errors={o.Errors} 4xx={o.ClientErrors}");
+        }
+
+        foreach (var p in report.Providers)
+        {
+            Console.WriteLine($"{p.Provider} [{p.Operation}] | calls={p.Calls} avg={p.AvgMs:0}ms max={p.MaxMs}ms "
+                              + $"timeout={p.Timeouts} mismatch={p.Mismatches} ok={p.Matched}");
+        }
+
+        return 0;
+    }
+
     private static async Task<bool> EnsureApiOnlineAsync(IApiClientService api)
     {
         if (await api.IsApiOnlineAsync())
@@ -550,7 +650,7 @@ public static class NonInteractiveCommand
     private static int UsageError(string message)
     {
         Console.Error.WriteLine($"Hata: {message}");
-        Console.Error.WriteLine("Kullanım: migurdex <search|play|continue|download> --help");
+        Console.Error.WriteLine("Kullanım: migurdex <search|play|continue|download|blame> --help");
         return 2;
     }
 
@@ -572,6 +672,7 @@ public static class NonInteractiveCommand
             "  migurdex download <sorgu> [-e <n>] [-s <n>] [-p <ad>] [-g <ad>] [-o <dizin>] [--format auto|mp4|hls] [--subs|--no-subs] [--force] [--no-resume] [--debug] [--json]");
         writer.WriteLine("  migurdex update [--check] [--channel stable|prerelease] [-y] [--no-restart]");
         writer.WriteLine("  migurdex auth <login|logout|status>");
+        writer.WriteLine("  migurdex blame [--json]");
         writer.WriteLine("  migurdex --version");
     }
 

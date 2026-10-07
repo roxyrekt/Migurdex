@@ -4,6 +4,7 @@ using Migurdex.Shared.Enums;
 using Migurdex.Shared.Interfaces;
 using Migurdex.Shared.Models;
 using System.Collections.Concurrent;
+using System.Diagnostics;
 using System.Threading.Channels;
 
 namespace Migurdex.Api.Endpoints;
@@ -47,6 +48,7 @@ public static class AnimeEndpoints
         bool?             stream,
         HttpContext       context,
         PluginLoader      loader,
+        IBlameCollector   blame,
         ILoggerFactory    loggerFactory,
         CancellationToken cancellationToken)
     {
@@ -116,9 +118,14 @@ public static class AnimeEndpoints
 
             var tasks = providersList.Select(async p =>
                                      {
+                                         var sw = Stopwatch.StartNew();
                                          try
                                          {
                                              var searchResults = await p.SearchAsync(q, cancellationToken);
+                                             blame.RecordProvider(p.Name,
+                                                                  "search",
+                                                                  sw.ElapsedMilliseconds,
+                                                                  BlameOutcome.Ok);
                                              Interlocked.Increment(ref succeededProviders);
                                              foreach (var item in searchResults)
                                              {
@@ -140,6 +147,10 @@ public static class AnimeEndpoints
                                                                "search failed for provider {Provider} query {Query}",
                                                                p.Name,
                                                                q);
+                                             blame.RecordProvider(p.Name,
+                                                                  "search",
+                                                                  sw.ElapsedMilliseconds,
+                                                                  BlameOutcome.Error);
                                              errors.Add(new DoneErrorItem(p.Name, "search", "Upstream arama hatası."));
                                              await channel.Writer.WriteAsync(
                                                  new SseEnvelope(SseHelper.EventProviderError,
@@ -177,9 +188,11 @@ public static class AnimeEndpoints
 
         var searchTasks = providersList.Select(async p =>
         {
+            var sw = Stopwatch.StartNew();
             try
             {
                 var searchResults = await p.SearchAsync(q, cancellationToken);
+                blame.RecordProvider(p.Name, "search", sw.ElapsedMilliseconds, BlameOutcome.Ok);
                 return (object) new
                 {
                     provider = p.Name,
@@ -189,6 +202,7 @@ public static class AnimeEndpoints
             catch (Exception ex)
             {
                 logger.LogWarning(ex, "search failed for provider {Provider} query {Query}", p.Name, q);
+                blame.RecordProvider(p.Name, "search", sw.ElapsedMilliseconds, BlameOutcome.Error);
                 return new
                 {
                     provider = p.Name,
@@ -205,6 +219,7 @@ public static class AnimeEndpoints
         string            provider,
         string            animeId,
         PluginLoader      loader,
+        IBlameCollector   blame,
         ILoggerFactory    loggerFactory,
         CancellationToken cancellationToken)
     {
@@ -227,15 +242,18 @@ public static class AnimeEndpoints
             return ApiErrors.BadRequest($"AnimeId en fazla {MaxIdLength} karakter olabilir.");
         }
 
+        var sw = Stopwatch.StartNew();
         try
         {
             var details = await p.GetDetailsAsync(animeId, cancellationToken);
+            blame.RecordProvider(provider, "details", sw.ElapsedMilliseconds, BlameOutcome.Ok);
             details.Normalize();
             return Results.Ok(details);
         }
         catch (Exception ex)
         {
             logger.LogWarning(ex, "getDetails failed for provider {Provider} anime {AnimeId}", provider, animeId);
+            blame.RecordProvider(provider, "details", sw.ElapsedMilliseconds, BlameOutcome.Error);
             return Results.Problem($"Upstream detay hatası ({provider}).",
                                    statusCode: StatusCodes.Status502BadGateway,
                                    title: "Upstream hata");
@@ -246,6 +264,7 @@ public static class AnimeEndpoints
         string            provider,
         string            episodeId,
         PluginLoader      loader,
+        IBlameCollector   blame,
         ILoggerFactory    loggerFactory,
         CancellationToken cancellationToken)
     {
@@ -268,14 +287,17 @@ public static class AnimeEndpoints
             return ApiErrors.BadRequest($"episodeId en fazla {MaxIdLength} karakter olabilir.");
         }
 
+        var sw = Stopwatch.StartNew();
         try
         {
             var groups = await p.GetGroupsAsync(episodeId, cancellationToken);
+            blame.RecordProvider(provider, "groups", sw.ElapsedMilliseconds, BlameOutcome.Ok);
             return Results.Ok(groups);
         }
         catch (Exception ex)
         {
             logger.LogWarning(ex, "getGroups failed for provider {Provider} episode {EpisodeId}", provider, episodeId);
+            blame.RecordProvider(provider, "groups", sw.ElapsedMilliseconds, BlameOutcome.Error);
             return Results.Problem($"Upstream grup hatası ({provider}).",
                                    statusCode: StatusCodes.Status502BadGateway,
                                    title: "Upstream hata");
@@ -343,6 +365,7 @@ public static class AnimeEndpoints
         bool?             stream,
         HttpContext       context,
         PluginLoader      loader,
+        IBlameCollector   blame,
         IExtractorManager extractorManager,
         ILoggerFactory    loggerFactory,
         CancellationToken cancellationToken)
@@ -375,9 +398,11 @@ public static class AnimeEndpoints
         if (stream == true)
         {
             List<VideoSource> rawSources;
+            var streamSw = Stopwatch.StartNew();
             try
             {
                 rawSources = await p.GetVideoSourcesAsync(episodeId, group, cancellationToken);
+                blame.RecordProvider(provider, "sources", streamSw.ElapsedMilliseconds, BlameOutcome.Ok);
             }
             catch (Exception ex)
             {
@@ -386,6 +411,7 @@ public static class AnimeEndpoints
                                   provider,
                                   episodeId,
                                   group);
+                blame.RecordProvider(provider, "sources", streamSw.ElapsedMilliseconds, BlameOutcome.Error);
                 SseHelper.InitializeSseResponse(context);
                 await SseHelper.WriteProviderErrorAsync(context,
                                                         provider,
@@ -428,6 +454,7 @@ public static class AnimeEndpoints
 
             var extractionTasks = rawSources.Select(src => Task.Run(async () =>
                                                                     {
+                                                                        var extractSw = Stopwatch.StartNew();
                                                                         try
                                                                         {
                                                                             if (src.Type == VideoType.Embed
@@ -446,6 +473,12 @@ public static class AnimeEndpoints
                                                                                     TryEnqueueSource(
                                                                                         MergeSourceMetadata(ext, src));
                                                                                 }
+
+                                                                                blame.RecordProvider(
+                                                                                    p.Name,
+                                                                                    "extract",
+                                                                                    extractSw.ElapsedMilliseconds,
+                                                                                    BlameOutcome.Ok);
                                                                             }
                                                                             else
                                                                             {
@@ -454,6 +487,11 @@ public static class AnimeEndpoints
                                                                         }
                                                                         catch (Exception ex)
                                                                         {
+                                                                            blame.RecordProvider(
+                                                                                p.Name,
+                                                                                "extract",
+                                                                                extractSw.ElapsedMilliseconds,
+                                                                                BlameOutcome.Error);
                                                                             logger.LogWarning(ex,
                                                                                 "source extraction failed for provider {Provider} url {Url}",
                                                                                 provider,
@@ -485,12 +523,15 @@ public static class AnimeEndpoints
             return Results.Empty;
         }
 
+        var sourcesSw = Stopwatch.StartNew();
         try
         {
             var rawSources = await p.GetVideoSourcesAsync(episodeId, group, cancellationToken);
+            blame.RecordProvider(provider, "sources", sourcesSw.ElapsedMilliseconds, BlameOutcome.Ok);
 
             var tasks = rawSources.Select(src => Task.Run(async () =>
                                                           {
+                                                              var extractSw = Stopwatch.StartNew();
                                                               try
                                                               {
                                                                   if (src.Type == VideoType.Embed
@@ -509,6 +550,11 @@ public static class AnimeEndpoints
                                                                           resolved.Add(MergeSourceMetadata(ext, src));
                                                                       }
 
+                                                                      blame.RecordProvider(
+                                                                          p.Name,
+                                                                          "extract",
+                                                                          extractSw.ElapsedMilliseconds,
+                                                                          BlameOutcome.Ok);
                                                                       return resolved;
                                                                   }
 
@@ -520,6 +566,11 @@ public static class AnimeEndpoints
                                                                       "source extraction failed for provider {Provider} url {Url}",
                                                                       provider,
                                                                       src.Url);
+                                                                  blame.RecordProvider(
+                                                                      p.Name,
+                                                                      "extract",
+                                                                      extractSw.ElapsedMilliseconds,
+                                                                      BlameOutcome.Error);
                                                                   return (List<VideoSource>) [];
                                                               }
                                                           },
@@ -536,6 +587,7 @@ public static class AnimeEndpoints
         catch (Exception ex)
         {
             logger.LogWarning(ex, "getSources failed for provider {Provider}", provider);
+            blame.RecordProvider(provider, "sources", sourcesSw.ElapsedMilliseconds, BlameOutcome.Error);
             return Results.Problem($"Upstream kaynak hatası ({provider}).",
                                    statusCode: StatusCodes.Status502BadGateway,
                                    title: "Upstream hata");

@@ -209,5 +209,9 @@ public sealed class DownloadCandidateResolverTests
             string?           matchedTitle      = null,
             CancellationToken cancellationToken = default)
             => Task.FromResult(true);
+
+        public Task<ApiResult<BlameReport?>> GetBlameReportAsync(
+            CancellationToken cancellationToken = default)
+            => Task.FromResult(ApiResult<BlameReport?>.Ok(null));
     }
 }
