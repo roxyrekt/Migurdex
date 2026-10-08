@@ -20,7 +20,6 @@ public partial class GofileExtractor : IExtractor
     private readonly SemaphoreSlim            _cacheLock = new(1, 1);
     private readonly HttpClient               _httpClient;
     private readonly ILogger<GofileExtractor> _logger;
-    private readonly IMp4MetadataReader       _metadataReader;
     private          DateTime?                _cacheExpiry;
     private          double                   _cachedDivisor = 14400.0;
 
@@ -30,7 +29,6 @@ public partial class GofileExtractor : IExtractor
     {
         _httpClient     = bridge.CreateHttpClient();
         _logger         = bridge.CreateLogger<GofileExtractor>();
-        _metadataReader = bridge.MetadataReader;
 
         _httpClient.DefaultRequestHeaders.Clear();
         _httpClient.DefaultRequestHeaders.Add("User-Agent", TargetUserAgent);
@@ -129,17 +127,9 @@ public partial class GofileExtractor : IExtractor
                             {
                                 { "Cookie", $"accountToken={token}" }
                             };
-
-                            var quality =
-                                await _metadataReader.GetVideoQualityAsync(
-                                    link ?? string.Empty,
-                                    fileHeaders,
-                                    cancellationToken);
-
                             sources.Add(new VideoSource
                             {
                                 Url     = link ?? string.Empty,
-                                Quality = quality,
                                 Type    = VideoType.Mp4,
                                 Headers = fileHeaders
                             });

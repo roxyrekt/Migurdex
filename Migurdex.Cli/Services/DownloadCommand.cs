@@ -616,7 +616,7 @@ public static class DownloadCommand
         var parts = new List<string>
         {
             source.Hoster ?? "bilinmiyor",
-            source.Quality ?? "Auto",
+            source.DisplayLabel,
             source.Type.ToString()
         };
         if (!string.IsNullOrWhiteSpace(source.Group))
@@ -631,10 +631,17 @@ public static class DownloadCommand
     {
         return new
         {
-            hoster  = source.Hoster,
-            quality = source.Quality,
-            format  = source.Type,
-            group   = source.Group
+            hoster    = source.Hoster,
+            quality   = source.Quality,
+            bitrate   = source.Bitrate,
+            width     = source.Width,
+            height    = source.Height,
+            videoCodec = source.VideoCodec,
+            audioCodec = source.AudioCodec,
+            sizeBytes = source.SizeBytes,
+            duration  = source.DurationSeconds,
+            format    = source.Type,
+            group     = source.Group
         };
     }
 
@@ -671,7 +678,7 @@ public static class DownloadCommand
             $"bölüm: S{episode.Season ?? 1}E{episode.Number.ToString("0.##", CultureInfo.InvariantCulture)}");
         Console.Error.WriteLine($"grup: {source.Group ?? "bilinmiyor"}");
         Console.Error.WriteLine($"hoster: {source.Hoster ?? "bilinmiyor"}");
-        Console.Error.WriteLine($"kalite: {source.Quality}");
+        Console.Error.WriteLine($"kalite: {source.DisplayLabel}");
         Console.Error.WriteLine($"tür: {source.Type}");
         Console.Error.WriteLine($"aday sayısı: {candidates.Count}");
     }

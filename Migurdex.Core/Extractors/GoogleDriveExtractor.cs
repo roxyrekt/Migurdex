@@ -14,14 +14,12 @@ public partial class GoogleDriveExtractor : IExtractor
     private readonly HttpClient                    _httpClient;
     private readonly ILogger<GoogleDriveExtractor> _logger;
     private readonly M3U8PlaylistExtractor         _m3U8Extractor;
-    private readonly IMp4MetadataReader            _metadataReader;
 
     public GoogleDriveExtractor(M3U8PlaylistExtractor m3U8Extractor, ISharedBridge bridge)
     {
         _httpClient     = bridge.CreateHttpClient();
         _m3U8Extractor  = m3U8Extractor;
         _logger         = bridge.CreateLogger<GoogleDriveExtractor>();
-        _metadataReader = bridge.MetadataReader;
 
         _httpClient.DefaultRequestHeaders.Add("Referer", "https://drive.google.com/");
         _httpClient.DefaultRequestHeaders.Add("User-Agent", "Mozilla/5.0");
@@ -96,8 +94,8 @@ public partial class GoogleDriveExtractor : IExtractor
                                     {
                                         sources.Add(new VideoSource
                                         {
-                                            Url  = hlsUrl,
-                                            Type = VideoType.M3U8,
+                                            Url     = hlsUrl,
+                                            Type    = VideoType.M3U8,
                                             Headers = new Dictionary<string, string>
                                             {
                                                 { "Referer", "https://drive.google.com/" },
@@ -148,23 +146,11 @@ public partial class GoogleDriveExtractor : IExtractor
 
                 var downloadUrl =
                     $"https://drive.usercontent.google.com/download?id={videoId}&export=download&confirm=t";
-
-                var quality =
-                    await _metadataReader.GetVideoQualityAsync(downloadUrl, cancellationToken: cancellationToken);
-
-                if (!quality.Equals("Auto", StringComparison.OrdinalIgnoreCase))
+                sources.Add(new VideoSource
                 {
-                    sources.Add(new VideoSource
-                    {
-                        Url     = downloadUrl,
-                        Quality = quality,
-                        Type    = VideoType.Mp4
-                    });
-                }
-                else
-                {
-                    _logger.LogWarning("dead link found for video ID: {VideoId}", videoId);
-                }
+                    Url  = downloadUrl,
+                    Type = VideoType.Mp4
+                });
             }
         }
         catch (Exception ex)

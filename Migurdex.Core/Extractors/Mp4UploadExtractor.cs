@@ -10,12 +10,10 @@ public partial class Mp4UploadExtractor : IExtractor
 {
     private readonly HttpClient                  _httpClient;
     private readonly ILogger<Mp4UploadExtractor> _logger;
-    private readonly IMp4MetadataReader          _metadataReader;
 
     public Mp4UploadExtractor(ISharedBridge bridge)
     {
         _httpClient     = bridge.CreateHttpClient();
-        _metadataReader = bridge.MetadataReader;
         _logger         = bridge.CreateLogger<Mp4UploadExtractor>();
     }
 
@@ -50,16 +48,9 @@ public partial class Mp4UploadExtractor : IExtractor
             {
                 var fileUrl = srcMatch.Groups[1].Value;
                 _logger.LogInformation("extracted MP4 URL: {FileUrl}", fileUrl);
-
-                var quality =
-                    await _metadataReader.GetVideoQualityAsync(fileUrl,
-                                                               "https://www.mp4upload.com/",
-                                                               cancellationToken: cancellationToken);
-
                 sources.Add(new VideoSource
                 {
                     Url     = fileUrl,
-                    Quality = quality,
                     Type    = VideoType.Mp4,
                     Headers = new Dictionary<string, string>
                     {
@@ -73,16 +64,9 @@ public partial class Mp4UploadExtractor : IExtractor
                 if (fallbackMatch.Success)
                 {
                     var fileUrl = fallbackMatch.Groups[1].Value;
-
-                    var quality =
-                        await _metadataReader.GetVideoQualityAsync(fileUrl,
-                                                                   "https://www.mp4upload.com/",
-                                                                   cancellationToken: cancellationToken);
-
                     sources.Add(new VideoSource
                     {
                         Url     = fileUrl,
-                        Quality = quality,
                         Type    = VideoType.Mp4,
                         Headers = new Dictionary<string, string>
                         {

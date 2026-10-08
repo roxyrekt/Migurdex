@@ -11,13 +11,11 @@ public partial class StreamainExtractor : IExtractor
 {
     private readonly HttpClient                  _httpClient;
     private readonly ILogger<StreamainExtractor> _logger;
-    private readonly IMp4MetadataReader          _metadataReader;
 
     public StreamainExtractor(ISharedBridge bridge)
     {
         _httpClient     = bridge.CreateHttpClient();
         _logger         = bridge.CreateLogger<StreamainExtractor>();
-        _metadataReader = bridge.MetadataReader;
     }
 
     public string Name => "Streamain";
@@ -72,13 +70,10 @@ public partial class StreamainExtractor : IExtractor
             if (dataLinkMatch.Success)
             {
                 var videoUrl = dataLinkMatch.Groups[1].Value;
-                var quality =
-                    await _metadataReader.GetVideoQualityAsync(videoUrl, cancellationToken: cancellationToken);
                 sources.Add(new VideoSource
                 {
-                    Url     = videoUrl,
-                    Quality = quality,
-                    Type    = VideoType.Mp4
+                    Url  = videoUrl,
+                    Type = VideoType.Mp4
                 });
             }
             else
@@ -87,13 +82,10 @@ public partial class StreamainExtractor : IExtractor
                 if (dataLinkMatch.Success)
                 {
                     var videoUrl = dataLinkMatch.Groups[1].Value;
-                    var quality =
-                        await _metadataReader.GetVideoQualityAsync(videoUrl, cancellationToken: cancellationToken);
                     sources.Add(new VideoSource
                     {
-                        Url     = videoUrl,
-                        Quality = quality,
-                        Type    = VideoType.Mp4
+                        Url  = videoUrl,
+                        Type = VideoType.Mp4
                     });
                 }
                 else

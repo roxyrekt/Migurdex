@@ -12,12 +12,10 @@ public partial class HexUploadExtractor : IExtractor
 {
     private readonly HttpClient                  _httpClient;
     private readonly ILogger<HexUploadExtractor> _logger;
-    private readonly IMp4MetadataReader          _metadataReader;
 
     public HexUploadExtractor(ISharedBridge bridge)
     {
         _httpClient     = bridge.CreateHttpClient();
-        _metadataReader = bridge.MetadataReader;
         _logger         = bridge.CreateLogger<HexUploadExtractor>();
     }
 
@@ -68,17 +66,10 @@ public partial class HexUploadExtractor : IExtractor
 
                 return sources;
             }
-
-            var quality =
-                await _metadataReader.GetVideoQualityAsync(videoUrl,
-                                                           "https://hexload.com/",
-                                                           cancellationToken: cancellationToken);
-
             sources.Add(new VideoSource
             {
-                Url     = videoUrl,
-                Quality = quality,
-                Type    = VideoType.Mp4
+                Url  = videoUrl,
+                Type = VideoType.Mp4
             });
         }
         catch (Exception ex)

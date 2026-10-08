@@ -37,7 +37,11 @@ public static class SourceSelector
             }
         }
 
-        return [.. ordered ?? rawList.OrderBy(s => 0)];
+        ordered = ordered is null
+                      ? rawList.OrderBy(s => 0).ThenByDescending(s => s.Bitrate ?? 0)
+                      : ordered.ThenByDescending(s => s.Bitrate ?? 0);
+
+        return [.. ordered];
     }
 
     public static bool IsExactMatch(VideoSource s, CliConfig config)

@@ -13,13 +13,11 @@ public partial class VoeExtractor : IExtractor
     private readonly HttpClient            _httpClient;
     private readonly ILogger<VoeExtractor> _logger;
     private readonly M3U8PlaylistExtractor _m3U8Extractor;
-    private readonly IMp4MetadataReader    _metadataReader;
 
     public VoeExtractor(M3U8PlaylistExtractor m3U8Extractor, ISharedBridge bridge)
     {
         _httpClient     = bridge.CreateHttpClient();
         _m3U8Extractor  = m3U8Extractor;
-        _metadataReader = bridge.MetadataReader;
         _logger         = bridge.CreateLogger<VoeExtractor>();
     }
 
@@ -159,16 +157,14 @@ public partial class VoeExtractor : IExtractor
                 var mp4Url = directProp.GetString();
                 if (!string.IsNullOrEmpty(mp4Url))
                 {
-                    var quality =
-                        await _metadataReader.GetVideoQualityAsync(mp4Url,
-                                                                   "https://voe.sx",
-                                                                   cancellationToken: cancellationToken);
-
                     sources.Add(new VideoSource
                     {
                         Url     = mp4Url,
-                        Quality = quality,
-                        Type    = VideoType.Mp4
+                        Type    = VideoType.Mp4,
+                        Headers = new Dictionary<string, string>
+                        {
+                            { "Referer", "https://voe.sx" }
+                        }
                     });
                 }
             }
