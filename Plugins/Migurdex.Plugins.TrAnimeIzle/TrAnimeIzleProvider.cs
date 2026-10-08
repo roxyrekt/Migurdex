@@ -194,7 +194,7 @@ public partial class TrAnimeIzleProvider : IAnimeProvider
                     seasonNum = parsedSeason;
                 }
 
-                double epNum   = 1;
+                double epNum;
                 var    epMatch = BolumTextRegex().Match(epText);
                 if (epMatch.Success
                     && double.TryParse(epMatch.Groups[1].Value.Replace(',', '.'),
@@ -203,6 +203,21 @@ public partial class TrAnimeIzleProvider : IAnimeProvider
                                        out var parsedEp))
                 {
                     epNum = parsedEp;
+                }
+                else
+                {
+                    var hrefMatch = BolumHrefRegex().Match(href);
+                    if (!hrefMatch.Success
+                        || !double.TryParse(hrefMatch.Groups[1].Value.Replace(',', '.'),
+                                            NumberStyles.Any,
+                                            CultureInfo.InvariantCulture,
+                                            out var parsedHrefEp)
+                        || !epText.Any(char.IsDigit))
+                    {
+                        continue;
+                    }
+
+                    epNum = parsedHrefEp;
                 }
 
                 parsedSeasons.Add(seasonNum);
@@ -491,6 +506,9 @@ public partial class TrAnimeIzleProvider : IAnimeProvider
 
     [GeneratedRegex(@"(\d+(?:[\.,]\d+)?)\.\s*Bölüm", RegexOptions.IgnoreCase)]
     private static partial Regex BolumTextRegex();
+
+    [GeneratedRegex(@"(\d+(?:[\.,]\d+)?)-bolum-izle", RegexOptions.IgnoreCase)]
+    private static partial Regex BolumHrefRegex();
 
     [GeneratedRegex(@"id=""EpisodeId""\s+name=""EpisodeId""\s+value=""(?<id>\d+)""")]
     private static partial Regex EpisodeIdInputRegex();
