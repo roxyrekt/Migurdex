@@ -32,7 +32,7 @@ public partial class TrAnimeIzleProvider : IAnimeProvider
     }
 
     public string       Name    => "TrAnimeIzle";
-    public string       BaseUrl => "https://www.tranimeizle.io";
+    public string       BaseUrl => "https://www.tranimeizle.live";
     public ProviderType Type    => ProviderType.Anime;
 
     public async Task<List<SearchResult>> SearchAsync(string query, CancellationToken cancellationToken = default)
