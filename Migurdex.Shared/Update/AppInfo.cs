@@ -19,6 +19,49 @@ public static class AppInfo
         return string.IsNullOrWhiteSpace(v) ? "0.0.0-dev" : NormalizeTag(v);
     }
 
+    public static string GetCommit()
+    {
+        var asm  = Assembly.GetEntryAssembly() ?? Assembly.GetExecutingAssembly();
+        var info = asm.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion;
+        return ParseCommit(info);
+    }
+
+    public static string GetFullVersion()
+    {
+        var version = GetVersion();
+        var commit  = GetCommit();
+        return string.IsNullOrEmpty(commit) ? version : $"{version} ({commit})";
+    }
+
+    public static string GetDisplayVersion()
+    {
+        var commit = GetCommit();
+        var suffix = string.IsNullOrEmpty(commit) ? string.Empty : $" {commit}";
+        return IsDevBuild ? $"dev{suffix}" : $"v{GetVersion()}{suffix}";
+    }
+
+    public static string ParseCommit(string? informationalVersion)
+    {
+        if (string.IsNullOrWhiteSpace(informationalVersion))
+        {
+            return string.Empty;
+        }
+
+        var plus = informationalVersion.IndexOf('+');
+        if (plus < 0 || plus == informationalVersion.Length - 1)
+        {
+            return string.Empty;
+        }
+
+        var commit = informationalVersion[(plus + 1)..].Trim();
+        if (commit.Length == 40 && commit.All(char.IsAsciiHexDigit))
+        {
+            return commit[..7];
+        }
+
+        return commit;
+    }
+
     public static string NormalizeTag(string? tag)
     {
         if (string.IsNullOrWhiteSpace(tag))

@@ -44,7 +44,7 @@ public static class Program
                           || a.Equals("-v", StringComparison.OrdinalIgnoreCase))
             || (args.Length > 0 && args[0].Equals("version", StringComparison.OrdinalIgnoreCase)))
         {
-            Console.WriteLine($"migurdex v{AppInfo.GetVersion()}");
+            Console.WriteLine($"migurdex {AppInfo.GetDisplayVersion()}");
             return 0;
         }
 

@@ -65,7 +65,7 @@ public class MainMenuView : BaseView
     {
         var lines = new List<string>
         {
-            AppInfo.IsDevBuild ? "[grey]dev[/]" : $"[grey]v{Markup.Escape(AppInfo.GetVersion())}[/]"
+            $"[grey]{Markup.Escape(AppInfo.GetDisplayVersion())}[/]"
         };
 
         try

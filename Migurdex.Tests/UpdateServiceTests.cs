@@ -19,6 +19,27 @@ public sealed class UpdateServiceTests
         Assert.Equal(expected, AppInfo.NormalizeTag(input));
     }
 
+    [Fact]
+    public void GetDisplayVersion_DevHidesPlaceholder()
+    {
+        Assert.StartsWith("dev", AppInfo.GetDisplayVersion());
+        Assert.DoesNotContain("0.0.0", AppInfo.GetDisplayVersion());
+    }
+
+    [Theory]
+    [InlineData("0.0.0+1ff11c0", "1ff11c0")]
+    [InlineData("0.0.0+1ff11c06876e1590e5c27324bafce017cf5c295e", "1ff11c0")]
+    [InlineData("1.2.3+a89ab71", "a89ab71")]
+    [InlineData("0.0.0", "")]
+    [InlineData("1.2.3", "")]
+    [InlineData(null, "")]
+    [InlineData("", "")]
+    [InlineData("0.0.0+", "")]
+    public void ParseCommit_ExtractsHash(string? input, string expected)
+    {
+        Assert.Equal(expected, AppInfo.ParseCommit(input));
+    }
+
     [Theory]
     [InlineData("1.2.3", "1.2.3", 0)]
     [InlineData("v1.2.3", "1.2.3", 0)]

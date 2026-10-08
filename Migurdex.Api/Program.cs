@@ -129,6 +129,7 @@ app.MapGet("/health",
            {
                status     = "OK",
                version    = AppInfo.GetVersion(),
+               commit     = AppInfo.GetCommit(),
                providers  = loader.Providers.Count,
                extractors = extractorManager.Extractors.Count,
                rust       = RustBridge.IsInitialized,
