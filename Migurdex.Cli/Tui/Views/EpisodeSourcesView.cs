@@ -113,7 +113,7 @@ public class EpisodeSourcesView : BaseView
             var src     = sorted[i];
             var group   = Theme.Ellipsize(src.Group ?? "Bilinmeyen", 22);
             var hoster  = Theme.Ellipsize(src.Hoster ?? "Bilinmeyen", 18);
-            var quality = src.Quality ?? "Auto";
+            var quality = src.DisplayLabel;
             var format  = src.Type.ToString();
 
             var idx = i + 1;
@@ -315,7 +315,7 @@ public class EpisodeSourcesView : BaseView
                                        ? " (tam eşleşme)"
                                        : string.Empty;
                     AnsiConsole.MarkupLine(
-                        $"[green]✓{exactTag}:[/] {Markup.Escape(bestSource.Hoster ?? "Bilinmeyen")} [grey]({Markup.Escape(bestSource.Quality ?? "Auto")} • {bestSource.Type})[/]");
+                        $"[green]✓{exactTag}:[/] {Markup.Escape(bestSource.Hoster ?? "Bilinmeyen")} [grey]({Markup.Escape(bestSource.DisplayLabel)} • {bestSource.Type})[/]");
 
                     await PlaySelectedSourceAsync(navigator,
                                                     bestSource,

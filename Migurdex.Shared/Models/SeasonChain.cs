@@ -1,4 +1,5 @@
 using Migurdex.Shared.Enums;
+using System.Text.Json.Serialization;
 
 namespace Migurdex.Shared.Models;
 
@@ -27,6 +28,7 @@ public sealed class RelationEdge
     public ContentFormat Format       { get; set; } = ContentFormat.Unknown;
 }
 
+[JsonConverter(typeof(JsonStringEnumConverter))]
 public enum EntryNumberingMode
 {
     Unknown,

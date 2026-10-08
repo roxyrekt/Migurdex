@@ -270,9 +270,9 @@ public class PlaybackMenuView : BaseView
             parts.Add(selectedSource.Hoster);
         }
 
-        if (!string.IsNullOrWhiteSpace(selectedSource.Quality))
+        if (!string.IsNullOrWhiteSpace(selectedSource.DisplayLabel))
         {
-            parts.Add(selectedSource.Quality);
+            parts.Add(selectedSource.DisplayLabel);
         }
 
         parts.Add(selectedSource.Type.ToString());

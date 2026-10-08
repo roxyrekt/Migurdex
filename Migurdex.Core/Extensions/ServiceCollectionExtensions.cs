@@ -16,7 +16,8 @@ public static class ServiceCollectionExtensions
         {
             var loader  = sp.GetRequiredService<PluginLoader>();
             var logger  = sp.GetRequiredService<ILogger<ExtractorManager>>();
-            var manager = new ExtractorManager(logger, loader);
+            var reader  = sp.GetRequiredService<IMp4MetadataReader>();
+            var manager = new ExtractorManager(logger, reader, loader);
 
             var m3U8 = sp.GetRequiredService<M3U8PlaylistExtractor>();
             manager.RegisterExtractor(m3U8);

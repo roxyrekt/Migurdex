@@ -10,12 +10,10 @@ public partial class YourUploadExtractor : IExtractor
 {
     private readonly HttpClient                   _httpClient;
     private readonly ILogger<YourUploadExtractor> _logger;
-    private readonly IMp4MetadataReader           _metadataReader;
 
     public YourUploadExtractor(ISharedBridge bridge)
     {
         _httpClient     = bridge.CreateHttpClient(o => o.AllowAutoRedirect = true);
-        _metadataReader = bridge.MetadataReader;
         _logger         = bridge.CreateLogger<YourUploadExtractor>();
     }
 
@@ -62,16 +60,9 @@ public partial class YourUploadExtractor : IExtractor
             if (!string.IsNullOrEmpty(fileUrl))
             {
                 _logger.LogInformation("extracted MP4 URL: {FileUrl}", fileUrl);
-
-                var quality =
-                    await _metadataReader.GetVideoQualityAsync(fileUrl,
-                                                               "https://www.yourupload.com/",
-                                                               cancellationToken: cancellationToken);
-
                 sources.Add(new VideoSource
                 {
                     Url     = fileUrl,
-                    Quality = quality,
                     Type    = VideoType.Mp4,
                     Headers = new Dictionary<string, string>
                     {

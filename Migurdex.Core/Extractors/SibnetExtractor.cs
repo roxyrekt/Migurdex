@@ -10,12 +10,10 @@ public partial class SibnetExtractor : IExtractor
 {
     private readonly HttpClient               _httpClient;
     private readonly ILogger<SibnetExtractor> _logger;
-    private readonly IMp4MetadataReader       _metadataReader;
 
     public SibnetExtractor(ISharedBridge bridge)
     {
         _httpClient     = bridge.CreateHttpClient();
-        _metadataReader = bridge.MetadataReader;
         _logger         = bridge.CreateLogger<SibnetExtractor>();
     }
 
@@ -86,17 +84,14 @@ public partial class SibnetExtractor : IExtractor
             }
 
             _logger.LogDebug("successfully resolved Sibnet CDN URL: {CdnUrl}", cdnUrl);
-
-            var quality =
-                await _metadataReader.GetVideoQualityAsync(cdnUrl,
-                                                           "https://video.sibnet.ru/",
-                                                           cancellationToken: cancellationToken);
-
             sources.Add(new VideoSource
             {
                 Url     = cdnUrl,
-                Quality = quality,
-                Type    = VideoType.Mp4
+                Type    = VideoType.Mp4,
+                Headers = new Dictionary<string, string>
+                {
+                    { "Referer", "https://video.sibnet.ru/" }
+                }
             });
         }
         catch (Exception ex)

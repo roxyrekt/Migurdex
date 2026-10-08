@@ -12,13 +12,11 @@ public partial class TurkanimeExtractor : IExtractor
 {
     private readonly HttpClient                  _httpClient;
     private readonly ILogger<TurkanimeExtractor> _logger;
-    private readonly IMp4MetadataReader          _metadataReader;
 
     public TurkanimeExtractor(ISharedBridge bridge)
     {
         _httpClient     = bridge.CreateHttpClient(o => o.UseCookies = true);
         _logger         = bridge.CreateLogger<TurkanimeExtractor>();
-        _metadataReader = bridge.MetadataReader;
     }
 
     public string Name => "Turkanime";
@@ -135,13 +133,6 @@ public partial class TurkanimeExtractor : IExtractor
                     if (fileUrl.Contains(".m3u8") || typeStr.Contains("application/x-mpegURL"))
                     {
                         type = VideoType.M3U8;
-                    }
-
-                    if (!label.Contains("p", StringComparison.OrdinalIgnoreCase))
-                    {
-                        label = await _metadataReader.GetVideoQualityAsync(
-                                    fileUrl,
-                                    cancellationToken: cancellationToken);
                     }
 
                     var srcHeaders = new Dictionary<string, string>

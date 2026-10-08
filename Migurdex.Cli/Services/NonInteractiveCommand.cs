@@ -288,7 +288,7 @@ public static class NonInteractiveCommand
         if (opts.Debug)
         {
             Console.WriteLine($"hoster: {best.Hoster ?? "bilinmiyor"}");
-            Console.WriteLine($"quality: {best.Quality}");
+            Console.WriteLine($"quality: {best.DisplayLabel}");
             Console.WriteLine($"type: {best.Type}");
             Console.WriteLine($"url: {best.Url}");
             if (best.Headers is { Count: > 0 })
@@ -327,8 +327,8 @@ public static class NonInteractiveCommand
         }
 
         PrintLine(
-            $"{details.Title} S{entry.Season}E{FormatNumber(entry.EpisodeNumber)} oynatılıyor [{best.Hoster ?? "bilinmiyor"} / {best.Quality}]...",
-            $"{Markup.Escape(details.Title)} [grey]S{entry.Season}E{FormatNumber(entry.EpisodeNumber)}[/] [cyan]oynatılıyor[/] [grey][[{Markup.Escape(best.Hoster ?? "bilinmiyor")} / {Markup.Escape(best.Quality)}]][/]...");
+            $"{details.Title} S{entry.Season}E{FormatNumber(entry.EpisodeNumber)} oynatılıyor [{best.Hoster ?? "bilinmiyor"} / {best.DisplayLabel}]...",
+            $"{Markup.Escape(details.Title)} [grey]S{entry.Season}E{FormatNumber(entry.EpisodeNumber)}[/] [cyan]oynatılıyor[/] [grey][[{Markup.Escape(best.Hoster ?? "bilinmiyor")} / {Markup.Escape(best.DisplayLabel)}]][/]...");
 
         var player  = services.GetRequiredService<IMpvPlayerService>();
         var outcome = await player.PlayAsync(best.Url, entry, best.Headers, best.Subtitles);

@@ -10,7 +10,6 @@ public partial class DoodStreamExtractor : IExtractor
 {
     private readonly HttpClient                   _httpClient;
     private readonly ILogger<DoodStreamExtractor> _logger;
-    private readonly IMp4MetadataReader           _metadataReader;
 
     public DoodStreamExtractor(ISharedBridge bridge)
     {
@@ -20,7 +19,6 @@ public partial class DoodStreamExtractor : IExtractor
             o.Emulation         = BrowserEmulation.Chrome120;
         });
 
-        _metadataReader = bridge.MetadataReader;
         _logger         = bridge.CreateLogger<DoodStreamExtractor>();
     }
 
@@ -134,16 +132,9 @@ public partial class DoodStreamExtractor : IExtractor
             var finalVideoUrl = $"{streamBase}{randomStr}?token={token}&expiry={expiry}";
 
             _logger.LogInformation("successfully extracted direct video URL");
-
-            var quality =
-                await _metadataReader.GetVideoQualityAsync(finalVideoUrl,
-                                                           baseDomain + "/",
-                                                           cancellationToken: cancellationToken);
-
             sources.Add(new VideoSource
             {
                 Url     = finalVideoUrl,
-                Quality = quality,
                 Type    = VideoType.Mp4,
                 Headers = new Dictionary<string, string>
                 {

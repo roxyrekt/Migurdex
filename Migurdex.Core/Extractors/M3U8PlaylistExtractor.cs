@@ -5,6 +5,7 @@ using Migurdex.Shared.Infrastructure;
 using Migurdex.Shared.Interfaces;
 using Migurdex.Shared.Models;
 using System.Net;
+using System.Text;
 using System.Text.RegularExpressions;
 
 namespace Migurdex.Core.Extractors;
@@ -101,7 +102,13 @@ public partial class M3U8PlaylistExtractor : IExtractor
                 AudioMediaRegex().IsMatch(content);
 
             var lines    = content.Split('\n', StringSplitOptions.RemoveEmptyEntries);
-            var variants = new List<(string Quality, int Height, string Url)>();
+            var variants = new List<(string Quality,
+                                    int Width,
+                                    int Height,
+                                    long? Bitrate,
+                                    string? VideoCodec,
+                                    string? AudioCodec,
+                                    string Url)>();
 
             for (var i = 0; i < lines.Length - 1; i++)
             {
@@ -118,17 +125,24 @@ public partial class M3U8PlaylistExtractor : IExtractor
                 }
 
                 var quality  = "Auto";
+                var width    = 0;
                 var height   = 0;
                 var resMatch = ResolutionRegex().Match(line);
                 if (resMatch.Success)
                 {
                     var parts = resMatch.Groups[1].Value.Split('x');
-                    if (parts.Length == 2 && int.TryParse(parts[1], out var parsedHeight))
+                    if (parts.Length == 2
+                        && int.TryParse(parts[0], out var parsedWidth)
+                        && int.TryParse(parts[1], out var parsedHeight))
                     {
+                        width   = parsedWidth;
                         height  = parsedHeight;
                         quality = $"{parsedHeight}p";
                     }
                 }
+
+                var bitrate = ParseBandwidth(line);
+                var (videoCodec, audioCodec) = ParseCodecs(line);
 
                 string segUrl;
                 if (Uri.TryCreate(baseUri, segmentLine, out var combinedUri))
@@ -149,40 +163,62 @@ public partial class M3U8PlaylistExtractor : IExtractor
                     }
                 }
 
-                variants.Add((quality, height, segUrl));
+                variants.Add((quality, width, height, bitrate, videoCodec, audioCodec, segUrl));
                 i++;
             }
 
             if (variants.Count > 0)
             {
-                var maxVariant = variants.OrderByDescending(v => v.Height).First();
-                var maxQuality = maxVariant.Height > 0 ? $"{maxVariant.Height}p" : "Auto";
+                var maxVariant = variants.OrderByDescending(v => v.Height)
+                                         .ThenByDescending(v => v.Bitrate ?? 0)
+                                         .First();
+                var maxQuality   = maxVariant.Height > 0 ? $"{maxVariant.Height}p" : "Auto";
+                var mediaSeconds = await TryGetVariantDurationAsync(maxVariant.Url, headers, cancellationToken);
 
                 if (hasSeparateAudio)
                 {
                     sources.Add(new VideoSource
                     {
-                        Url     = url,
-                        Quality = maxQuality,
-                        Type    = VideoType.M3U8
+                        Url             = url,
+                        Quality         = maxQuality,
+                        Bitrate         = maxVariant.Bitrate,
+                        Width           = maxVariant.Width > 0 ? maxVariant.Width : null,
+                        Height          = maxVariant.Height > 0 ? maxVariant.Height : null,
+                        VideoCodec      = maxVariant.VideoCodec,
+                        AudioCodec      = maxVariant.AudioCodec,
+                        DurationSeconds = mediaSeconds,
+                        Type            = VideoType.M3U8
                     });
                 }
                 else
                 {
                     sources.Add(new VideoSource
                     {
-                        Url     = url,
-                        Quality = "Auto",
-                        Type    = VideoType.M3U8
+                        Url             = url,
+                        Quality         = "Auto",
+                        Bitrate         = maxVariant.Bitrate,
+                        Width           = maxVariant.Width > 0 ? maxVariant.Width : null,
+                        Height          = maxVariant.Height > 0 ? maxVariant.Height : null,
+                        VideoCodec      = maxVariant.VideoCodec,
+                        AudioCodec      = maxVariant.AudioCodec,
+                        DurationSeconds = mediaSeconds,
+                        Type            = VideoType.M3U8
                     });
 
-                    foreach (var variant in variants.OrderByDescending(v => v.Height))
+                    foreach (var variant in variants.OrderByDescending(v => v.Height)
+                                                    .ThenByDescending(v => v.Bitrate ?? 0))
                     {
                         sources.Add(new VideoSource
                         {
-                            Url     = variant.Url,
-                            Quality = variant.Quality,
-                            Type    = VideoType.M3U8
+                            Url             = variant.Url,
+                            Quality         = variant.Quality,
+                            Bitrate         = variant.Bitrate,
+                            Width           = variant.Width > 0 ? variant.Width : null,
+                            Height          = variant.Height > 0 ? variant.Height : null,
+                            VideoCodec      = variant.VideoCodec,
+                            AudioCodec      = variant.AudioCodec,
+                            DurationSeconds = mediaSeconds,
+                            Type            = VideoType.M3U8
                         });
                     }
                 }
@@ -222,9 +258,10 @@ public partial class M3U8PlaylistExtractor : IExtractor
 
                 sources.Add(new VideoSource
                 {
-                    Url     = url,
-                    Quality = quality,
-                    Type    = VideoType.M3U8
+                    Url             = url,
+                    Quality         = quality,
+                    DurationSeconds = ParseSegmentDuration(content),
+                    Type            = VideoType.M3U8
                 });
             }
         }
@@ -245,6 +282,189 @@ public partial class M3U8PlaylistExtractor : IExtractor
 
     [GeneratedRegex(@"RESOLUTION=(\d+x\d+)", RegexOptions.IgnoreCase)]
     private static partial Regex ResolutionRegex();
+
+    private const long MaxBandwidthBps = 1_000_000_000;
+
+    public static long? ParseBandwidth(string streamInfLine)
+    {
+        var average = AverageBandwidthRegex().Match(streamInfLine);
+        if (average.Success
+            && long.TryParse(average.Groups[1].Value, out var averageBits)
+            && IsSaneBandwidth(averageBits))
+        {
+            return averageBits;
+        }
+
+        var peak = BandwidthRegex().Match(streamInfLine);
+        if (peak.Success
+            && long.TryParse(peak.Groups[1].Value, out var peakBits)
+            && IsSaneBandwidth(peakBits))
+        {
+            return peakBits;
+        }
+
+        return null;
+    }
+
+    private static bool IsSaneBandwidth(long bits)
+    {
+        return bits is > 0 and < MaxBandwidthBps;
+    }
+
+    [GeneratedRegex(@"AVERAGE-BANDWIDTH=(\d+)", RegexOptions.IgnoreCase)]
+    private static partial Regex AverageBandwidthRegex();
+
+    [GeneratedRegex(@"(?<!-)BANDWIDTH=(\d+)", RegexOptions.IgnoreCase)]
+    private static partial Regex BandwidthRegex();
+
+    [GeneratedRegex(@"CODECS=""([^""]+)""", RegexOptions.IgnoreCase)]
+    private static partial Regex CodecsRegex();
+
+
+    public static (string? VideoCodec, string? AudioCodec) ParseCodecs(string streamInfLine)
+    {
+        var match = CodecsRegex().Match(streamInfLine);
+        if (!match.Success)
+        {
+            return (null, null);
+        }
+
+        string? video = null;
+        string? audio = null;
+
+        var parts = match.Groups[1].Value.Split(',', StringSplitOptions.RemoveEmptyEntries
+                                                     | StringSplitOptions.TrimEntries);
+        foreach (var part in parts)
+        {
+            var tag    = part.Split('.')[0].Trim().ToLowerInvariant();
+            var mapped = MapCodecTag(tag);
+            if (mapped is null)
+            {
+                continue;
+            }
+
+            if (IsAudioCodecTag(tag))
+            {
+                audio ??= mapped;
+            }
+            else
+            {
+                video ??= mapped;
+            }
+        }
+
+        return (video, audio);
+    }
+
+    public static string? MapCodecTag(string tag)
+    {
+        return tag.ToLowerInvariant() switch
+        {
+            "avc1"            => "H.264",
+            "hev1" or "hvc1"  => "H.265",
+            "vp09"            => "VP9",
+            "av01"            => "AV1",
+            "mp4v"            => "MPEG-4",
+            "mp4a"            => "AAC",
+            "ec-3" or "ec3"   => "E-AC-3",
+            "ac-3" or "ac3"   => "AC-3",
+            "opus"            => "Opus",
+            "vorbis"          => "Vorbis",
+            _                 => null
+        };
+    }
+
+    public static double? ParseSegmentDuration(string playlistContent)
+    {
+        double total = 0;
+        var    count = 0;
+
+        foreach (var rawLine in playlistContent.Split('\n'))
+        {
+            if (count >= 10000)
+            {
+                break;
+            }
+
+            var line = rawLine.Trim();
+            if (!line.StartsWith("#EXTINF:", StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            var value = line["#EXTINF:".Length..];
+            var comma = value.IndexOf(',');
+            var number = (comma < 0 ? value : value[..comma]).Trim();
+
+            if (double.TryParse(number,
+                                System.Globalization.NumberStyles.Float,
+                                System.Globalization.CultureInfo.InvariantCulture,
+                                out var seconds)
+                && seconds > 0)
+            {
+                total += seconds;
+                count++;
+            }
+        }
+
+        return total > 0 ? Math.Round(total, 3) : null;
+    }
+
+    private async Task<double?> TryGetVariantDurationAsync(string variantUrl,
+        IDictionary<string, string>?                                     headers,
+        CancellationToken                                                cancellationToken)
+    {
+        try
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Get, variantUrl);
+            request.Headers.TryAddWithoutValidation("User-Agent",
+                                                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:151.0) Gecko/20100101 Firefox/151.0");
+            request.Headers.Add("Accept", "*/*");
+            request.AddHeaders(headers);
+
+            using var response =
+                await _httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
+            if (!response.IsSuccessStatusCode)
+            {
+                return null;
+            }
+
+            if (response.Content.Headers.ContentLength is > 2_097_152)
+            {
+                return null;
+            }
+
+            await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
+            using var reader       = new StreamReader(stream, Encoding.UTF8, false, 8192, true);
+
+            var content = new StringBuilder();
+            var buffer  = new char[8192];
+            int count;
+            while ((count = await reader.ReadAsync(buffer.AsMemory(), cancellationToken)) > 0)
+            {
+                content.Append(buffer, 0, count);
+                if (content.Length > 2_097_152)
+                {
+                    return null;
+                }
+            }
+
+            return ParseSegmentDuration(content.ToString());
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static bool IsAudioCodecTag(string tag)
+    {
+        return tag is "mp4a" or "ec-3" or "ec3" or "ac-3" or "ac3" or "opus" or "vorbis";
+    }
 
     private static Dictionary<string, string>? MergeSourceHeaders(
         Dictionary<string, string>?                  sourceHeaders,

@@ -298,7 +298,6 @@ public partial class TurkanimeProvider : IAnimeProvider
                 sources.Add(new VideoSource
                 {
                     Hoster  = serverName,
-                    Quality = "Bilinmiyor",
                     Url     = cleanUrl,
                     Group   = string.IsNullOrWhiteSpace(fansub) ? "Varsayılan" : fansub,
                     Type    = VideoType.Embed

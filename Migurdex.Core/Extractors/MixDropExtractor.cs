@@ -11,13 +11,11 @@ public partial class MixDropExtractor : IExtractor
 {
     private readonly HttpClient                _httpClient;
     private readonly ILogger<MixDropExtractor> _logger;
-    private readonly IMp4MetadataReader        _metadataReader;
 
     public MixDropExtractor(ISharedBridge bridge)
     {
         _httpClient     = bridge.CreateHttpClient();
         _logger         = bridge.CreateLogger<MixDropExtractor>();
-        _metadataReader = bridge.MetadataReader;
 
         _httpClient.DefaultRequestHeaders.Add("User-Agent", "Mozilla/5.0");
     }
@@ -63,17 +61,9 @@ public partial class MixDropExtractor : IExtractor
                     {
                         videoUrl = "https:" + videoUrl;
                     }
-
-                    var quality = await _metadataReader.GetVideoQualityAsync(videoUrl,
-                                                                             new Dictionary<string, string>
-                                                                             {
-                                                                                 { "User-Agent", "Mozilla/5.0" }
-                                                                             });
-
                     sources.Add(new VideoSource
                     {
                         Url     = videoUrl,
-                        Quality = quality,
                         Type    = VideoType.Mp4,
                         Headers = new Dictionary<string, string>
                         {

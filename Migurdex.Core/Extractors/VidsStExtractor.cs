@@ -11,13 +11,11 @@ public partial class VidsStExtractor : IExtractor
     private readonly HttpClient               _httpClient;
     private readonly ILogger<VidsStExtractor> _logger;
     private readonly M3U8PlaylistExtractor    _m3U8Extractor;
-    private readonly IMp4MetadataReader       _metadataReader;
 
     public VidsStExtractor(M3U8PlaylistExtractor m3U8Extractor, ISharedBridge bridge)
     {
         _httpClient     = bridge.CreateHttpClient(o => o.SkipCertVerify = true);
         _m3U8Extractor  = m3U8Extractor;
-        _metadataReader = bridge.MetadataReader;
         _logger         = bridge.CreateLogger<VidsStExtractor>();
     }
 
@@ -113,15 +111,14 @@ public partial class VidsStExtractor : IExtractor
             }
             else
             {
-                var quality =
-                    await _metadataReader.GetVideoQualityAsync(videoUrl,
-                                                               hostReferer,
-                                                               cancellationToken: cancellationToken);
                 sources.Add(new VideoSource
                 {
                     Url     = videoUrl,
-                    Quality = quality,
-                    Type    = VideoType.Mp4
+                    Type    = VideoType.Mp4,
+                    Headers = new Dictionary<string, string>
+                    {
+                        { "Referer", hostReferer }
+                    }
                 });
             }
         }
