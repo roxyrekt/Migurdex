@@ -123,4 +123,57 @@ public sealed class TuiMarkupSafetyTests
 
         Assert.True(error is null, $"Markup ayrıştırılamadı: '{markup}' → {error?.Message}");
     }
+
+    [Fact]
+    public void FormatSources_AlignsFirstSeparator()
+    {
+        var sources = new List<VideoSource>
+        {
+            new()
+            {
+                Group = "A",
+                Hoster = "LongHoster",
+                Quality = "1080p",
+                Bitrate = 6_000_000,
+                VideoCodec = "H.264",
+                Type = VideoType.Mp4
+            },
+            new()
+            {
+                Group = "LongGroupName",
+                Hoster = "B",
+                Quality = "480p",
+                Type = VideoType.M3U8
+            }
+        };
+
+        var choices = EpisodeSourcesView.FormatSources(sources, new CliConfig());
+        var firstSeparators = choices.Select(c => Markup.Remove(c.Display).IndexOf('•')).Distinct().ToList();
+
+        Assert.Single(firstSeparators);
+    }
+
+    [Theory]
+    [InlineData("1080p", "green")]
+    [InlineData("2160p", "green")]
+    [InlineData("720p", "yellow")]
+    [InlineData("480p", "grey")]
+    [InlineData("360p", "grey")]
+    [InlineData("Auto", "grey")]
+    [InlineData("", "red")]
+    [InlineData(null, "red")]
+    public void QualityColor_Maps(string? quality, string expected)
+    {
+        Assert.Equal(expected, EpisodeSourcesView.QualityColor(quality));
+    }
+
+    [Theory]
+    [InlineData(VideoType.M3U8, "blue")]
+    [InlineData(VideoType.Mp4, "green")]
+    [InlineData(VideoType.Embed, "grey")]
+    [InlineData(VideoType.Unknown, "grey")]
+    public void FormatColor_Maps(VideoType type, string expected)
+    {
+        Assert.Equal(expected, EpisodeSourcesView.FormatColor(type));
+    }
 }

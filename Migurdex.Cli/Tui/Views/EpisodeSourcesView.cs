@@ -107,29 +107,102 @@ public class EpisodeSourcesView : BaseView
     {
         var sorted = SourceSelector.SortVideoSources(rawList, config);
 
-        var selectList = new List<FuzzyChoice>();
-        for (var i = 0; i < sorted.Count; i++)
-        {
-            var src     = sorted[i];
-            var group   = Theme.Ellipsize(src.Group ?? "Bilinmeyen", 22);
-            var hoster  = Theme.Ellipsize(src.Hoster ?? "Bilinmeyen", 18);
-            var quality = src.DisplayLabel;
-            var format  = src.Type.ToString();
+        var rows = sorted.Select(src => new SourceRow(src)).ToList();
 
-            var idx = i + 1;
+        var groupW   = rows.Count > 0 ? rows.Max(r => r.Group.Length) : 0;
+        var hosterW  = rows.Count > 0 ? rows.Max(r => r.Hoster.Length) : 0;
+        var qualityW = rows.Count > 0 ? rows.Max(r => r.Quality.Length) : 0;
+        var bitrateW = rows.Count > 0 ? rows.Max(r => r.Bitrate.Length) : 0;
+        var codecW   = rows.Count > 0 ? rows.Max(r => r.Codec.Length) : 0;
+        var formatW  = rows.Count > 0 ? rows.Max(r => r.Format.Length) : 0;
+
+        var selectList = new List<FuzzyChoice>();
+        var idxWidth   = rows.Count.ToString().Length;
+        for (var i = 0; i < rows.Count; i++)
+        {
+            var row          = rows[i];
+            var qualityColor = QualityColor(row.Src.Quality);
+            var formatColor  = FormatColor(row.Src.Type);
+            var bitratePart  = row.Bitrate.Length == 0
+                                   ? " " + new string(' ', bitrateW)
+                                   : $" [{qualityColor}]{Markup.Escape(row.Bitrate.PadRight(bitrateW))}[/]";
+            var codecPart = row.Codec.Length == 0
+                                ? " " + new string(' ', codecW)
+                                : $" [grey]{Markup.Escape(row.Codec.PadRight(codecW))}[/]";
+
+            var idx       = (i + 1).ToString().PadLeft(idxWidth);
+            var idxMarkup = $"[grey]#{idx}[/]";
 
             selectList.Add(new FuzzyChoice
             {
                 Display =
-                    $"[grey]#{idx}[/] {Markup.Escape(group)} [grey]•[/] {Markup.Escape(hoster)} [grey]•[/] [white]{Markup.Escape(quality)}[/] [grey]• {format}[/]",
+                    $"{idxMarkup} [silver]{Markup.Escape(row.Group.PadRight(groupW))}[/] [grey]•[/] [cyan]{Markup.Escape(row.Hoster.PadRight(hosterW))}[/] [grey]•[/] [{qualityColor}]{Markup.Escape(row.Quality.PadRight(qualityW))}[/]{bitratePart}{codecPart} [grey]• [{formatColor}]{row.Format.PadRight(formatW)}[/][/]",
                 DisplayActive =
-                    $"[bold white]{Markup.Escape(group)} • {Markup.Escape(hoster)} • {Markup.Escape(quality)}[/] [grey]• {format}[/]",
-                Searchable      = $"#{idx} - {group} | {hoster} | {quality} | {format}",
-                AssociatedValue = src
+                    $"[bold silver]{Markup.Escape(row.Group.PadRight(groupW))}[/] [grey]•[/] [bold cyan]{Markup.Escape(row.Hoster.PadRight(hosterW))}[/] [grey]•[/] [bold {qualityColor}]{Markup.Escape(row.Quality.PadRight(qualityW))}[/]{bitratePart}{codecPart} [grey]• [bold {formatColor}]{row.Format.PadRight(formatW)}[/][/]",
+                Searchable      = $"#{i + 1} - {row.Group} | {row.Hoster} | {row.Src.DisplayLabel} | {row.Format}",
+                AssociatedValue = row.Src
             });
         }
 
         return selectList;
+    }
+
+    private sealed class SourceRow
+    {
+        public SourceRow(VideoSource src)
+        {
+            Src     = src;
+            Group   = Theme.Ellipsize(src.Group ?? "Bilinmeyen", 22);
+            Hoster  = Theme.Ellipsize(src.Hoster ?? "Bilinmeyen", 18);
+            Quality = string.IsNullOrEmpty(src.Quality) ? "Çözülemedi" : src.Quality;
+            Bitrate = VideoSource.FormatBitrate(src.Bitrate);
+            Codec   = src.VideoCodec ?? string.Empty;
+            Format  = src.Type.ToString();
+        }
+
+        public VideoSource Src     { get; }
+        public string      Group   { get; }
+        public string      Hoster  { get; }
+        public string      Quality { get; }
+        public string      Bitrate { get; }
+        public string      Codec   { get; }
+        public string      Format  { get; }
+    }
+
+    internal static string QualityColor(string? quality)
+    {
+        if (string.IsNullOrEmpty(quality))
+        {
+            return "red";
+        }
+
+        var digits = new string(quality.TakeWhile(char.IsDigit).ToArray());
+        if (int.TryParse(digits, out var height))
+        {
+            if (height >= 1080)
+            {
+                return "green";
+            }
+
+            if (height >= 720)
+            {
+                return "yellow";
+            }
+
+            return "grey";
+        }
+
+        return quality.Equals("Auto", StringComparison.OrdinalIgnoreCase) ? "grey" : "silver";
+    }
+
+    internal static string FormatColor(VideoType type)
+    {
+        return type switch
+        {
+            VideoType.M3U8 => "blue",
+            VideoType.Mp4  => "green",
+            _              => "grey"
+        };
     }
 
     public override string GetRpcState()
