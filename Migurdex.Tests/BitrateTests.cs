@@ -7,6 +7,7 @@ using Migurdex.Shared.Enums;
 using Migurdex.Shared.Interfaces;
 using Migurdex.Shared.Models;
 using Microsoft.Extensions.Logging;
+using System.Text.Json;
 using Xunit;
 
 namespace Migurdex.Tests;
@@ -506,6 +507,33 @@ public sealed class BitrateTests
     public void ParseBandwidth_CapsAbsurdValues(string line, long? expected)
     {
         Assert.Equal(expected, M3U8PlaylistExtractor.ParseBandwidth(line));
+    }
+
+    [Fact]
+    public void WireEnums_SerializeAsString()
+    {
+        Assert.Equal("\"Tv\"", JsonSerializer.Serialize(ContentFormat.Tv));
+        Assert.Equal("\"AniList\"", JsonSerializer.Serialize(MetadataSource.AniList));
+        Assert.Equal("\"Mp4\"", JsonSerializer.Serialize(VideoType.Mp4));
+        Assert.Equal("\"Anime\"", JsonSerializer.Serialize(ProviderType.Anime));
+        Assert.Equal("\"PerSeason\"", JsonSerializer.Serialize(EntryNumberingMode.PerSeason));
+        Assert.Equal("\"Search, Fansubs\"",
+                     JsonSerializer.Serialize(ProviderCapabilities.Search | ProviderCapabilities.Fansubs));
+    }
+
+    [Fact]
+    public void VideoType_SerializesAsString_ReadsBothForms()
+    {
+        var source  = new VideoSource { Url = "https://example.com/a.mp4", Type = VideoType.Mp4 };
+        var options = new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
+
+        var json = JsonSerializer.Serialize(source, options);
+
+        Assert.Contains("\"type\":\"Mp4\"", json);
+        Assert.Equal(VideoType.Mp4,
+                     JsonSerializer.Deserialize<VideoSource>("{\"url\":\"x\",\"type\":\"Mp4\"}", options)!.Type);
+        Assert.Equal(VideoType.Mp4,
+                     JsonSerializer.Deserialize<VideoSource>("{\"url\":\"x\",\"type\":1}", options)!.Type);
     }
 
     [Fact]

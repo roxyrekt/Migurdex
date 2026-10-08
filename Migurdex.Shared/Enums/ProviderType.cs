@@ -1,6 +1,9 @@
+using System.Text.Json.Serialization;
+
 namespace Migurdex.Shared.Enums;
 
 [Flags]
+[JsonConverter(typeof(JsonStringEnumConverter))]
 public enum ProviderType
 {
     Anime   = 1 << 0,
