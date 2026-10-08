@@ -29,6 +29,7 @@ Terminalden Türkçe anime aramak ve izlemek için araç. TUI + yerel HTTP API +
 - Geçmiş, favoriler, arama geçmişi
 - Discord RPC (ayarlanabilir)
 - Otomatik kaynak seçimi (sunucu / kalite / tür kuralları, uymazsa manuel liste)
+- Kaynak metadata'sı: bitrate, codec, boyut ve süre otomatik çıkarılır, liste kaliteye göre renklidir
 - Gizli mod (geçmiş ve senkronu duraklatır)
 - Sağlayıcı açma/kapama ve sıralama öncelikleri
 
@@ -126,6 +127,8 @@ migurdex download "naruto" -s 2 -p TurkAnime -g FansubAdı -o ~/Videos/Anime
 migurdex download "bleach" -e 1 --format mp4 --no-subs
 migurdex download "bleach" -e 1 --format hls --force --no-resume
 migurdex download "bleach" -e 1 --json       # stdout yalnız JSON, ilerleme stderr'de
+migurdex blame                                # kaynak çözümleme süre ve hata dökümü
+migurdex blame --json                         # JSON çıktı
 ```
 
 `download` akışı Search -> Details -> Episode -> Group/Source sırasını izler. Yalnız API'nin çözdüğü doğrudan `MP4` ve
@@ -157,7 +160,8 @@ migurdex update                                    # yeni sürüm varsa onaylı 
 migurdex update --no-restart                       # kurar ama yeniden başlatmaz
 migurdex update --check                            # sadece kontrol eder
 migurdex update --channel prerelease               # bu seferlik pre-release kanalından bakar
-migurdex --version                                 # kurulu sürüm
+migurdex update --channel nightly                  # bu seferlik etiketsiz son main derlemesine bakar
+migurdex --version                                 # kurulu sürüm (dev derlemede commit hash'i)
 ```
 
 Kanal ve otomatik kontrol Ayarlar menüsünden değiştirilir (Güncelleme Kontrolü / Güncelleme Kanalı). Kontrolü bir
