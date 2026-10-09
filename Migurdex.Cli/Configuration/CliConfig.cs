@@ -1,3 +1,5 @@
+using System.Text.RegularExpressions;
+
 namespace Migurdex.Cli.Configuration;
 
 public class CliConfig
@@ -14,6 +16,10 @@ public class CliConfig
     private string _downloadDirectory   = DefaultDownloadDirectory;
     private int    _downloadConcurrency = DefaultDownloadConcurrency;
     private string _ytDlpPath           = "yt-dlp";
+
+    private static readonly Regex EnvironmentVariablePattern = new(
+        @"%(?<percent>[^%]+)%|\$(?:\{(?<braced>[A-Za-z_][A-Za-z0-9_]*)\}|(?<plain>[A-Za-z_][A-Za-z0-9_]*))",
+        RegexOptions.Compiled | RegexOptions.CultureInvariant);
 
     public string       ApiBaseUrl               { get; set; } = "http://127.0.0.1:7045";
     public string       PreferredPlayer          { get; set; } = "mpv";
@@ -150,7 +156,8 @@ public class CliConfig
 
     /// <summary>
     /// İndirme dizinini kalıcı olarak kullanılacak biçime getirir: baştaki/sondaki boşluk ve
-    /// tırnaklar atılır, <c>~</c> kullanıcı profiline açılır, <c>%DEĞİŞKEN%</c> / <c>$DEĞİŞKEN</c>
+    /// tırnaklar atılır, <c>~</c> kullanıcı profiline açılır, <c>%DEĞİŞKEN%</c>, <c>$DEĞİŞKEN</c> /
+    /// <c>${DEĞİŞKEN}</c>
     /// ortam değişkenleri genişletilir. Boş sonuç varsayılan dizine düşer.
     /// </summary>
     public static string NormalizeDownloadDirectory(string? path)
@@ -176,7 +183,15 @@ public class CliConfig
             }
         }
 
-        var expanded = Environment.ExpandEnvironmentVariables(trimmed);
+        var expanded = EnvironmentVariablePattern.Replace(trimmed, match =>
+        {
+            var variableName = match.Groups["percent"].Success
+                                   ? match.Groups["percent"].Value
+                                   : match.Groups["braced"].Success
+                                       ? match.Groups["braced"].Value
+                                       : match.Groups["plain"].Value;
+            return Environment.GetEnvironmentVariable(variableName) ?? match.Value;
+        });
         return string.IsNullOrWhiteSpace(expanded) ? DefaultDownloadDirectory : expanded;
     }
 

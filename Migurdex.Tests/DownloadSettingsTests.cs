@@ -112,17 +112,44 @@ public sealed class DownloadSettingsTests
         Environment.SetEnvironmentVariable(variableName, root);
         try
         {
-            var resolved = CliConfig.NormalizeDownloadDirectory($@"%{variableName}%\Anime");
+            var input = OperatingSystem.IsWindows()
+                            ? $"%{variableName}%{Path.DirectorySeparatorChar}Anime"
+                            : $"${variableName}{Path.DirectorySeparatorChar}Anime";
+            var resolved = CliConfig.NormalizeDownloadDirectory(input);
 
-            // Windows'ta %DEĞİŞKEN% genişler; diğer platformlarda yol aynen korunur.
-            if (OperatingSystem.IsWindows())
-            {
-                Assert.Equal(root + "\\Anime", resolved);
-            }
-            else
-            {
-                Assert.Equal($@"%{variableName}%\Anime", resolved);
-            }
+            Assert.Equal(Path.Combine(root, "Anime"), resolved);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable(variableName, previous);
+        }
+    }
+
+    [Fact]
+    public void DownloadDirectory_ExpandsAllVariableSyntaxesOnEveryPlatform()
+    {
+        var variableName = "MIGURDEX_TEST_ROOT";
+        var previous     = Environment.GetEnvironmentVariable(variableName);
+        var root         = Path.Combine(Path.GetTempPath(), "migurdex-env-root");
+        Environment.SetEnvironmentVariable(variableName, root);
+        try
+        {
+            var suffix = $"{Path.DirectorySeparatorChar}Anime";
+
+            Assert.Equal(Path.Combine(root, "Anime"),
+                         CliConfig.NormalizeDownloadDirectory($"%{variableName}%{suffix}"));
+            Assert.Equal(Path.Combine(root, "Anime"),
+                         CliConfig.NormalizeDownloadDirectory($"${variableName}{suffix}"));
+            Assert.Equal(Path.Combine(root, "Anime"),
+                         CliConfig.NormalizeDownloadDirectory($"${{{variableName}}}{suffix}"));
+
+            var missingVariable = "MIGURDEX_UNSET_" + Guid.NewGuid().ToString("N");
+            Assert.Equal($"%{missingVariable}%{suffix}",
+                         CliConfig.NormalizeDownloadDirectory($"%{missingVariable}%{suffix}"));
+            Assert.Equal($"${missingVariable}{suffix}",
+                         CliConfig.NormalizeDownloadDirectory($"${missingVariable}{suffix}"));
+            Assert.Equal($"${{{missingVariable}}}{suffix}",
+                         CliConfig.NormalizeDownloadDirectory($"${{{missingVariable}}}{suffix}"));
         }
         finally
         {
