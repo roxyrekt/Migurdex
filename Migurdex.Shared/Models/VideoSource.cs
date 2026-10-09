@@ -1,4 +1,5 @@
 using Migurdex.Shared.Enums;
+using System.Globalization;
 
 namespace Migurdex.Shared.Models;
 
@@ -40,12 +41,16 @@ public class VideoSource
 
         if (bitrate >= 1_000_000)
         {
-            return $"{bitrate.Value / 1_000_000.0:0.#} Mbps";
+            return string.Format(CultureInfo.InvariantCulture,
+                                "{0:0.#} Mbps",
+                                bitrate.Value / 1_000_000.0);
         }
 
         if (bitrate >= 1_000)
         {
-            return $"{bitrate.Value / 1_000.0:0.#} kbps";
+            return string.Format(CultureInfo.InvariantCulture,
+                                "{0:0.#} kbps",
+                                bitrate.Value / 1_000.0);
         }
 
         return $"{bitrate.Value} bps";
