@@ -9,6 +9,13 @@ namespace Migurdex.Cli.Tui.Views;
 
 public class SettingsView : BaseView
 {
+    /// <summary>
+    /// Tablonun dışındaki gerçek çerçeve satırları: başlık + boşluk (2), tablo öncesi boşluk (1),
+    /// tablo sonrası boşluk (1) ve ipucu (1) = 5. <see cref="ListWindow.Budget"/> üstüne bölüm
+    /// başlığı ve taşma payı ekler.
+    /// </summary>
+    internal const int ChromeRows = 5;
+
     private static readonly string[]              _rpcTitleModes = ["Migurdex", "Sağlayıcı", "İçerik"];
     private readonly        AniListOAuthClient    _aniListOAuth;
     private readonly        IApiClientService     _apiClient;
@@ -102,6 +109,20 @@ public class SettingsView : BaseView
                 Id          = "DownloadOverwrite",
                 Label       = "Üzerine Yaz",
                 ValueGetter = c => c.DownloadOverwrite ? "Açık" : "Kapalı"
+            },
+            new()
+            {
+                Id          = "ParallelDownload",
+                Label       = "Paralel İndirme",
+                ValueGetter = c => c.DownloadParallelEnabled ? "Açık" : "Kapalı"
+            },
+            new()
+            {
+                Id          = "DownloadConcurrency",
+                Label       = "Eşzamanlı İndirme",
+                ValueGetter = c => c.DownloadParallelEnabled
+                                       ? $"{c.DownloadConcurrency} bölüm"
+                                       : $"{c.DownloadConcurrency} bölüm (paralel kapalı)"
             },
             new()
             {
@@ -222,13 +243,22 @@ public class SettingsView : BaseView
         cursorIndex = NextSelectable(items, cursorIndex, 1);
         var baseline = SnapshotConfig();
 
-        Grid BuildTable(CliConfig config)
+        // Kısa terminalde tablo ekrandan taşarsa terminal kayar: başlık yukarı kaçar, eski
+        // karelerden kalıntı kalır. Pencereleme matematiği ListWindow'da ve test edilir;
+        // burada yalnızca terminalden türetilen satır bütçesi verilir.
+        (int Start, int End) VisibleWindow()
+        {
+            var budget = ListWindow.Budget(TuiConsole.WindowHeight, ChromeRows, items.Count);
+            return ListWindow.Compute(items.Count, cursorIndex, budget, i => items[i].IsSection);
+        }
+
+        Grid BuildTable(CliConfig config, int winStart, int winEnd)
         {
             var table = new Table().NoBorder().HideHeaders();
             table.AddColumn("Label", c => c.Width(25));
             table.AddColumn("Value");
 
-            for (var i = 0; i < items.Count; i++)
+            for (var i = winStart; i < winEnd; i++)
             {
                 var item = items[i];
                 if (item.IsSection)
@@ -270,7 +300,11 @@ public class SettingsView : BaseView
             grid.AddColumn();
             grid.AddRow(table);
             grid.AddRow(new Text(string.Empty));
-            grid.AddRow(new Markup("[grey]↑↓ gez • Enter değiştir • Esc geri[/]"));
+            var hint = winEnd - winStart < items.Count
+                           ? $"[grey]↑↓ gez • Enter değiştir • Esc geri • satır "
+                             + $"{winStart + 1}-{winEnd}/{items.Count}[/]"
+                           : "[grey]↑↓ gez • Enter değiştir • Esc geri[/]";
+            grid.AddRow(new Markup(hint));
             return grid;
         }
 
@@ -283,7 +317,9 @@ public class SettingsView : BaseView
             SettingItem? pendingSelection = null;
             var          pendingEscape    = false;
 
-            await AnsiConsole.Live(BuildTable(_configService.Config))
+            var firstWindow = VisibleWindow();
+
+            await AnsiConsole.Live(BuildTable(_configService.Config, firstWindow.Start, firstWindow.End))
                              .StartAsync(async ctx =>
                              {
                                  var last = string.Empty;
@@ -293,7 +329,8 @@ public class SettingsView : BaseView
                                      var fp     = cursorIndex + "|" + SnapshotConfig();
                                      if (!fp.Equals(last, StringComparison.Ordinal))
                                      {
-                                         ctx.UpdateTarget(BuildTable(config));
+                                         var window = VisibleWindow();
+                                         ctx.UpdateTarget(BuildTable(config, window.Start, window.End));
                                          last = fp;
                                      }
 
@@ -684,6 +721,29 @@ public class SettingsView : BaseView
             case "DownloadOverwrite":
                 config.DownloadOverwrite = !config.DownloadOverwrite;
                 break;
+            case "ParallelDownload":
+                config.DownloadParallelEnabled = !config.DownloadParallelEnabled;
+                Toast.Show(config.DownloadParallelEnabled
+                               ? $"[green]Paralel indirme açık:[/] aynı anda {config.DownloadConcurrency} bölüm."
+                               : "[yellow]Paralel indirme kapalı:[/] bölümler sırayla iner.");
+                break;
+            case "DownloadConcurrency":
+                var concurrency =
+                    Theme.Ask($"Eşzamanlı indirme sayısı ({CliConfig.MinDownloadConcurrency}-{CliConfig.MaxDownloadConcurrency}):",
+                              config.DownloadConcurrency);
+                var clampedConcurrency = CliConfig.ClampConcurrency(concurrency);
+                config.DownloadConcurrency = clampedConcurrency;
+                if (clampedConcurrency != concurrency)
+                {
+                    Toast.Show(
+                        $"[yellow]{concurrency} desteklenmiyor; {CliConfig.MinDownloadConcurrency}-{CliConfig.MaxDownloadConcurrency} aralığına çekildi: {clampedConcurrency}.[/]");
+                }
+                else if (!config.DownloadParallelEnabled)
+                {
+                    Toast.Show("[grey]Kaydedildi; ama paralel indirme kapalı olduğu için şimdilik sıralı iner.[/]");
+                }
+
+                break;
             case "DownloadDirectory":
                 var downloadDir = (Theme.Ask("İndirme dizini:", config.DownloadDirectory) ?? string.Empty).Trim();
                 if (string.IsNullOrEmpty(downloadDir))
@@ -693,6 +753,21 @@ public class SettingsView : BaseView
                 }
 
                 config.DownloadDirectory = downloadDir;
+                try
+                {
+                    Directory.CreateDirectory(config.DownloadDirectory);
+                    Toast.Show($"[green]İndirme dizini:[/] {Markup.Escape(config.DownloadDirectory)}");
+                }
+                catch (Exception exception) when (exception is ArgumentException
+                                                       or IOException
+                                                       or UnauthorizedAccessException
+                                                       or NotSupportedException
+                                                       or PathTooLongException)
+                {
+                    config.DownloadDirectory = CliConfig.DefaultDownloadDirectory;
+                    Toast.Show($"[red]Dizin kullanılamadı (varsayılana dönüldü):[/] {Markup.Escape(config.DownloadDirectory)}");
+                }
+
                 break;
             case "UpdateCheck":
                 config.UpdateCheckEnabled = !config.UpdateCheckEnabled;

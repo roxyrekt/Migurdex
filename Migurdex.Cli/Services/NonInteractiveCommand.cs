@@ -669,7 +669,7 @@ public static class NonInteractiveCommand
             "  migurdex play <sorgu> [-e|--episode <n>] [-s|--season <n>] [-p|--provider <ad>] [-g|--group <ad>] [--debug]");
         writer.WriteLine("  migurdex continue [--debug]");
         writer.WriteLine(
-            "  migurdex download <sorgu> [-e <n>] [-s <n>] [-p <ad>] [-g <ad>] [-o <dizin>] [--format auto|mp4|hls] [--subs|--no-subs] [--force] [--no-resume] [--debug] [--json]");
+            "  migurdex download <sorgu> [-e <n> | --episodes <liste>] [-s <n>] [-p <ad>] [-g <ad>] [-o <dizin>] [--format auto|mp4|hls] [--subs|--no-subs] [--force] [--no-resume] [--debug] [--json]");
         writer.WriteLine("  migurdex update [--check] [--channel stable|prerelease] [-y] [--no-restart]");
         writer.WriteLine("  migurdex auth <login|logout|status>");
         writer.WriteLine("  migurdex blame [--json]");
@@ -679,7 +679,7 @@ public static class NonInteractiveCommand
     internal static void WriteFlagLegend(TextWriter writer)
     {
         writer.WriteLine(
-            "Bayraklar: -e bölüm, -s sezon, -p sağlayıcı, -g fansub grubu. Play varsayılanı kaldığın yer; download varsayılanı ilk bölüm.");
+            "Bayraklar: -e bölüm, --episodes toplu liste (1,2,3 / 1-12 / all), -s sezon, -p sağlayıcı, -g fansub grubu. Play varsayılanı kaldığın yer; download varsayılanı ilk bölüm.");
         writer.WriteLine(
             "          --debug oynatmadan/indirmeden çözülen kaynağı yazdırır; --json yalnız makine okunur sonuç verir.");
     }

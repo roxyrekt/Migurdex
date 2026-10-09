@@ -2,8 +2,18 @@ namespace Migurdex.Cli.Configuration;
 
 public class CliConfig
 {
-    private string _downloadDirectory = DefaultDownloadDirectory;
-    private string _ytDlpPath         = "yt-dlp";
+    /// <summary>Toplu indirmede aynı anda çalışabilecek en az iş sayısı.</summary>
+    public const int MinDownloadConcurrency = 1;
+
+    /// <summary>Toplu indirmede aynı anda çalışabilecek en fazla iş sayısı.</summary>
+    public const int MaxDownloadConcurrency = 8;
+
+    /// <summary>Ayarlarda hiçbir şey seçilmediyse kullanılan eşzamanlılık.</summary>
+    public const int DefaultDownloadConcurrency = 2;
+
+    private string _downloadDirectory   = DefaultDownloadDirectory;
+    private int    _downloadConcurrency = DefaultDownloadConcurrency;
+    private string _ytDlpPath           = "yt-dlp";
 
     public string       ApiBaseUrl               { get; set; } = "http://127.0.0.1:7045";
     public string       PreferredPlayer          { get; set; } = "mpv";
@@ -18,7 +28,7 @@ public class CliConfig
     public string DownloadDirectory
     {
         get => string.IsNullOrWhiteSpace(_downloadDirectory) ? DefaultDownloadDirectory : _downloadDirectory;
-        set => _downloadDirectory = string.IsNullOrWhiteSpace(value) ? DefaultDownloadDirectory : value.Trim();
+        set => _downloadDirectory = NormalizeDownloadDirectory(value);
     }
 
     public string YtDlpPath
@@ -30,6 +40,23 @@ public class CliConfig
     public bool DownloadSubtitles { get; set; } = true;
     public bool DownloadResume    { get; set; } = true;
     public bool DownloadOverwrite { get; set; } = false;
+
+    /// <summary>
+    /// Toplu indirmede birden fazla bölümün aynı anda indirilip indirilmeyeceği.
+    /// Kapalı olduğunda toplu indirme de tek tek (sıralı) çalışır.
+    /// </summary>
+    public bool DownloadParallelEnabled { get; set; } = true;
+
+    /// <summary>
+    /// Paralel toplu indirmede eşzamanlı iş sayısı. Okuma/yazma sırasında
+    /// <see cref="MinDownloadConcurrency"/> - <see cref="MaxDownloadConcurrency"/> aralığına sıkıştırılır,
+    /// böylece elle bozulmuş bir config dosyası geçersiz değer üretemez.
+    /// </summary>
+    public int DownloadConcurrency
+    {
+        get => _downloadConcurrency;
+        set => _downloadConcurrency = ClampConcurrency(value);
+    }
 
     public bool   AutoDownloadBestSource           { get; set; } = false;
     public double DownloadAutoSelectTimeoutSeconds { get; set; } = 5;
@@ -110,6 +137,48 @@ public class CliConfig
         "Abyss",
         "Rumble"
     ];
+
+    public static int ClampConcurrency(int value)
+    {
+        if (value < MinDownloadConcurrency)
+        {
+            return MinDownloadConcurrency;
+        }
+
+        return value > MaxDownloadConcurrency ? MaxDownloadConcurrency : value;
+    }
+
+    /// <summary>
+    /// İndirme dizinini kalıcı olarak kullanılacak biçime getirir: baştaki/sondaki boşluk ve
+    /// tırnaklar atılır, <c>~</c> kullanıcı profiline açılır, <c>%DEĞİŞKEN%</c> / <c>$DEĞİŞKEN</c>
+    /// ortam değişkenleri genişletilir. Boş sonuç varsayılan dizine düşer.
+    /// </summary>
+    public static string NormalizeDownloadDirectory(string? path)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            return DefaultDownloadDirectory;
+        }
+
+        var trimmed = path.Trim().Trim('"');
+        if (trimmed.Length == 0)
+        {
+            return DefaultDownloadDirectory;
+        }
+
+        if (trimmed.StartsWith('~')
+            && (trimmed.Length == 1 || trimmed[1] == Path.DirectorySeparatorChar || trimmed[1] == '/'))
+        {
+            var userProfile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+            if (!string.IsNullOrWhiteSpace(userProfile))
+            {
+                trimmed = userProfile + trimmed[1..];
+            }
+        }
+
+        var expanded = Environment.ExpandEnvironmentVariables(trimmed);
+        return string.IsNullOrWhiteSpace(expanded) ? DefaultDownloadDirectory : expanded;
+    }
 
     public static string DefaultDownloadDirectory
     {
