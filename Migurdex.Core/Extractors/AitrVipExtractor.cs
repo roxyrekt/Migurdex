@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Logging;
+using Migurdex.Shared.Infrastructure;
 using Migurdex.Shared.Interfaces;
 using Migurdex.Shared.Models;
 using System.Text.RegularExpressions;
@@ -42,7 +43,10 @@ public partial class AitrVipExtractor : IExtractor
         {
             _logger.LogInformation("starting extraction for URL: {Url}", url);
 
-            var response = await _httpClient.GetAsync(url, cancellationToken);
+            using var request = new HttpRequestMessage(HttpMethod.Get, url);
+            request.AddHeaders(headers);
+
+            using var response = await _httpClient.SendAsync(request, cancellationToken);
             if (!response.IsSuccessStatusCode)
             {
                 _logger.LogWarning("failed to fetch page. Status: {StatusCode}", response.StatusCode);
@@ -66,18 +70,8 @@ public partial class AitrVipExtractor : IExtractor
                 return sources;
             }
 
-            var    m3U8Path = m3U8Match.Groups[1].Value;
-            string m3U8Url;
-
-            if (m3U8Path.StartsWith("http", StringComparison.OrdinalIgnoreCase))
-            {
-                m3U8Url = m3U8Path;
-            }
-            else
-            {
-                var uri = new Uri(url);
-                m3U8Url = $"{uri.Scheme}://{uri.Host}{m3U8Path}";
-            }
+            var m3U8Path = m3U8Match.Groups["url"].Value.Replace("\\/", "/", StringComparison.Ordinal);
+            var m3U8Url  = new Uri(new Uri(url), m3U8Path).AbsoluteUri;
 
             _logger.LogInformation("found M3U8 URL: {M3u8Url}", m3U8Url);
 
@@ -103,6 +97,6 @@ public partial class AitrVipExtractor : IExtractor
         return sources;
     }
 
-    [GeneratedRegex(@"(?:file|""file"")\s*:\s*[""']([^""']+\.m3u8)[""']")]
+    [GeneratedRegex(@"(?:file|""file"")\s*:\s*[""'](?<url>[^""']+?\.m3u8(?:[?#][^""']*)?)[""']")]
     private static partial Regex M3u8UrlRegex();
 }

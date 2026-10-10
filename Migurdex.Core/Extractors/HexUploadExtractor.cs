@@ -23,8 +23,14 @@ public partial class HexUploadExtractor : IExtractor
 
     public bool CanExtract(string url)
     {
-        return url.Contains("hexload.com", StringComparison.OrdinalIgnoreCase)
-               || url.Contains("hexupload.com", StringComparison.OrdinalIgnoreCase);
+        if (!Uri.TryCreate(url, UriKind.Absolute, out var uri))
+        {
+            return false;
+        }
+
+        return IsHostOrSubdomain(uri.Host, "hexload.com")
+               || IsHostOrSubdomain(uri.Host, "hexupload.com")
+               || IsHostOrSubdomain(uri.Host, "hexupload.net");
     }
 
     public async Task<List<VideoSource>> ExtractAsync(string url,
@@ -37,7 +43,15 @@ public partial class HexUploadExtractor : IExtractor
         {
             _logger.LogDebug("extracting URL: {Url}", url);
 
-            var idMatch = ComIdRegex().Match(url);
+            if (!Uri.TryCreate(url, UriKind.Absolute, out var uri)
+                || !CanExtract(url))
+            {
+                _logger.LogWarning("could not parse HexUpload URL");
+
+                return sources;
+            }
+
+            var idMatch = FileIdRegex().Match(uri.AbsolutePath);
             if (!idMatch.Success)
             {
                 _logger.LogWarning("could not extract ID from URL: {Url}", url);
@@ -45,7 +59,7 @@ public partial class HexUploadExtractor : IExtractor
                 return sources;
             }
 
-            var id = idMatch.Groups[1].Value.Split('?')[0];
+            var id = idMatch.Groups[1].Value;
 
             var content = new FormUrlEncodedContent(new Dictionary<string, string>
             {
@@ -80,8 +94,14 @@ public partial class HexUploadExtractor : IExtractor
         return sources;
     }
 
-    [GeneratedRegex(@"\.com/(.+)")]
-    private static partial Regex ComIdRegex();
+    private static bool IsHostOrSubdomain(string host, string domain)
+    {
+        return host.Equals(domain, StringComparison.OrdinalIgnoreCase)
+               || host.EndsWith("." + domain, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [GeneratedRegex(@"^/(.+)$")]
+    private static partial Regex FileIdRegex();
 
     private class HexloadResponse
     {

@@ -12,6 +12,8 @@ namespace Migurdex.Plugins.TrAnimeIzle;
 
 public partial class TrAnimeIzleProvider : IAnimeProvider
 {
+    private const int MaxConcurrentPlayerRequests = 4;
+
     private readonly HttpClient                   _httpClient;
     private readonly ILogger<TrAnimeIzleProvider> _logger;
 
@@ -316,15 +318,22 @@ public partial class TrAnimeIzleProvider : IAnimeProvider
             var parser   = new HtmlParser();
             var document = await parser.ParseDocumentAsync(html);
 
-            var epIdMatch = EpisodeIdInputRegex().Match(html);
-            if (!epIdMatch.Success)
+            var epIdValue = document.QuerySelector("input#EpisodeId[name='EpisodeId'], input[name='EpisodeId']")
+                                     ?.GetAttribute("value");
+            if (!int.TryParse(epIdValue, NumberStyles.None, CultureInfo.InvariantCulture, out var serverEpId))
             {
-                _logger.LogWarning("could not extract episodeId from watch page HTML");
+                var initializeMatch = InitializeIdRegex().Match(html);
+                if (!initializeMatch.Success
+                    || !int.TryParse(initializeMatch.Groups["id"].Value,
+                                     NumberStyles.None,
+                                     CultureInfo.InvariantCulture,
+                                     out serverEpId))
+                {
+                    _logger.LogWarning("could not extract episodeId from watch page HTML");
 
-                return [];
+                    return [];
+                }
             }
-
-            var serverEpId = int.Parse(epIdMatch.Groups["id"].Value);
 
             var selectors      = document.QuerySelectorAll(".fansubSelector");
             var fansubsToFetch = new List<(int Id, string? Name)>();
@@ -354,13 +363,17 @@ public partial class TrAnimeIzleProvider : IAnimeProvider
             else
             {
                 var fansubIdMatch = InitializeIdRegex().Match(html);
-                if (fansubIdMatch.Success)
+                if (fansubIdMatch.Success
+                    && int.TryParse(fansubIdMatch.Groups["id"].Value,
+                                    NumberStyles.None,
+                                    CultureInfo.InvariantCulture,
+                                    out var fansubId))
                 {
-                    var fId = int.Parse(fansubIdMatch.Groups["id"].Value);
-                    fansubsToFetch.Add((fId, null));
+                    fansubsToFetch.Add((fansubId, null));
                 }
             }
 
+            using var playerRequestSlots = new SemaphoreSlim(MaxConcurrentPlayerRequests);
             var fansubTasks = fansubsToFetch.Select(async fansub =>
             {
                 var fansubSources = new List<VideoSource>();
@@ -397,8 +410,14 @@ public partial class TrAnimeIzleProvider : IAnimeProvider
 
                     var buttonsHtml = await sourcesResponse.Content.ReadAsStringAsync(cancellationToken);
 
-                    var buttonsDoc = await parser.ParseDocumentAsync(buttonsHtml);
+                    var buttonsDoc = await new HtmlParser().ParseDocumentAsync(buttonsHtml);
                     var buttons    = buttonsDoc.QuerySelectorAll(".sourceBtn");
+                    if (buttons.Length == 0)
+                    {
+                        _logger.LogWarning("fansub {FansubId} returned no player buttons for episode {EpisodeId}",
+                                           fansub.Id,
+                                           serverEpId);
+                    }
 
                     var buttonTasks = buttons.Select(async btn =>
                     {
@@ -408,9 +427,12 @@ public partial class TrAnimeIzleProvider : IAnimeProvider
                             return null;
                         }
 
+                        var requestSlotAcquired = false;
                         try
                         {
-                            var playerRequest =
+                            await playerRequestSlots.WaitAsync(cancellationToken);
+                            requestSlotAcquired = true;
+                            using var playerRequest =
                                 new HttpRequestMessage(HttpMethod.Post, $"{BaseUrl}/api/sourcePlayer/{dataId}");
                             playerRequest.Headers.Referrer = new Uri(watchUrl);
                             playerRequest.Headers.Add("User-Agent",
@@ -418,48 +440,74 @@ public partial class TrAnimeIzleProvider : IAnimeProvider
                             playerRequest.Headers.Add("Accept", "application/json");
 
                             using var playerResponse = await _httpClient.SendAsync(playerRequest, cancellationToken);
-                            if (playerResponse.IsSuccessStatusCode)
+                            if (!playerResponse.IsSuccessStatusCode)
                             {
-                                var       json = await playerResponse.Content.ReadAsStringAsync(cancellationToken);
-                                using var doc  = JsonDocument.Parse(json);
-                                if (doc.RootElement.TryGetProperty("source", out var sourceProp))
-                                {
-                                    var iframeHtml = sourceProp.GetString() ?? "";
-                                    var srcMatch   = IframeSrcRegex().Match(iframeHtml);
-                                    if (srcMatch.Success)
-                                    {
-                                        var embedUrl = srcMatch.Groups[1].Value;
-                                        if (embedUrl.StartsWith("//"))
-                                        {
-                                            embedUrl = "https:" + embedUrl;
-                                        }
+                                _logger.LogWarning(
+                                    "source player request failed for data-id {DataId} (HTTP {StatusCode})",
+                                    dataId,
+                                    (int)playerResponse.StatusCode);
 
-                                        if (embedUrl.Contains("embed2/?id="))
-                                        {
-                                            var idIdx = embedUrl.IndexOf("id=", StringComparison.OrdinalIgnoreCase);
-                                            if (idIdx >= 0)
-                                            {
-                                                embedUrl = embedUrl[(idIdx + 3)..];
-                                            }
-                                        }
-
-                                        if (embedUrl.Equals(
-                                                "https://pp.userapi.com/c857436/v857436366/6d9e/84dLrNaE_yo.jpg",
-                                                StringComparison.OrdinalIgnoreCase))
-                                        {
-                                            return null;
-                                        }
-
-                                        return new VideoSource
-                                        {
-                                            Url     = embedUrl,
-                                            Quality = "Embed",
-                                            Type    = VideoType.Embed,
-                                            Group   = fansub.Name
-                                        };
-                                    }
-                                }
+                                return null;
                             }
+
+                            var       json = await playerResponse.Content.ReadAsStringAsync(cancellationToken);
+                            using var doc  = JsonDocument.Parse(json);
+                            if (doc.RootElement.TryGetProperty("source", out var sourceProp)
+                                && sourceProp.ValueKind == JsonValueKind.String)
+                            {
+                                var       iframeHtml = sourceProp.GetString() ?? "";
+                                var       sourceDoc  = await new HtmlParser().ParseDocumentAsync(iframeHtml);
+                                var       iframeSrc  = sourceDoc.QuerySelector("iframe[src]")?.GetAttribute("src")?.Trim();
+                                if (!string.IsNullOrWhiteSpace(iframeSrc))
+                                {
+                                    var embedUrl = iframeSrc;
+                                    if (embedUrl.Contains("embed2/?id=", StringComparison.OrdinalIgnoreCase))
+                                    {
+                                        var idIdx = embedUrl.IndexOf("id=", StringComparison.OrdinalIgnoreCase);
+                                        if (idIdx >= 0)
+                                        {
+                                            embedUrl = embedUrl[(idIdx + 3)..];
+                                        }
+                                    }
+
+                                    if (embedUrl.Equals(
+                                            "https://pp.userapi.com/c857436/v857436366/6d9e/84dLrNaE_yo.jpg",
+                                            StringComparison.OrdinalIgnoreCase))
+                                    {
+                                        return null;
+                                    }
+
+                                    if (!Uri.TryCreate(embedUrl, UriKind.Absolute, out var parsedEmbedUrl)
+                                        && !Uri.TryCreate(new Uri(BaseUrl + "/"), embedUrl, out parsedEmbedUrl))
+                                    {
+                                        _logger.LogWarning("source player returned an invalid iframe URL for data-id {DataId}",
+                                                           dataId);
+
+                                        return null;
+                                    }
+
+                                    return new VideoSource
+                                    {
+                                        Url     = parsedEmbedUrl.AbsoluteUri,
+                                        Quality = "Embed",
+                                        Type    = VideoType.Embed,
+                                        Group   = fansub.Name
+                                    };
+                                }
+
+                                var reason = iframeHtml.Contains("streamlare", StringComparison.OrdinalIgnoreCase)
+                                    ? "Streamlare response did not include an iframe"
+                                    : "source response did not include an iframe";
+                                _logger.LogWarning("{Reason} for data-id {DataId} (HTTP {StatusCode})",
+                                                   reason,
+                                                   dataId,
+                                                   (int)playerResponse.StatusCode);
+                                return null;
+                            }
+
+                            _logger.LogWarning("source player returned no iframe for data-id {DataId} (HTTP {StatusCode})",
+                                               dataId,
+                                               (int)playerResponse.StatusCode);
                         }
                         catch (Exception ex)
                         {
@@ -467,12 +515,26 @@ public partial class TrAnimeIzleProvider : IAnimeProvider
                                                "failed to resolve video player for data-id: {DataId}",
                                                dataId);
                         }
+                        finally
+                        {
+                            if (requestSlotAcquired)
+                            {
+                                playerRequestSlots.Release();
+                            }
+                        }
 
                         return null;
                     });
 
                     var resolvedSources = await Task.WhenAll(buttonTasks);
                     fansubSources.AddRange(resolvedSources.Where(s => s != null)!);
+                    if (fansubSources.Count < buttons.Length)
+                    {
+                        _logger.LogWarning("resolved {ResolvedCount} of {ButtonCount} player buttons for fansub {FansubId}",
+                                           fansubSources.Count,
+                                           buttons.Length,
+                                           fansub.Id);
+                    }
                 }
                 catch (Exception ex)
                 {
@@ -510,12 +572,6 @@ public partial class TrAnimeIzleProvider : IAnimeProvider
     [GeneratedRegex(@"(\d+(?:[\.,]\d+)?)-bolum-izle", RegexOptions.IgnoreCase)]
     private static partial Regex BolumHrefRegex();
 
-    [GeneratedRegex(@"id=""EpisodeId""\s+name=""EpisodeId""\s+value=""(?<id>\d+)""")]
-    private static partial Regex EpisodeIdInputRegex();
-
     [GeneratedRegex(@"animeWatch\.initialize\(\s*\d+\s*,\s*\d+\s*,\s*(?<id>\d+)\s*,")]
     private static partial Regex InitializeIdRegex();
-
-    [GeneratedRegex(@"src=""([^""]+)""")]
-    private static partial Regex IframeSrcRegex();
 }
