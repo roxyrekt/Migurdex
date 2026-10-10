@@ -18,6 +18,13 @@ public sealed class Mp4Downloader : IMp4Downloader
     private const int ParallelMinSegments = 2;
     private const int ParallelMaxSegments = 4;
 
+    /// <summary>
+    /// Parça birleştirme kapısı: birleştirme tam dosyayı okuyup yeniden yazar. Sekiz dosya aynı
+    /// anda birleştirilince hedef disk doyuyor ve hâlâ indiren dosyalar KB/s'ye iniyordu; aynı
+    /// anda tek birleştirme çalışır.
+    /// </summary>
+    private static readonly SemaphoreSlim MergeGate = new(1, 1);
+
     private static readonly Regex ContentRangeRegex = new(
         @"^bytes\s+(\d+)-(\d+)/(\d+|\*)\s*$",
         RegexOptions.Compiled | RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
@@ -564,8 +571,16 @@ public sealed class Mp4Downloader : IMp4Downloader
             return 0;
         }
 
+        // Toplu indirmede dosya başına parça sayısı bütçeyle sınırlanır (bkz.
+        // DownloadConnectionBudget): 8 dosya × 4 parça = 32 bağlantı sunucuyu boğuyordu.
+        var maxSegments = Math.Min(ParallelMaxSegments, DownloadConnectionBudget.SegmentsPerFile);
+        if (maxSegments < ParallelMinSegments)
+        {
+            return 0;
+        }
+
         var count = (int)(total / ParallelBytesPerConnection);
-        return (int)Math.Clamp(count, ParallelMinSegments, ParallelMaxSegments);
+        return (int)Math.Clamp(count, ParallelMinSegments, maxSegments);
     }
 
     private static bool TryGetParallelTotal(HttpResponseMessage response, out long total)
@@ -964,7 +979,15 @@ public sealed class Mp4Downloader : IMp4Downloader
         }
 
         Report(progress, DownloadStage.Finalizing, total, total);
-        await MergeSegmentsAsync(partPath, segmentCount, cancellationToken).ConfigureAwait(false);
+        await MergeGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            await MergeSegmentsAsync(partPath, segmentCount, cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            MergeGate.Release();
+        }
         MoveCompletedPart(partPath, finalPath, overwrite, cancellationToken);
         DeleteParallelSegments(partPath);
         Mp4ResumeMetadata.Delete(metadataPath);

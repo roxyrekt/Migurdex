@@ -7,6 +7,7 @@ using Migurdex.Shared.Enums;
 using Migurdex.Shared.Interfaces;
 using Migurdex.Shared.Models;
 using Microsoft.Extensions.Logging;
+using System.Globalization;
 using System.Text.Json;
 using Xunit;
 
@@ -26,6 +27,23 @@ public sealed class BitrateTests
     public void FormatBitrate_Formats(long? bitrate, string expected)
     {
         Assert.Equal(expected, VideoSource.FormatBitrate(bitrate));
+    }
+
+    [Fact]
+    public void FormatBitrate_UsesInvariantDecimalSeparatorUnderTurkishCulture()
+    {
+        var originalCulture = CultureInfo.CurrentCulture;
+        try
+        {
+            CultureInfo.CurrentCulture = CultureInfo.GetCultureInfo("tr-TR");
+
+            Assert.Equal("6.2 Mbps", VideoSource.FormatBitrate(6_200_000));
+            Assert.Equal("1.5 kbps", VideoSource.FormatBitrate(1_500));
+        }
+        finally
+        {
+            CultureInfo.CurrentCulture = originalCulture;
+        }
     }
 
     [Theory]

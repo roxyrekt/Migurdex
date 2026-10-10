@@ -16,6 +16,7 @@ public sealed class DownloadCommandOptions
     public string?              OutputDirectory { get; set; }
     public double?              Episode         { get; set; }
     public int?                 Season          { get; set; }
+    public string?              Episodes        { get; set; }
     public DownloadSourceFormat Format          { get; set; } = DownloadSourceFormat.Auto;
     public bool?                Subtitles       { get; set; }
     public bool                 Force           { get; set; }
@@ -65,6 +66,15 @@ public static class DownloadCommand
                 }
 
                 options.Episode = episode;
+            }
+            else if (Is(argument, "--episodes", "--ep"))
+            {
+                if (!TryReadValue(args, ref index, argument, out var value, out error))
+                {
+                    return false;
+                }
+
+                options.Episodes = value;
             }
             else if (Is(argument, "-s", "--season"))
             {
@@ -170,6 +180,21 @@ public static class DownloadCommand
         {
             error = "--subs ve --no-subs birlikte kullanılamaz.";
             return false;
+        }
+
+        if (!string.IsNullOrWhiteSpace(options.Episodes))
+        {
+            if (options.Episode.HasValue)
+            {
+                error = "-e ile --episodes birlikte kullanılamaz; tek bölüm için -e, toplu indirme için --episodes kullanın.";
+                return false;
+            }
+
+            if (!EpisodeSelectionSpec.TryParse(options.Episodes, out _, out var specError))
+            {
+                error = specError;
+                return false;
+            }
         }
 
         if (positionals.Count > 0)
@@ -313,6 +338,18 @@ public static class DownloadCommand
             }
 
             cancellationToken.ThrowIfCancellationRequested();
+        }
+
+        if (!string.IsNullOrWhiteSpace(options.Episodes))
+        {
+            return await ExecuteBatchAsync(options,
+                                           services,
+                                           config,
+                                           api,
+                                           picked,
+                                           details,
+                                           group,
+                                           cancellationToken);
         }
 
         var resolved = await DownloadCandidateResolver.ResolveAsync(api,
@@ -489,11 +526,288 @@ public static class DownloadCommand
         return await FailAsync(options, lastError ?? "Video indirilemedi.");
     }
 
+    /// <summary>
+    /// Toplu indirme akışı: seçilen bölümler ayarlardaki paralel indirme kuralına göre
+    /// (<see cref="DownloadQueueOptions.FromConfig"/>) tek bir kuyrukta indirilir. Tek bölüm yolu
+    /// (<c>-e</c>) bu metottan etkilenmez; onun davranışı aynen korunur.
+    /// </summary>
+    private static async Task<int> ExecuteBatchAsync(
+        DownloadCommandOptions options,
+        IServiceProvider       services,
+        CliConfig              config,
+        IApiClientService      api,
+        SearchResult           picked,
+        AnimeDetails           details,
+        string?                group,
+        CancellationToken      cancellationToken)
+    {
+        if (!EpisodeSelectionSpec.TryParse(options.Episodes, out var spec, out var specError))
+        {
+            return UsageError(specError!);
+        }
+
+        if (!spec!.TryResolve(details.Episodes, options.Season, out var chosen, out var seasonError))
+        {
+            return UsageError(seasonError!);
+        }
+
+        if (chosen.Count == 0)
+        {
+            var available = details.Episodes.Count > 0
+                                ? $" (mevcut: {details.Episodes.Min(episode => episode.Number)}-"
+                                  + $"{details.Episodes.Max(episode => episode.Number)})"
+                                : string.Empty;
+            return await FailAsync(options,
+                                   $"'{spec.Describe()}' için bölüm bulunamadı{available}.");
+        }
+
+        var outputDirectory   = string.IsNullOrWhiteSpace(options.OutputDirectory)
+                                    ? config.DownloadDirectory
+                                    : options.OutputDirectory;
+        var downloadSubtitles = options.Subtitles ?? config.DownloadSubtitles;
+        var overwrite         = options.Force || config.DownloadOverwrite;
+        var resume            = config.DownloadResume && !options.NoResume;
+        var queueOptions      = DownloadQueueOptions.FromConfig(config);
+
+        await Console.Error.WriteLineAsync(
+                                    $"Toplu indirme: {chosen.Count} bölüm • "
+                                    + $"{BatchDownloadPlan.DescribeConcurrency(queueOptions.ParallelEnabled, queueOptions.EffectiveConcurrency)} • "
+                                    + $"hedef: {outputDirectory}")
+                                    .ConfigureAwait(false);
+
+        if (options.Debug)
+        {
+            return await WriteBatchDebugAsync(options,
+                                              api,
+                                              config,
+                                              picked,
+                                              details,
+                                              chosen,
+                                              group,
+                                              cancellationToken);
+        }
+
+        var downloadService = services.GetRequiredService<IDownloadService>();
+        var queueService    = services.GetRequiredService<IDownloadQueueService>();
+
+        var items = new List<DownloadQueueItem>(chosen.Count);
+        for (var index = 0; index < chosen.Count; index++)
+        {
+            var episode  = chosen[index];
+            var position = index + 1;
+            items.Add(BatchDownloadPlan.BuildItem(api,
+                                                 downloadService,
+                                                 picked.ProviderName,
+                                                 options.Format,
+                                                 group,
+                                                 episode,
+                                                 config,
+                                                 source => new DownloadRequest
+                                                 {
+                                                     Source            = source,
+                                                     OutputDirectory   = outputDirectory,
+                                                     AnimeTitle        = details.Title,
+                                                     EpisodeTitle      = episode.Title,
+                                                     Season            = episode.Season ?? 1,
+                                                     EpisodeNumber     = episode.Number,
+                                                     Overwrite         = overwrite,
+                                                     Resume            = resume,
+                                                     DownloadSubtitles = downloadSubtitles,
+                                                     Progress          = new ConsoleDownloadProgress($"[{position}/{chosen.Count}] ")
+                                                 }));
+        }
+
+        var summary = await queueService.RunAsync(items,
+                                                  queueOptions,
+                                                  new StderrQueueReporter(),
+                                                  cancellationToken)
+                                          .ConfigureAwait(false);
+
+        WriteBatchResults(options, summary, chosen);
+
+        return ResolveBatchExitCode(summary, cancellationToken.IsCancellationRequested);
+    }
+
+    private static int ResolveBatchExitCode(DownloadQueueSummary summary, bool cancellationRequested)
+    {
+        if (cancellationRequested || summary.Cancelled > 0)
+        {
+            return 1;
+        }
+
+        if (summary.Failed > 0)
+        {
+            return 1;
+        }
+
+        return summary.AnySubtitleCancelled ? 3 : 0;
+    }
+
+    private static void WriteBatchResults(
+        DownloadCommandOptions    options,
+        DownloadQueueSummary      summary,
+        List<Episode>             chosen)
+    {
+        if (options.Json)
+        {
+            WriteJson(new
+            {
+                success          = summary.Failed == 0 && summary.Cancelled == 0 && summary.Total > 0,
+                cancelled        = summary.Cancelled > 0,
+                batch            = true,
+                total            = summary.Total,
+                succeeded        = summary.Succeeded,
+                failed           = summary.Failed,
+                cancelledCount   = summary.Cancelled,
+                items            = summary.Results.Select(result => new
+                {
+                    index         = result.Index + 1,
+                    episode       = result.Index < chosen.Count ? EpisodeSummary(chosen[result.Index]) : null,
+                    state         = result.State.ToString().ToLowerInvariant(),
+                    mediaPath     = result.Result?.MediaPath,
+                    subtitlePaths = result.Result?.SubtitlePaths ?? [],
+                    warnings      = result.Result?.Warnings ?? [],
+                    error         = result.Error
+                })
+            });
+            return;
+        }
+
+        foreach (var result in summary.Results)
+        {
+            var label = $"[{result.Index + 1}/{summary.Total}] {result.DisplayName}";
+            switch (result.State)
+            {
+                case DownloadQueueItemState.Completed:
+                    Console.WriteLine($"{label}: {(result.SubtitleCancelled ? "video tamamlandı (altyazı iptal)" : "indirildi")} "
+                                      + $"→ {result.Result?.MediaPath}");
+                    foreach (var subtitlePath in result.Result?.SubtitlePaths ?? [])
+                    {
+                        Console.WriteLine($"{label}: altyazı → {subtitlePath}");
+                    }
+
+                    break;
+                case DownloadQueueItemState.Cancelled:
+                    Console.Error.WriteLine($"{label}: iptal edildi");
+                    break;
+                default:
+                    Console.Error.WriteLine($"{label}: hata • {SanitizeMessage(result.Error)}");
+                    break;
+            }
+
+            foreach (var warning in result.Result?.Warnings ?? [])
+            {
+                Console.Error.WriteLine($"Uyarı: {SanitizeMessage(warning)}");
+            }
+        }
+
+        Console.WriteLine($"Toplu indirme bitti: {summary.Total} bölümden {summary.Succeeded} indirildi, "
+                          + $"{summary.Failed} hata, {summary.Cancelled} iptal.");
+    }
+
+    private static async Task<int> WriteBatchDebugAsync(
+        DownloadCommandOptions options,
+        IApiClientService      api,
+        CliConfig              config,
+        SearchResult           picked,
+        AnimeDetails           details,
+        List<Episode>          chosen,
+        string?                group,
+        CancellationToken      cancellationToken)
+    {
+        var resolvedCount = 0;
+        var entries       = new List<object>();
+        foreach (var episode in chosen)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var resolved = await DownloadCandidateResolver.ResolveAsync(api,
+                                                                        picked.ProviderName,
+                                                                        episode.Id,
+                                                                        group,
+                                                                        options.Format,
+                                                                        config,
+                                                                        config.DownloadAutoSelectTimeoutSeconds,
+                                                                        cancellationToken)
+                                                          .ConfigureAwait(false);
+            var candidates = resolved.Candidates;
+            if (candidates.Count > 0)
+            {
+                resolvedCount++;
+                var first = candidates[0];
+                await Console.Error.WriteLineAsync(
+                                            $"{EpisodeLabel(episode)}: {candidates.Count} aday • "
+                                            + $"{first.Hoster ?? "bilinmiyor"} / {first.Quality} / {first.Type}")
+                                            .ConfigureAwait(false);
+            }
+            else
+            {
+                var reason = resolved.TimedOut
+                                 ? "kaynak taraması zaman aşımına uğradı"
+                                 : resolved.Error ?? "indirilebilir kaynak yok";
+                await Console.Error.WriteLineAsync($"{EpisodeLabel(episode)}: {reason}")
+                            .ConfigureAwait(false);
+            }
+
+            entries.Add(new
+            {
+                episode        = EpisodeSummary(episode),
+                candidateCount = candidates.Count,
+                source         = candidates.Count > 0 ? SourceSummary(candidates[0]) : null
+            });
+        }
+
+        if (options.Json)
+        {
+            WriteJson(new
+            {
+                success     = resolvedCount > 0,
+                dryRun      = true,
+                batch       = true,
+                provider    = picked.ProviderName,
+                animeTitle  = details.Title,
+                requested   = options.Episodes,
+                episodeCount = chosen.Count,
+                resolvedCount,
+                episodes    = entries
+            });
+        }
+        else if (resolvedCount == 0)
+        {
+            await Console.Error.WriteLineAsync("Hiçbir bölüm için indirilebilir kaynak bulunamadı.")
+                        .ConfigureAwait(false);
+        }
+        else
+        {
+            Console.WriteLine(
+                $"{chosen.Count} bölümden {resolvedCount} tanesi için kaynak çözüldü; --debug nedeniyle indirme başlatılmadı.");
+        }
+
+        return resolvedCount > 0 ? 0 : 1;
+    }
+
+    private static string EpisodeLabel(Episode episode)
+    {
+        return $"S{Math.Max(1, episode.Season ?? 1).ToString("00", CultureInfo.InvariantCulture)}"
+               + $"E{FormatEpisodeNumber(episode.Number)}";
+    }
+
+    private static string FormatEpisodeNumber(double number)
+    {
+        return number % 1 == 0
+                   ? ((int) number).ToString("00", CultureInfo.InvariantCulture)
+                   : number.ToString("00.#", CultureInfo.InvariantCulture);
+    }
+
+    private static string SanitizeMessage(string? message)
+    {
+        return string.IsNullOrWhiteSpace(message) ? "bilinmeyen hata" : message;
+    }
+
     public static void PrintHelp()
     {
         Console.WriteLine("Kullanım:");
         Console.WriteLine(
-            "  migurdex download <sorgu> [-e <n>] [-s <n>] [-p <sağlayıcı>] [-g <grup>] [-o <dizin>]");
+            "  migurdex download <sorgu> [-e <n> | --episodes <liste>] [-s <n>] [-p <sağlayıcı>] [-g <grup>] [-o <dizin>]");
         Console.WriteLine(
             "                     [--format auto|mp4|hls] [--subs|--no-subs] [--force] [--no-resume] [--debug] [--json]");
         Console.WriteLine();
@@ -502,7 +816,9 @@ public static class DownloadCommand
         Console.WriteLine("  -p, --provider <ad>     Sağlayıcıyı doğrular ve aramayı sınırlar.");
         Console.WriteLine("  -g, --group <ad>        Fansub grubunu doğrular.");
         Console.WriteLine("  -o, --output <dizin>    Çıktı kök dizini.");
-        Console.WriteLine("      --format <tür>      auto (varsayılan), mp4 veya hls.");
+        Console.WriteLine("      --episodes <liste>  Toplu indirme: 1,2,3 veya 1-12 veya all. Paralellik ayarlardan gelir.");
+        Console.WriteLine(
+            "      --format <tür>      auto (varsayılan), mp4 veya hls.");
         Console.WriteLine("      --subs/--no-subs    Altyazı indirmeyi aç/kapat (config varsayılanı: açık).");
         Console.WriteLine("      --force             Var olan hedefi değiştir (config varsayılanı: kapalı).");
         Console.WriteLine("      --no-resume         Kısmi MP4 dosyasından devam etme.");
@@ -712,11 +1028,44 @@ public static class DownloadCommand
         Console.WriteLine(JsonSerializer.Serialize(value, JsonOptions));
     }
 
+    /// <summary>
+    /// Toplu indirmede hangi işin ne zaman başladığını stderr'e yazar. Canlı ilerleme satırları
+    /// iş başına <see cref="ConsoleDownloadProgress"/> önekiyle akmaya devam eder.
+    /// </summary>
+    private sealed class StderrQueueReporter : IProgress<DownloadQueueProgress>
+    {
+        private readonly HashSet<int> _started = [];
+
+        public void Report(DownloadQueueProgress value)
+        {
+            if (value.State != DownloadQueueItemState.Running)
+            {
+                return;
+            }
+
+            lock (_started)
+            {
+                if (!_started.Add(value.Index))
+                {
+                    return;
+                }
+            }
+
+            Console.Error.WriteLine($"[{value.Index + 1}/{value.Total}] başladı: {value.DisplayName}");
+        }
+    }
+
     private sealed class ConsoleDownloadProgress : IProgress<DownloadProgress>
     {
         private readonly DownloadSpeedometer _speed = new();
+        private readonly string?              _prefix;
         private string? _lastLine;
         private DateTimeOffset _lastPrint = DateTimeOffset.MinValue;
+
+        public ConsoleDownloadProgress(string? prefix = null)
+        {
+            _prefix = prefix;
+        }
 
         public void Report(DownloadProgress value)
         {
@@ -786,7 +1135,7 @@ public static class DownloadCommand
 
             _lastLine  = line;
             _lastPrint = now;
-            Console.Error.WriteLine(line);
+            Console.Error.WriteLine(_prefix is null ? line : _prefix + line);
         }
 
         private static string FormatBytes(long bytes)

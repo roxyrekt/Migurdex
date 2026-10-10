@@ -26,6 +26,9 @@ Terminalden Türkçe anime aramak ve izlemek için araç. TUI + yerel HTTP API +
 - AniList ve MAL ile bilgi/poster çekme ve izleme durumu eşitleme
 - MPV ile kaldığın yerden devam etme
 - Anime indirme desteği (TUI ve CLI, paralel MP4 + HLS)
+- Toplu indirme: TUI'de çoktan seçmeli bölüm listesi, CLI'de `--episodes 1-12` (bkz. [Toplu indirme](docs/toplu-indirme-ve-indirme-dizini.md))
+- Paralel indirme: birden fazla bölüm aynı anda (ayarlardan aç/kapa, varsayılan 2, üst sınır 8; bkz. [Paralel indirme](docs/paralel-indirme.md))
+- Hız ve ekran korumaları: bağlantı bütçesi (en fazla 8 parça bağlantısı), sırayla birleştirme, kısa terminalde pencereleme (bkz. [Hız ve ekran düzeltmeleri](docs/toplu-indirme-hiz-ve-ekran-duzeltmeleri.md))
 - Geçmiş, favoriler, arama geçmişi
 - Discord RPC (ayarlanabilir)
 - Otomatik kaynak seçimi (sunucu / kalite / tür kuralları, uymazsa manuel liste)
@@ -106,6 +109,7 @@ Akış basit: Arama -> Detay -> Bölüm -> Oynat / İndir.
 2. Sonuçtan seçince açıklama ve bölüm listesi gelir.
 3. Bölümü seçince `Oynat`, `İndir` veya `Geri` seçilir.
 4. `Oynat` kaynak ekranını açar (otomatik seçim açıksa en iyi kaynak direkt oynar), `İndir` ayara göre otomatik indirir veya kaynak seçim ekranını açar.
+5. Bölüm listesindeki `⤓ Toplu indir...` girdisi birden fazla bölümü işaretleyip tek işlemde indirmenizi sağlar; indirme sırasında `Esc` kalanları iptal eder, tamamlanan dosyalar silinmez.
 
 `Esc` bir önceki ekrana döner. Yön tuşları + `Enter` ile kullanılıyor. İndirme sırasında `Esc` indirmeyi iptal eder;
 indirme MPV'yi açmaz ve izleme geçmişi/tracker senkronunu tetiklemez.
@@ -129,6 +133,9 @@ migurdex download "bleach" -e 1 --format hls --force --no-resume
 migurdex download "bleach" -e 1 --json       # stdout yalnız JSON, ilerleme stderr'de
 migurdex blame                                # kaynak çözümleme süre ve hata dökümü
 migurdex blame --json                         # JSON çıktı
+
+migurdex download "one piece" --episodes 1-12 # toplu indirme (liste: 1,2,3 veya all; çok sezonluda -s <sezon> şart)
+migurdex download "naruto" --episodes 1-6 -s 2 --no-subs
 ```
 
 `download` akışı Search -> Details -> Episode -> Group/Source sırasını izler. Yalnız API'nin çözdüğü doğrudan `MP4` ve
@@ -178,7 +185,9 @@ Kaydetmeden çıkarsan (`Esc` / İptal) değişiklikler uygulanmaz.
 
 İndirme varsayılanları `config.json` içinden de değiştirilebilir: `DownloadDirectory`, `YtDlpPath`, `DownloadSubtitles`,
 `DownloadResume` ve `DownloadOverwrite`. Sırasıyla platform Downloads/Migurdex dizini, `yt-dlp`, `true`, `true` ve `false`
-varsayılanları kullanılır. `AutoDownloadBestSource` (`false`) kapalıyken bölümden İndir kaynak seçim ekranını açar;
+varsayılanları kullanılır. Toplu indirme için `DownloadParallelEnabled` (`true`) ve `DownloadConcurrency` (`2`, izin verilen
+aralık `1`-`8`) kullanılır; paralel kapatılırsa bölümler sırayla iner. `DownloadDirectory` ayarlar ekranından değiştirildiğinde
+bu değer `config.json`'a yazılır ve sonraki çalıştırmalarda korunur. `AutoDownloadBestSource` (`false`) kapalıyken bölümden İndir kaynak seçim ekranını açar;
 açıkken en iyi aday otomatik indirilir. `DownloadAutoSelectTimeoutSeconds` (`5`) otomatik çözümlemenin bütçesidir,
 tutamazsa manuel listeye düşülür. Eski config dosyaları yeni alanlar eklenmeden de güvenle yüklenir. Migurdex bu harici araçları
 otomatik indirmez.
@@ -213,7 +222,10 @@ Windows'ta `%APPDATA%\migurdex\` altında aynı yapı var.
 
 Akış: `TUI/CLI -> API -> plugin (+ Rust HTTP) -> kaynak listesi -> MPV veya indirici`. Native kütüphane
 (`libmigurdex_native.so` /
-`migurdex_native.dll`) API ile birlikte gelir, eksikse API başlamaz.
+`migurdex_native.dll`) API ile birlikte gelir, eksikse API başlamaz. Kaynaktan derlerken bu dosyayı
+`Migurdex.Api/bin/<yapılandırma>/net10.0/` altına koyun; ayrıca PATH'teki `dotnet` ASP.NET Core 10
+runtime'ı kurulu olmalıdır (muxer framework'leri kendi köküne göre çözer; yalnız PATH'e dizin eklemek
+yetmez — kurulum mevcut `dotnet` köküne yapılmalıdır).
 
 Bulit-in extractor'lar `Migurdex.Core/Extractors` altında. API tarafında `GET /api/v1/extractors` ve
 `POST /api/v1/extractors/resolve` ile de çağrılabiliyor.

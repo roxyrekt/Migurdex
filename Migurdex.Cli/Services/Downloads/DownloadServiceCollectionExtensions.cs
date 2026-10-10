@@ -20,6 +20,7 @@ public static class DownloadServiceCollectionExtensions
             new YtDlpHlsDownloader(provider.GetRequiredService<IExternalProcessRunner>(),
                                   provider.GetRequiredService<HlsDownloadOptions>()));
         services.AddSingleton<IDownloadService, DownloadService>();
+        services.AddSingleton<IDownloadQueueService, DownloadQueueService>();
         return services;
     }
 }
