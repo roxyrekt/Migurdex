@@ -410,17 +410,15 @@ public partial class AnimexeProvider : IAnimeProvider
                     continue;
                 }
 
+                var quality = info.Quality == "4K" ? "2160p" : info.Quality;
+
                 var finalUrl = UnwrapStreamUrl(url);
                 var source = new VideoSource
                 {
-                    Url = finalUrl,
-                    Quality = info.Quality,
-                    Type = finalUrl.Contains(".m3u8", StringComparison.OrdinalIgnoreCase) ? VideoType.M3U8 : info.Type,
-                    Hoster = finalUrl.Contains("anizium", StringComparison.OrdinalIgnoreCase)
-                                 ? "Anizium"
-                                 : finalUrl.Contains("tau-video", StringComparison.OrdinalIgnoreCase)
-                                     ? "Tau Video"
-                                     : info.Group,
+                    Url      = url,
+                    Quality  = quality,
+                    Type     = finalUrl.Contains(".m3u8", StringComparison.OrdinalIgnoreCase) ? VideoType.M3U8 : info.Type,
+                    Hoster   = @"Animexe Proxy",
                     Group    = info.Group,
                     Language = info.Language
                 };
