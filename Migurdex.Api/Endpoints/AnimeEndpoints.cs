@@ -479,7 +479,8 @@ public static class AnimeEndpoints
                                                                         var extractSw = Stopwatch.StartNew();
                                                                         try
                                                                         {
-                                                                            if (src.Type == VideoType.Embed
+                                                                            if ((src.Type == VideoType.Embed
+                                                                                    || src.Type == VideoType.M3U8)
                                                                                     && extractorManager.CanExtract(
                                                                                         src.Url))
                                                                             {
@@ -533,6 +534,13 @@ public static class AnimeEndpoints
                                                                             }
                                                                             else
                                                                             {
+                                                                                var direct = new List<VideoSource>
+                                                                                {
+                                                                                    src
+                                                                                };
+                                                                                await extractorManager.EnrichSourcesAsync(
+                                                                                    direct,
+                                                                                    cancellationToken);
                                                                                 TryEnqueueSource(src);
                                                                             }
                                                                         }
@@ -604,7 +612,8 @@ public static class AnimeEndpoints
                                                               var extractSw = Stopwatch.StartNew();
                                                               try
                                                               {
-                                                                  if (src.Type == VideoType.Embed
+                                                                  if ((src.Type == VideoType.Embed
+                                                                      || src.Type == VideoType.M3U8)
                                                                       && extractorManager.CanExtract(src.Url))
                                                                   {
                                                                       var headers = BuildRefererHeaders(p);
@@ -672,6 +681,7 @@ public static class AnimeEndpoints
             }
 
             var resolvedSources = results.SelectMany(x => x.Item1).ToList();
+            await extractorManager.EnrichSourcesAsync(resolvedSources, cancellationToken);
             var finalSources = resolvedSources.GroupBy(x => x.Url, StringComparer.OrdinalIgnoreCase)
                                               .Select(x => x.OrderByDescending(s => s.Bitrate ?? 0).First())
                                               .ToList();

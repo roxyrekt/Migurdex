@@ -202,8 +202,15 @@ public class ExtractorManager : IExtractorManager
                        .ToList();
     }
 
+    public Task EnrichSourcesAsync(List<VideoSource> sources,
+        CancellationToken                           cancellationToken = default)
+    {
+        return FillMissingMetadataAsync(sources, cancellationToken, dropUnprobable: false);
+    }
+
     private async Task FillMissingMetadataAsync(List<VideoSource> sources,
-        CancellationToken                                         cancellationToken)
+        CancellationToken                                         cancellationToken,
+        bool                                                    dropUnprobable = true)
     {
         var pending = sources.Where(s => s.Type == VideoType.Mp4
                                          && !string.IsNullOrWhiteSpace(s.Url)
@@ -261,6 +268,11 @@ public class ExtractorManager : IExtractorManager
                 _logger.LogDebug(ex, "bitrate fill failed for {Url}", group.Key);
             }
         }));
+
+        if (!dropUnprobable)
+        {
+            return;
+        }
 
         var dropped = sources.RemoveAll(s => s.Type == VideoType.Mp4
                                              && (string.IsNullOrWhiteSpace(s.Quality)
