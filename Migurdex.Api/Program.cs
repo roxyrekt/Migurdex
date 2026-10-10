@@ -6,6 +6,7 @@ using Migurdex.Core.Extensions;
 using Migurdex.Core.Interop;
 using Migurdex.Core.PluginSystem;
 using Migurdex.Core.Services;
+using Migurdex.Core.Services.Turnstile;
 using Migurdex.Core.Utils;
 using Migurdex.Shared.Interfaces;
 using Migurdex.Shared.Update;
@@ -39,7 +40,15 @@ builder.Services.AddHttpClient("RustClient")
 builder.Services.AddSingleton<HttpClient>(sp => sp.GetRequiredService<IHttpClientFactory>().CreateClient("RustClient"));
 
 builder.Services.AddSingleton<IMp4MetadataReader, Mp4MetadataReader>();
-builder.Services.AddSingleton<ISharedBridge, SharedBridge>();
+builder.Services.AddTurnstileServices(TurnstilePaths.DataRoot(), TurnstilePaths.BrowserCacheRoot());
+builder.Services.AddSingleton<ISharedBridge>(sp =>
+{
+    var bridge = new SharedBridge(sp.GetRequiredService<HttpClient>(),
+                                  sp.GetRequiredService<IMp4MetadataReader>(),
+                                  sp.GetRequiredService<ILoggerFactory>());
+    bridge.ClearanceStore = sp.GetRequiredService<CfClearanceStore>();
+    return bridge;
+});
 
 builder.Services.AddSingleton<PluginLoader>(sp =>
 {
@@ -63,10 +72,14 @@ builder.Services.AddSingleton<TrackerMappingStore>(sp =>
                                                        new TrackerMappingStore(
                                                            sp.GetRequiredService<MigurdexDatabase>()));
 builder.Services.AddSingleton<ITrackerIdResolver, TrackerIdResolver>();
-var blamePath      = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-                                  "migurdex",
-                                  "blame.json");
-var blameCollector = BlameCollector.TryLoad(blamePath) ?? new BlameCollector { PersistPath = blamePath };
+var blamePath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+                             "migurdex",
+                             "blame.json");
+var blameCollector = BlameCollector.TryLoad(blamePath)
+                     ?? new BlameCollector
+                     {
+                         PersistPath = blamePath
+                     };
 blameCollector.PersistPath = blamePath;
 builder.Services.AddSingleton<IBlameCollector>(blameCollector);
 builder.Services.AddMemoryCache();
@@ -108,8 +121,9 @@ app.Use(async (context, next) =>
                         context.Request.Path,
                         context.Response.StatusCode,
                         sw.ElapsedMilliseconds);
-        var operation = $"{context.Request.Method} " +
-                        ((context.GetEndpoint() as RouteEndpoint)?.RoutePattern.RawText ?? context.Request.Path.Value);
+        var operation = $"{context.Request.Method} "
+                        + ((context.GetEndpoint() as RouteEndpoint)?.RoutePattern.RawText
+                           ?? context.Request.Path.Value);
         try
         {
             context.RequestServices.GetRequiredService<IBlameCollector>()
@@ -143,6 +157,7 @@ app.MapExtractorEndpoints();
 app.MapTrackerResolveEndpoints();
 app.MapTrackerSeasonEndpoints();
 app.MapStatsEndpoints();
+app.MapSolverEndpoints();
 
 app.Run();
 

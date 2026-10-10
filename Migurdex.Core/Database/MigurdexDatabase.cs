@@ -1,4 +1,5 @@
 using Microsoft.Data.Sqlite;
+using Migurdex.Core.Services.Turnstile;
 using Migurdex.Shared.Models;
 using System.Globalization;
 using System.Text.Json;
@@ -189,6 +190,14 @@ public class MigurdexDatabase
                                       UNIQUE(provider_name, anime_id, season)
                                   );
                                   CREATE INDEX IF NOT EXISTS idx_sync_queue_key ON sync_queue(provider_name, anime_id, season);
+
+                                  CREATE TABLE IF NOT EXISTS cf_clearance (
+                                      host                    TEXT PRIMARY KEY,
+                                      value                   TEXT NOT NULL,
+                                      expires_at_utc          TEXT NOT NULL,
+                                      source                  TEXT NOT NULL DEFAULT '',
+                                      updated_at_utc          TEXT NOT NULL
+                                  );
                               """;
 
             cmd.ExecuteNonQuery();
@@ -975,6 +984,133 @@ public class MigurdexDatabase
 
         cmd.CommandText = "DELETE FROM sync_queue;";
         cmd.ExecuteNonQuery();
+    }
+
+#endregion
+
+#region Cf Clearance
+
+    public bool TryGetCfClearance(string host, out string? value, out DateTime expiresAtUtc)
+    {
+        value        = null;
+        expiresAtUtc = DateTime.MinValue;
+
+        var normalized = NormalizeHost(host);
+        if (string.IsNullOrEmpty(normalized))
+        {
+            return false;
+        }
+
+        using var connection = CreateConnection();
+        using var cmd        = connection.CreateCommand();
+
+        cmd.CommandText = "SELECT value, expires_at_utc FROM cf_clearance WHERE host = $host LIMIT 1";
+        cmd.Parameters.AddWithValue("$host", normalized);
+
+        using var reader = cmd.ExecuteReader();
+        if (!reader.Read())
+        {
+            return false;
+        }
+
+        var expires = DateTime.Parse(reader.GetString(1),
+                                     CultureInfo.InvariantCulture,
+                                     DateTimeStyles.AdjustToUniversal);
+        if (expires <= DateTime.UtcNow)
+        {
+            reader.Close();
+            DeleteCfClearance(normalized);
+            return false;
+        }
+
+        value        = reader.GetString(0);
+        expiresAtUtc = expires;
+        return !string.IsNullOrEmpty(value);
+    }
+
+    public void SetCfClearance(string host, string value, DateTime expiresAtUtc, string source = "")
+    {
+        var normalized = NormalizeHost(host);
+        if (string.IsNullOrEmpty(normalized) || string.IsNullOrWhiteSpace(value))
+        {
+            return;
+        }
+
+        using var connection = CreateConnection();
+        using var cmd        = connection.CreateCommand();
+
+        cmd.CommandText = """
+                              INSERT INTO cf_clearance (host, value, expires_at_utc, source, updated_at_utc)
+                              VALUES ($host, $value, $expiresAt, $source, $updatedAt)
+                              ON CONFLICT(host) DO UPDATE SET
+                                  value          = excluded.value,
+                                  expires_at_utc = excluded.expires_at_utc,
+                                  source         = excluded.source,
+                                  updated_at_utc = excluded.updated_at_utc;
+                          """;
+
+        cmd.Parameters.AddWithValue("$host", normalized);
+        cmd.Parameters.AddWithValue("$value", value.Trim());
+        cmd.Parameters.AddWithValue("$expiresAt",
+                                    expiresAtUtc.ToUniversalTime().ToString("o", CultureInfo.InvariantCulture));
+        cmd.Parameters.AddWithValue("$source", source ?? string.Empty);
+        cmd.Parameters.AddWithValue("$updatedAt", DateTime.UtcNow.ToString("o", CultureInfo.InvariantCulture));
+
+        cmd.ExecuteNonQuery();
+        RestrictDbFilePermissions();
+    }
+
+    public IReadOnlyList<(string Host, DateTime ExpiresAtUtc, string Source)> GetCfClearanceHosts()
+    {
+        using var connection = CreateConnection();
+        using var cmd        = connection.CreateCommand();
+
+        cmd.CommandText = "SELECT host, expires_at_utc, source FROM cf_clearance ORDER BY host ASC";
+
+        var       list   = new List<(string Host, DateTime ExpiresAtUtc, string Source)>();
+        using var reader = cmd.ExecuteReader();
+
+        while (reader.Read())
+        {
+            list.Add((reader.GetString(0),
+                      DateTime.Parse(reader.GetString(1),
+                                     CultureInfo.InvariantCulture,
+                                     DateTimeStyles.AdjustToUniversal),
+                      reader.GetString(2)));
+        }
+
+        return list;
+    }
+
+    public void DeleteCfClearance(string host)
+    {
+        var normalized = NormalizeHost(host);
+        if (string.IsNullOrEmpty(normalized))
+        {
+            return;
+        }
+
+        using var connection = CreateConnection();
+        using var cmd        = connection.CreateCommand();
+
+        cmd.CommandText = "DELETE FROM cf_clearance WHERE host = $host";
+        cmd.Parameters.AddWithValue("$host", normalized);
+        cmd.ExecuteNonQuery();
+    }
+
+    public int ClearExpiredCfClearance()
+    {
+        using var connection = CreateConnection();
+        using var cmd        = connection.CreateCommand();
+
+        cmd.CommandText = "DELETE FROM cf_clearance WHERE expires_at_utc <= $now";
+        cmd.Parameters.AddWithValue("$now", DateTime.UtcNow.ToString("o", CultureInfo.InvariantCulture));
+        return cmd.ExecuteNonQuery();
+    }
+
+    private static string NormalizeHost(string host)
+    {
+        return TurnstileDetector.NormalizeHost(host);
     }
 
 #endregion

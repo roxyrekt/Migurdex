@@ -1,6 +1,7 @@
 using Microsoft.Extensions.Logging;
 using Migurdex.Core.Infrastructure.Http;
 using Migurdex.Core.Interop;
+using Migurdex.Core.Services.Turnstile;
 using Migurdex.Shared.Interfaces;
 using Migurdex.Shared.Models;
 
@@ -23,6 +24,8 @@ public class SharedBridge : ISharedBridge
     public IMp4MetadataReader MetadataReader { get; }
     public ILoggerFactory     LoggerFactory  { get; }
 
+    public CfClearanceStore? ClearanceStore { get; set; }
+
     public HttpClient CreateHttpClient(HttpClientOptions? options = null)
     {
         options ??= new HttpClientOptions();
@@ -30,6 +33,11 @@ public class SharedBridge : ISharedBridge
 
         innermostHandler =
             new RustHttpDefaultOptionsHandler(innermostHandler, options.SkipCertVerify, options.Emulation);
+
+        if (ClearanceStore is not null)
+        {
+            innermostHandler = new CfClearanceHandler(ClearanceStore, innermostHandler);
+        }
 
         if (options.UseCookies)
         {

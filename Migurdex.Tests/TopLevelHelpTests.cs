@@ -22,6 +22,7 @@ public sealed class TopLevelHelpTests
     [Theory]
     [InlineData("download", "naruto", "--help")]
     [InlineData("search", "--help")]
+    [InlineData("solve", "https://ornek.com", "--help")]
     [InlineData("play", "-h")]
     [InlineData("continue", "--help")]
     [InlineData("update", "--help")]
@@ -55,9 +56,12 @@ public sealed class TopLevelHelpTests
         Assert.Contains("migurdex continue", help, StringComparison.Ordinal);
         Assert.Contains("migurdex download <sorgu>", help, StringComparison.Ordinal);
         Assert.Contains("migurdex blame", help, StringComparison.Ordinal);
+        Assert.Contains("migurdex solve", help, StringComparison.Ordinal);
         Assert.Contains("migurdex --version", help, StringComparison.Ordinal);
         Assert.Contains("migurdex --help", help, StringComparison.Ordinal);
-        Assert.DoesNotContain(EscapeChar.ToString(), help, StringComparison.Ordinal); // yönlendirilmiş çıktıda ANSI kaçmaz
+        Assert.DoesNotContain(EscapeChar.ToString(),
+                              help,
+                              StringComparison.Ordinal);
     }
 
     [Fact]
@@ -70,8 +74,8 @@ public sealed class TopLevelHelpTests
         NonInteractiveCommand.PrintHelp(subCommand);
 
         foreach (var line in subCommand.ToString()
-                                  .Split(Environment.NewLine, StringSplitOptions.RemoveEmptyEntries)
-                                  .Where(line => line.StartsWith("  migurdex", StringComparison.Ordinal)))
+                                       .Split(Environment.NewLine, StringSplitOptions.RemoveEmptyEntries)
+                                       .Where(line => line.StartsWith("  migurdex", StringComparison.Ordinal)))
         {
             Assert.Contains(line, topLevel.ToString(), StringComparison.Ordinal);
         }
