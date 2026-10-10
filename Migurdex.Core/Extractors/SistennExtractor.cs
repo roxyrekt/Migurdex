@@ -158,22 +158,17 @@ public partial class SistennExtractor : IExtractor
                     }
 
                     var cleaned = CleanDecryptedJson(rawDecrypted);
-                    try
+                    if (TryParseObject(cleaned))
                     {
-                        using var testDoc = JsonDocument.Parse(cleaned,
-                                                               new JsonDocumentOptions
-                                                               {
-                                                                   AllowTrailingCommas = true
-                                                               });
-                        if (testDoc.RootElement.ValueKind == JsonValueKind.Object)
-                        {
-                            decryptedJson = cleaned;
-                            break;
-                        }
+                        decryptedJson = cleaned;
+                        break;
                     }
-                    catch
+
+                    var lenient = LenientQuoteValues(cleaned);
+                    if (!ReferenceEquals(lenient, cleaned) && TryParseObject(lenient))
                     {
-                        // ignored
+                        decryptedJson = lenient;
+                        break;
                     }
                 }
 
@@ -493,6 +488,46 @@ public partial class SistennExtractor : IExtractor
 
         return iv;
     }
+
+    private static bool TryParseObject(string json)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(json,
+                                               new JsonDocumentOptions
+                                               {
+                                                   AllowTrailingCommas = true
+                                               });
+
+            return doc.RootElement.ValueKind == JsonValueKind.Object;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static string LenientQuoteValues(string json)
+    {
+        return UnquotedValueRegex().Replace(json,
+                                            m =>
+                                            {
+                                                var value = m.Groups[2].Value;
+                                                if (value is "true" or "false" or "null"
+                                                    || double.TryParse(value,
+                                                                       System.Globalization.NumberStyles.Any,
+                                                                       System.Globalization.CultureInfo.InvariantCulture,
+                                                                       out _))
+                                                {
+                                                    return m.Value;
+                                                }
+
+                                                return $"{m.Groups[1].Value}\"{value}\"";
+                                            });
+    }
+
+    [GeneratedRegex("(:)\\s*([A-Za-z0-9_\\.\\-+]+)")]
+    private static partial Regex UnquotedValueRegex();
 
     private static string CleanDecryptedJson(string decryptedJson)
     {

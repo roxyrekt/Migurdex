@@ -1,4 +1,6 @@
 using Microsoft.Extensions.Logging;
+using Migurdex.Shared.Diagnostics;
+using Migurdex.Shared.Enums;
 using Migurdex.Shared.Interfaces;
 using Migurdex.Shared.Models;
 using System.Text.Json;
@@ -76,13 +78,19 @@ public class DailymotionExtractor : IExtractor
             var jsonContent = await response.Content.ReadAsStringAsync(cancellationToken);
             var metadata    = JsonSerializer.Deserialize<DailymotionMetadata>(jsonContent);
 
+            if (!string.IsNullOrEmpty(metadata?.Error?.Title) || !string.IsNullOrEmpty(metadata?.Error?.Message))
+            {
+                var reason = $"{metadata?.Error?.Title} {metadata?.Error?.Message}";
+
+                throw new ExtractionException(UpstreamErrorClassifier.Detect(200, reason),
+                                              UpstreamErrorClassifier.Summarize(reason));
+            }
+
             var m3U8Url = metadata?.Qualities?.Auto?.FirstOrDefault()?.Url;
             if (string.IsNullOrEmpty(m3U8Url))
             {
-                _logger.LogWarning("could not find M3U8 URL in metadata for video ID: {VideoId}",
-                                   videoId);
-
-                return sources;
+                throw new ExtractionException(UpstreamErrorKind.UpstreamChanged,
+                                                  $"metadata okundu ancak M3U8 yok (video ID: {videoId})");
             }
 
             _logger.LogInformation("found M3U8 URL: {M3u8Url}", m3U8Url);
@@ -119,6 +127,10 @@ public class DailymotionExtractor : IExtractor
                     }
                 }
             }
+        }
+        catch (ExtractionException)
+        {
+            throw;
         }
         catch (Exception ex)
         {
@@ -159,6 +171,9 @@ public class DailymotionExtractor : IExtractor
 
     private class DailymotionMetadata
     {
+        [JsonPropertyName("error")]
+        public DailymotionError? Error { get; set; }
+
         [JsonPropertyName("qualities")]
         public DailymotionQualities? Qualities { get; set; }
 
@@ -179,6 +194,15 @@ public class DailymotionExtractor : IExtractor
 
         [JsonPropertyName("url")]
         public string? Url { get; set; }
+    }
+
+    private class DailymotionError
+    {
+        [JsonPropertyName("title")]
+        public string? Title { get; set; }
+
+        [JsonPropertyName("message")]
+        public string? Message { get; set; }
     }
 
     private class DailymotionSubtitlesInfo

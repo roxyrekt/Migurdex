@@ -35,6 +35,7 @@ public partial class SendvidExtractor : IExtractor
             _logger.LogDebug("fetching Sendvid page: {TargetUrl}", url);
 
             var html = await _httpClient.GetStringAsync(url, cancellationToken);
+            var ogIdx = html.IndexOf("og:video", StringComparison.Ordinal);
             if (string.IsNullOrEmpty(html))
             {
                 _logger.LogWarning("sendvid page empty response for: {TargetUrl}", url);
@@ -46,6 +47,11 @@ public partial class SendvidExtractor : IExtractor
             if (!videoUrlMatch.Success)
             {
                 videoUrlMatch = OgVideoSecureRegex().Match(html);
+            }
+
+            if (!videoUrlMatch.Success)
+            {
+                videoUrlMatch = PlayerSourceRegex().Match(html);
             }
 
             if (!videoUrlMatch.Success)
@@ -86,6 +92,9 @@ public partial class SendvidExtractor : IExtractor
 
     [GeneratedRegex(@"<meta\s+property=""og:video:secure_url""\s+content=""([^""]+)""")]
     private static partial Regex OgVideoSecureRegex();
+
+    [GeneratedRegex("<source\\s+src=\"([^\"]+\\.mp4[^\"]*)\"", RegexOptions.IgnoreCase)]
+    private static partial Regex PlayerSourceRegex();
 
     [GeneratedRegex(@"<meta\s+property=""og:video:height""\s+content=""(\d+)""")]
     private static partial Regex OgVideoHeightRegex();

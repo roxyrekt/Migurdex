@@ -90,6 +90,36 @@ public sealed class BlameCollectorTests
     }
 
     [Fact]
+    public void RecordProvider_TracksEmptyAndErrorSeparately()
+    {
+        var blame = new BlameCollector();
+        blame.RecordProvider("VP", "extract", 100, BlameOutcome.Empty);
+        blame.RecordProvider("VP", "extract", 200, BlameOutcome.Error);
+        blame.RecordProvider("VP", "extract", 300, BlameOutcome.Ok);
+
+        var p = Assert.Single(blame.Snapshot().Providers);
+        Assert.Equal(3, p.Calls);
+        Assert.Equal(1, p.Empties);
+        Assert.Equal(1, p.Errors);
+        Assert.Equal(1, p.Matched);
+    }
+
+    [Fact]
+    public void RoundTrip_PreservesEmptyAndErrorCounts()
+    {
+        var blame = new BlameCollector();
+        blame.RecordProvider("VP", "extract", 100, BlameOutcome.Empty);
+        blame.RecordProvider("VP", "extract", 200, BlameOutcome.Error);
+
+        var loaded = BlameCollector.TryLoad(WriteTemp(blame.ToJson()));
+        Assert.NotNull(loaded);
+
+        var provider = Assert.Single(loaded!.Snapshot().Providers);
+        Assert.Equal(1, provider.Empties);
+        Assert.Equal(1, provider.Errors);
+    }
+
+    [Fact]
     public void Snapshot_OrdersByAvgDesc()
     {
         var blame = new BlameCollector();

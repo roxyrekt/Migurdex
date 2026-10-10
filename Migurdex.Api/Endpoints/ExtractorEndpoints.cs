@@ -1,11 +1,110 @@
 using Migurdex.Api.Common;
+using Migurdex.Shared.Enums;
 using Migurdex.Shared.Interfaces;
+using Migurdex.Shared.Models;
 using System.Net;
 using System.Net.Sockets;
 
 namespace Migurdex.Api.Endpoints;
 
 public record ResolveExtractorRequest(string Url, Dictionary<string, string>? Headers = null);
+
+public sealed record UnresolvedEmbed(string Url, string Code, string Message);
+
+public sealed record ResolveWarning(string Code, string Message, List<string> Urls)
+{
+    public static ResolveWarning From(ExtractionWarning reason, string message)
+    {
+        return new ResolveWarning(reason.ToString(), message, []);
+    }
+}
+
+public static class ResolveWarningMapper
+{
+    public static List<ResolveWarning> MapFailuresToWarnings(bool canExtract,
+        int                                                            sourceCount,
+        List<ExtractionFailure>                                        failures)
+    {
+        var warnings = new List<ResolveWarning>();
+        if (!canExtract)
+        {
+            warnings.Add(ResolveWarning.From(ExtractionWarning.NoExtractorMatched,
+                                             "Bu URL ile eşleşen extractor bulunamadı."));
+
+            return warnings;
+        }
+
+        var relevant = sourceCount > 0
+            ? failures.Where(f => f.Confident && f.Kind != UpstreamErrorKind.Unknown)
+            : failures;
+
+        foreach (var kind in relevant.Select(f => f.Kind).Distinct())
+        {
+            var detail = relevant.First(f => f.Kind == kind).Detail;
+            warnings.Add(ResolveWarning.From(MapKind(kind),
+                                             string.IsNullOrWhiteSpace(detail) ? DefaultMessage(kind) : detail));
+        }
+
+        if (sourceCount == 0 && warnings.Count == 0)
+        {
+            warnings.Add(ResolveWarning.From(ExtractionWarning.EmptyResult,
+                                             "Extractor eşleşti ancak oynatılabilir kaynak dönmedi (upstream engeli, özel içerik veya probe filtresi olabilir)."));
+        }
+
+        return warnings;
+    }
+
+    public static UnresolvedEmbed UnresolvedFrom(string url, List<ExtractionFailure> failures)
+    {
+        var first = failures.FirstOrDefault();
+        if (first is null)
+        {
+            return new UnresolvedEmbed(url,
+                                       ExtractionWarning.EmptyResult.ToString(),
+                                       "sebep bilinmiyor");
+        }
+
+        var detail = string.IsNullOrWhiteSpace(first.Detail) ? DefaultMessage(first.Kind) : first.Detail;
+
+        return new UnresolvedEmbed(url, MapKind(first.Kind).ToString(), detail);
+    }
+
+    private static ExtractionWarning MapKind(UpstreamErrorKind kind)
+    {
+        return kind switch
+        {
+            UpstreamErrorKind.QuotaExceeded    => ExtractionWarning.QuotaExceeded,
+            UpstreamErrorKind.RateLimited      => ExtractionWarning.RateLimited,
+            UpstreamErrorKind.Private          => ExtractionWarning.Private,
+            UpstreamErrorKind.Deleted          => ExtractionWarning.Deleted,
+            UpstreamErrorKind.NotFound         => ExtractionWarning.NotFound,
+            UpstreamErrorKind.EmbedBlocked     => ExtractionWarning.EmbedBlocked,
+            UpstreamErrorKind.CopyrightBlocked => ExtractionWarning.CopyrightBlocked,
+            UpstreamErrorKind.UpstreamChanged  => ExtractionWarning.UpstreamChanged,
+            UpstreamErrorKind.CloudflareBlocked => ExtractionWarning.CloudflareBlocked,
+            UpstreamErrorKind.Processing       => ExtractionWarning.Processing,
+            _                                  => ExtractionWarning.EmptyResult
+        };
+    }
+
+    private static string DefaultMessage(UpstreamErrorKind kind)
+    {
+        return kind switch
+        {
+            UpstreamErrorKind.QuotaExceeded    => "Upstream kotası tükendi.",
+            UpstreamErrorKind.RateLimited      => "Upstream hız sınırı (çok fazla istek).",
+            UpstreamErrorKind.Private          => "İçerik özel veya giriş gerektiriyor.",
+            UpstreamErrorKind.Deleted          => "İçerik silinmiş veya kaldırılmış.",
+            UpstreamErrorKind.NotFound         => "İçerik bulunamadı.",
+            UpstreamErrorKind.EmbedBlocked     => "İçerik gömülü oynatıcıya kapalı.",
+            UpstreamErrorKind.CopyrightBlocked => "İçerik telif nedeniyle engelli.",
+            UpstreamErrorKind.UpstreamChanged  => "Kaynak site yapısı değişmiş olabilir.",
+            UpstreamErrorKind.CloudflareBlocked => "Cloudflare bot koruması devrede.",
+            UpstreamErrorKind.Processing       => "Video işleniyor, daha sonra tekrar dene.",
+            _                                  => "Extractor eşleşti ancak oynatılabilir kaynak dönmedi."
+        };
+    }
+}
 
 public static class ExtractorEndpoints
 {
@@ -102,16 +201,21 @@ public static class ExtractorEndpoints
             using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             timeoutCts.CancelAfter(TimeSpan.FromSeconds(15));
 
-            var sources = await extractorManager.ExtractAsync(
+            var outcome = await extractorManager.ExtractDetailedAsync(
                               url,
                               request.Headers,
                               timeoutCts.Token);
+            var sources = outcome.Sources;
+
+            var canExtract = extractorManager.CanExtract(url);
+            var warnings   = ResolveWarningMapper.MapFailuresToWarnings(canExtract, sources.Count, outcome.Failures);
 
             return Results.Ok(new
             {
                 url,
-                canExtract = extractorManager.CanExtract(url),
-                results    = sources
+                canExtract,
+                results    = sources,
+                warnings
             });
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)

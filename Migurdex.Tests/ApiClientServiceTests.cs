@@ -39,6 +39,35 @@ public sealed class ApiClientServiceTests
     }
 
     [Fact]
+    public async Task GetVideoSourcesAsync_ParsesEnvelope()
+    {
+        var handler = new OkHandler(
+            """{"sources":[{"url":"https://x/y.mp4","quality":"720p","type":1}],"warnings":[{"code":"QuotaExceeded","message":"HTTP 429"}]}""");
+        var service = new ApiClientService(new HttpClient(handler) { BaseAddress = new Uri("http://localhost/") },
+                                           new TestConfigurationService());
+
+        var result = await service.GetVideoSourcesAsync("P", "ep", cancellationToken: TestContext.Current.CancellationToken);
+
+        Assert.True(result.IsSuccess);
+        var src = Assert.Single(result.Data!);
+        Assert.Equal("https://x/y.mp4", src.Url);
+    }
+
+    [Fact]
+    public async Task GetVideoSourcesAsync_FallsBackToLegacyArray()
+    {
+        var handler = new OkHandler(
+            """[{"url":"https://x/y.mp4","quality":"720p","type":1}]""");
+        var service = new ApiClientService(new HttpClient(handler) { BaseAddress = new Uri("http://localhost/") },
+                                           new TestConfigurationService());
+
+        var result = await service.GetVideoSourcesAsync("P", "ep", cancellationToken: TestContext.Current.CancellationToken);
+
+        Assert.True(result.IsSuccess);
+        Assert.Single(result.Data!);
+    }
+
+    [Fact]
     public async Task IsApiOnlineAsync_RethrowsUserCancellationInsteadOfReturningFalse()
     {
         var handler = new CancelingHandler();

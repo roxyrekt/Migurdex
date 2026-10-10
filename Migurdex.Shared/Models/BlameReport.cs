@@ -21,6 +21,8 @@ public sealed class ProviderBlame
     public int    Timeouts  { get; set; }
     public int    Mismatches { get; set; }
     public int    Matched   { get; set; }
+    public int    Empties   { get; set; }
+    public int    Errors    { get; set; }
 }
 
 public sealed class BlameReport

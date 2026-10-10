@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Logging;
+using Migurdex.Shared.Diagnostics;
 using Migurdex.Shared.Enums;
 using Migurdex.Shared.Interfaces;
 using Migurdex.Shared.Models;
@@ -78,6 +79,15 @@ public class ExtractorManager : IExtractorManager
         IDictionary<string, string>?                         headers           = null,
         CancellationToken                                    cancellationToken = default)
     {
+        var outcome = await ExtractDetailedAsync(url, headers, cancellationToken);
+
+        return outcome.Sources;
+    }
+
+    public async Task<ExtractionOutcome> ExtractDetailedAsync(string url,
+        IDictionary<string, string>?                             headers           = null,
+        CancellationToken                                        cancellationToken = default)
+    {
         url = NormalizeUrl(url);
 
         var matchedExtractors = new List<IExtractor>();
@@ -101,15 +111,17 @@ public class ExtractorManager : IExtractorManager
         {
             _logger.LogWarning("no extractor found for URL: {Url}", url);
 
-            return [];
+            return ExtractionOutcome.Empty;
         }
 
-        var sources = new List<VideoSource>();
+        var sources  = new List<VideoSource>();
+        var failures = new List<ExtractionFailure>();
         foreach (var extractor in matchedExtractors)
         {
             try
             {
                 _logger.LogDebug("extracting URL using {ExtractorName}: {Url}", extractor.Name, url);
+                using var scope = ExtractionCapture.Begin();
                 var result = await extractor.ExtractAsync(url, headers, cancellationToken);
 
                 foreach (var source in result)
@@ -117,7 +129,35 @@ public class ExtractorManager : IExtractorManager
                     source.Hoster ??= extractor.Name;
                 }
 
+                if (result.Count == 0)
+                {
+                    _logger.LogWarning("{ExtractorName} returned no sources for {Url}",
+                                       extractor.Name,
+                                       url);
+                }
+
                 sources.AddRange(result);
+                failures.AddRange(StampFailures(extractor.Name, scope.Failures));
+            }
+            catch (ExtractionException ex)
+            {
+                if (ex.Kind == UpstreamErrorKind.UpstreamChanged)
+                {
+                    _logger.LogError("{ExtractorName} upstream structure changed for {Url}: {Detail}",
+                                     extractor.Name,
+                                     url,
+                                     ex.Message);
+                }
+                else
+                {
+                    _logger.LogWarning("{ExtractorName} upstream failure ({Kind}) for {Url}: {Detail}",
+                                       extractor.Name,
+                                       ex.Kind,
+                                       url,
+                                       ex.Message);
+                }
+
+                failures.Add(new ExtractionFailure(extractor.Name, ex.Kind, ex.Message));
             }
             catch (Exception ex)
             {
@@ -125,12 +165,41 @@ public class ExtractorManager : IExtractorManager
                                  "error occurred during extraction with {ExtractorName} for {Url}",
                                  extractor.Name,
                                  url);
+                failures.Add(new ExtractionFailure(extractor.Name, UpstreamErrorKind.Unknown, "iç extractor hatası"));
             }
         }
 
-        await FillMissingMetadataAsync(sources, cancellationToken);
+        if (sources.Count == 0 && matchedExtractors.Count > 0)
+        {
+            _logger.LogWarning("all {Count} extractor(s) returned empty for {Url}",
+                               matchedExtractors.Count,
+                               url);
+        }
 
-        return sources;
+        List<ExtractionFailure> probeFailures;
+        using (var probeScope = ExtractionCapture.Begin())
+        {
+            await FillMissingMetadataAsync(sources, cancellationToken);
+            probeFailures = StampFailures(sources.FirstOrDefault()?.Hoster ?? "probe",
+                                          probeScope.Failures);
+        }
+
+        failures.AddRange(probeFailures);
+
+        return new ExtractionOutcome(sources, DedupeFailures(failures));
+    }
+
+    private static List<ExtractionFailure> StampFailures(string extractor, IEnumerable<ExtractionFailure> failures)
+    {
+        return failures.Select(f => string.IsNullOrEmpty(f.Extractor) ? f with { Extractor = extractor } : f)
+                       .ToList();
+    }
+
+    private static List<ExtractionFailure> DedupeFailures(List<ExtractionFailure> failures)
+    {
+        return failures.GroupBy(f => (f.Kind, f.Detail))
+                       .Select(g => g.FirstOrDefault(f => !string.IsNullOrEmpty(f.Extractor)) ?? g.First())
+                       .ToList();
     }
 
     private async Task FillMissingMetadataAsync(List<VideoSource> sources,
@@ -200,7 +269,7 @@ public class ExtractorManager : IExtractorManager
                                              && s.DurationSeconds is null);
         if (dropped > 0)
         {
-            _logger.LogDebug("dropped {Count} unprobable sources", dropped);
+            _logger.LogWarning("dropped {Count} unprobable sources (first: {Url})", dropped, groups.First().Key);
         }
     }
 

@@ -1,5 +1,7 @@
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Migurdex.Core.Extractors;
+using Migurdex.Shared.Diagnostics;
 using Migurdex.Shared.Enums;
 using Migurdex.Shared.Infrastructure;
 using Migurdex.Shared.Interfaces;
@@ -19,12 +21,14 @@ public class Mp4MetadataReader : IMp4MetadataReader
     private const int MaxDurationSecs   = 86400;
     private const long MaxBitrateBps    = 1_000_000_000;
 
-    private readonly Lazy<ISharedBridge> _bridge;
-    private readonly Lazy<HttpClient>    _client;
+    private readonly Lazy<ISharedBridge>               _bridge;
+    private readonly Lazy<HttpClient>                  _client;
+    private readonly Lazy<ILogger<Mp4MetadataReader>>  _logger;
 
     public Mp4MetadataReader(IServiceProvider serviceProvider)
     {
         _bridge = new Lazy<ISharedBridge>(serviceProvider.GetRequiredService<ISharedBridge>);
+        _logger = new Lazy<ILogger<Mp4MetadataReader>>(() => _bridge.Value.CreateLogger<Mp4MetadataReader>());
         _client = new Lazy<HttpClient>(() => _bridge.Value.CreateHttpClient(o =>
         {
             o.AllowAutoRedirect = true;
@@ -98,6 +102,18 @@ public class Mp4MetadataReader : IMp4MetadataReader
 
             if (bytes.Length == 0 || !IsMp4Start(bytes))
             {
+                UpstreamErrorKind kind = UpstreamErrorKind.Unknown;
+                if (bytes.Length > 0)
+                {
+                    kind = UpstreamErrorClassifier.Detect(0,
+                                                          System.Text.Encoding.ASCII.GetString(bytes,
+                                                                                               0,
+                                                                                               Math.Min(bytes.Length,
+                                                                                                        2048)));
+                }
+
+                _logger.Value.LogDebug("mp4 probe found no mp4 signature ({Kind}) for {Url}", kind, videoUrl);
+
                 return new Mp4Metadata("Auto", null, null, null);
             }
 
@@ -178,9 +194,9 @@ public class Mp4MetadataReader : IMp4MetadataReader
 
             return new Mp4Metadata("Auto", null, sizeBytes, null);
         }
-        catch
+        catch (Exception ex)
         {
-            // ignored
+            _logger.Value.LogDebug(ex, "mp4 probe failed for {Url}", videoUrl);
         }
 
         return new Mp4Metadata("Auto", null, null, null);
@@ -651,6 +667,10 @@ public class Mp4MetadataReader : IMp4MetadataReader
 
             if (!response.IsSuccessStatusCode && response.StatusCode != HttpStatusCode.PartialContent)
             {
+                _logger.Value.LogDebug("mp4 range request failed with {StatusCode} for {Url}",
+                                       response.StatusCode,
+                                       videoUrl);
+
                 return ([], null);
             }
 
@@ -667,11 +687,18 @@ public class Mp4MetadataReader : IMp4MetadataReader
             var wanted = end - start + 1;
             if (wanted is <= 0 or > 1_048_576)
             {
+                _logger.Value.LogDebug("mp4 range {Start}-{End} out of probe bounds for {Url}", start, end, videoUrl);
+
                 return ([], ParseTotalSize(contentRange));
             }
 
             if (response.StatusCode == HttpStatusCode.OK && start > 0)
             {
+                _logger.Value.LogDebug("server ignored range {Start}-{End} (returned 200) for {Url}",
+                                       start,
+                                       end,
+                                       videoUrl);
+
                 var contentLength = response.Content.Headers.ContentLength;
                 return ([], contentLength is > 0 ? contentLength : ParseTotalSize(contentRange));
             }
@@ -705,8 +732,10 @@ public class Mp4MetadataReader : IMp4MetadataReader
 
             return (buffer, ParseTotalSize(contentRange));
         }
-        catch
+        catch (Exception ex)
         {
+            _logger.Value.LogDebug(ex, "mp4 range fetch failed for {Url}", videoUrl);
+
             return ([], null);
         }
     }

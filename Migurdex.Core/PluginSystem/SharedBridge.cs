@@ -41,6 +41,8 @@ public class SharedBridge : ISharedBridge
             innermostHandler = new AutoRedirectHandler(innermostHandler);
         }
 
+        innermostHandler = new ExtractionCaptureHandler(innermostHandler);
+
         if (options.ConfigureHandler != null)
         {
             var wrappedHandler = options.ConfigureHandler(innermostHandler);

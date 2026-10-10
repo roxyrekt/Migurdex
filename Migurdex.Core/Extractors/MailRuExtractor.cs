@@ -110,12 +110,21 @@ public partial class MailRuExtractor : IExtractor
     [GeneratedRegex(@"(?:embed|meta)/([0-9]+)")]
     private static partial Regex EmbedMetaRegex();
 
+    [GeneratedRegex(@"(?:_myvideo|myvideo)/(\d+)")]
+    private static partial Regex ShortIdRegex();
+
     [GeneratedRegex(@"([0-9]{10,})")]
     private static partial Regex DirectIdRegex();
 
     private static string ExtractVideoId(string url)
     {
         var match = EmbedMetaRegex().Match(url);
+        if (match.Success)
+        {
+            return match.Groups[1].Value;
+        }
+
+        match = ShortIdRegex().Match(url);
         if (match.Success)
         {
             return match.Groups[1].Value;

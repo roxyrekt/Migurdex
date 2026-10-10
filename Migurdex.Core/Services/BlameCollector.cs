@@ -63,6 +63,9 @@ public sealed class BlameCollector : IBlameCollector
                 case BlameOutcome.Error:
                     acc.Errors++;
                     break;
+                case BlameOutcome.Empty:
+                    acc.Empties++;
+                    break;
                 default:
                     acc.Matched++;
                     break;
@@ -102,7 +105,9 @@ public sealed class BlameCollector : IBlameCollector
                         MaxMs      = a.MaxMs,
                         Timeouts   = a.Timeouts,
                         Mismatches = a.Mismatches,
-                        Matched    = a.Matched
+                        Matched    = a.Matched,
+                        Empties    = a.Empties,
+                        Errors     = a.Errors
                     })
                     .OrderByDescending(p => p.AvgMs)
                     .ToList()
@@ -157,7 +162,9 @@ public sealed class BlameCollector : IBlameCollector
                     MaxMs      = p.MaxMs,
                     Timeouts   = p.Timeouts,
                     Mismatches = p.Mismatches,
-                    Matched    = p.Matched
+                    Matched    = p.Matched,
+                    Empties    = p.Empties,
+                    Errors     = p.Errors
                 };
             }
 
@@ -224,6 +231,7 @@ public sealed class BlameCollector : IBlameCollector
         public int      Timeouts;
         public int      Mismatches;
         public int      Matched;
+        public int      Empties;
         public int      Errors;
         public DateTime LastAt;
     }

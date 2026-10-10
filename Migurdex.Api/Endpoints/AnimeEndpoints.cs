@@ -1,5 +1,6 @@
 using Migurdex.Api.Common;
 using Migurdex.Core.PluginSystem;
+using Migurdex.Shared.Diagnostics;
 using Migurdex.Shared.Enums;
 using Migurdex.Shared.Interfaces;
 using Migurdex.Shared.Models;
@@ -122,10 +123,16 @@ public static class AnimeEndpoints
                                          try
                                          {
                                              var searchResults = await p.SearchAsync(q, cancellationToken);
+                                             logger.LogDebug("search completed for provider {Provider}: {Count} items in {ElapsedMs}ms",
+                                                             p.Name,
+                                                             searchResults.Count,
+                                                             sw.ElapsedMilliseconds);
                                              blame.RecordProvider(p.Name,
                                                                   "search",
                                                                   sw.ElapsedMilliseconds,
-                                                                  BlameOutcome.Ok);
+                                                                  searchResults.Count == 0
+                                                                      ? BlameOutcome.Empty
+                                                                      : BlameOutcome.Ok);
                                              Interlocked.Increment(ref succeededProviders);
                                              foreach (var item in searchResults)
                                              {
@@ -147,17 +154,21 @@ public static class AnimeEndpoints
                                                                "search failed for provider {Provider} query {Query}",
                                                                p.Name,
                                                                q);
+                                             var (searchOutcome, searchError) =
+                                                 ProviderErrorMapper.Map(ex, "Upstream arama hatası.");
                                              blame.RecordProvider(p.Name,
                                                                   "search",
                                                                   sw.ElapsedMilliseconds,
-                                                                  BlameOutcome.Error);
-                                             errors.Add(new DoneErrorItem(p.Name, "search", "Upstream arama hatası."));
+                                                                  searchOutcome);
+                                             errors.Add(new DoneErrorItem(p.Name,
+                                                                                  "search",
+                                                                                  searchError));
                                              await channel.Writer.WriteAsync(
                                                  new SseEnvelope(SseHelper.EventProviderError,
                                                                  new ProviderErrorPayload(
                                                                      p.Name,
                                                                      "search",
-                                                                     "Upstream arama hatası.")),
+                                                                     searchError)),
                                                  cancellationToken);
                                          }
                                      })
@@ -192,7 +203,14 @@ public static class AnimeEndpoints
             try
             {
                 var searchResults = await p.SearchAsync(q, cancellationToken);
-                blame.RecordProvider(p.Name, "search", sw.ElapsedMilliseconds, BlameOutcome.Ok);
+                logger.LogDebug("search completed for provider {Provider}: {Count} items in {ElapsedMs}ms",
+                                p.Name,
+                                searchResults.Count,
+                                sw.ElapsedMilliseconds);
+                blame.RecordProvider(p.Name,
+                                     "search",
+                                     sw.ElapsedMilliseconds,
+                                     searchResults.Count == 0 ? BlameOutcome.Empty : BlameOutcome.Ok);
                 return (object) new
                 {
                     provider = p.Name,
@@ -202,11 +220,12 @@ public static class AnimeEndpoints
             catch (Exception ex)
             {
                 logger.LogWarning(ex, "search failed for provider {Provider} query {Query}", p.Name, q);
-                blame.RecordProvider(p.Name, "search", sw.ElapsedMilliseconds, BlameOutcome.Error);
+                var (searchOutcome, searchError) = ProviderErrorMapper.Map(ex, "Upstream arama hatası.");
+                blame.RecordProvider(p.Name, "search", sw.ElapsedMilliseconds, searchOutcome);
                 return new
                 {
                     provider = p.Name,
-                    error    = "Upstream arama hatası."
+                    error    = searchError
                 };
             }
         });
@@ -246,6 +265,10 @@ public static class AnimeEndpoints
         try
         {
             var details = await p.GetDetailsAsync(animeId, cancellationToken);
+            logger.LogDebug("details completed for provider {Provider} anime {AnimeId} in {ElapsedMs}ms",
+                            provider,
+                            animeId,
+                            sw.ElapsedMilliseconds);
             blame.RecordProvider(provider, "details", sw.ElapsedMilliseconds, BlameOutcome.Ok);
             details.Normalize();
             return Results.Ok(details);
@@ -253,8 +276,9 @@ public static class AnimeEndpoints
         catch (Exception ex)
         {
             logger.LogWarning(ex, "getDetails failed for provider {Provider} anime {AnimeId}", provider, animeId);
-            blame.RecordProvider(provider, "details", sw.ElapsedMilliseconds, BlameOutcome.Error);
-            return Results.Problem($"Upstream detay hatası ({provider}).",
+            var (detailsOutcome, detailsError) = ProviderErrorMapper.Map(ex, $"Upstream detay hatası ({provider}).");
+            blame.RecordProvider(provider, "details", sw.ElapsedMilliseconds, detailsOutcome);
+            return Results.Problem(detailsError,
                                    statusCode: StatusCodes.Status502BadGateway,
                                    title: "Upstream hata");
         }
@@ -291,17 +315,45 @@ public static class AnimeEndpoints
         try
         {
             var groups = await p.GetGroupsAsync(episodeId, cancellationToken);
-            blame.RecordProvider(provider, "groups", sw.ElapsedMilliseconds, BlameOutcome.Ok);
+            logger.LogDebug("groups completed for provider {Provider}: {Count} groups in {ElapsedMs}ms",
+                            provider,
+                            groups.Count,
+                            sw.ElapsedMilliseconds);
+            blame.RecordProvider(provider,
+                                 "groups",
+                                 sw.ElapsedMilliseconds,
+                                 groups.Count == 0 ? BlameOutcome.Empty : BlameOutcome.Ok);
             return Results.Ok(groups);
         }
         catch (Exception ex)
         {
             logger.LogWarning(ex, "getGroups failed for provider {Provider} episode {EpisodeId}", provider, episodeId);
-            blame.RecordProvider(provider, "groups", sw.ElapsedMilliseconds, BlameOutcome.Error);
-            return Results.Problem($"Upstream grup hatası ({provider}).",
+            var (groupsOutcome, groupsError) = ProviderErrorMapper.Map(ex, $"Upstream grup hatası ({provider}).");
+            blame.RecordProvider(provider, "groups", sw.ElapsedMilliseconds, groupsOutcome);
+            return Results.Problem(groupsError,
                                    statusCode: StatusCodes.Status502BadGateway,
                                    title: "Upstream hata");
         }
+    }
+
+    private static (List<VideoSource> Playable, List<VideoSource> RawEmbeds) PartitionEmbeds(
+        List<VideoSource> sources)
+    {
+        var playable  = new List<VideoSource>(sources.Count);
+        var rawEmbeds = new List<VideoSource>();
+        foreach (var src in sources)
+        {
+            if (src.Type == VideoType.Embed)
+            {
+                rawEmbeds.Add(src);
+            }
+            else
+            {
+                playable.Add(src);
+            }
+        }
+
+        return (playable, rawEmbeds);
     }
 
     private static Dictionary<string, string>? BuildRefererHeaders(IAnimeProvider p)
@@ -361,7 +413,14 @@ public static class AnimeEndpoints
             try
             {
                 rawSources = await p.GetVideoSourcesAsync(episodeId, group, cancellationToken);
-                blame.RecordProvider(provider, "sources", streamSw.ElapsedMilliseconds, BlameOutcome.Ok);
+                logger.LogDebug("sources listed for provider {Provider}: {Count} embeds in {ElapsedMs}ms",
+                                provider,
+                                rawSources.Count,
+                                streamSw.ElapsedMilliseconds);
+                blame.RecordProvider(provider,
+                                     "sources",
+                                     streamSw.ElapsedMilliseconds,
+                                     rawSources.Count == 0 ? BlameOutcome.Empty : BlameOutcome.Ok);
             }
             catch (Exception ex)
             {
@@ -370,12 +429,14 @@ public static class AnimeEndpoints
                                   provider,
                                   episodeId,
                                   group);
-                blame.RecordProvider(provider, "sources", streamSw.ElapsedMilliseconds, BlameOutcome.Error);
+                var (sourcesOutcome, sourcesError) =
+                    ProviderErrorMapper.Map(ex, "Upstream kaynak hatası.");
+                blame.RecordProvider(provider, "sources", streamSw.ElapsedMilliseconds, sourcesOutcome);
                 SseHelper.InitializeSseResponse(context);
                 await SseHelper.WriteProviderErrorAsync(context,
                                                         provider,
                                                         "sources",
-                                                        "Upstream kaynak hatası.",
+                                                        sourcesError,
                                                         cancellationToken);
                 await SseHelper.WriteDoneSummaryAsync(context,
                                                       new DoneSummary(0,
@@ -384,16 +445,18 @@ public static class AnimeEndpoints
                                                                           new DoneErrorItem(
                                                                               provider,
                                                                               "sources",
-                                                                              "Upstream kaynak hatası.")
+                                                                              sourcesError)
                                                                       ],
                                                                       0),
                                                       cancellationToken);
                 return Results.Empty;
             }
 
-            var sentUrls  = new ConcurrentDictionary<string, byte>(StringComparer.OrdinalIgnoreCase);
-            var channel   = Channel.CreateUnbounded<SseEnvelope>();
-            var sentCount = 0;
+            var sentUrls    = new ConcurrentDictionary<string, byte>(StringComparer.OrdinalIgnoreCase);
+            var channel     = Channel.CreateUnbounded<SseEnvelope>();
+            var sentCount   = 0;
+            var failedCount = 0;
+            var errors      = new ConcurrentBag<DoneErrorItem>();
 
             bool TryEnqueueSource(VideoSource src)
             {
@@ -422,22 +485,51 @@ public static class AnimeEndpoints
                                                                             {
                                                                                 var headers = BuildRefererHeaders(p);
 
-                                                                                var extracted =
+                                                                                var outcome =
                                                                                     await extractorManager
-                                                                                        .ExtractAsync(src.Url,
+                                                                                        .ExtractDetailedAsync(src.Url,
                                                                                             headers,
                                                                                             cancellationToken);
+                                                                                var extracted = outcome.Sources;
+                                                                                if (extracted.Count == 0)
+                                                                                {
+                                                                                    var detail = outcome.Failures.Count > 0
+                                                                                        ? $"{outcome.Failures[0].Kind}: {outcome.Failures[0].Detail}"
+                                                                                        : "Embed çözümlenemedi";
+                                                                                    var reason = $"{detail} [{src.Url}]";
+                                                                                    blame.RecordProvider(
+                                                                                        p.Name,
+                                                                                        "extract",
+                                                                                        extractSw.ElapsedMilliseconds,
+                                                                                        BlameOutcome.Empty);
+                                                                                    Interlocked.Increment(ref failedCount);
+                                                                                    errors.Add(new DoneErrorItem(
+                                                                                        p.Name,
+                                                                                        "extract",
+                                                                                        reason));
+                                                                                    channel.Writer.TryWrite(
+                                                                                        new SseEnvelope(
+                                                                                            SseHelper.EventProviderError,
+                                                                                            new ProviderErrorPayload(
+                                                                                                p.Name,
+                                                                                                "extract",
+                                                                                                reason)));
+                                                                                }
+
                                                                                 foreach (var ext in extracted)
                                                                                 {
                                                                                     TryEnqueueSource(
                                                                                         VideoSourceMerger.Merge(ext, src));
                                                                                 }
 
-                                                                                blame.RecordProvider(
-                                                                                    p.Name,
-                                                                                    "extract",
-                                                                                    extractSw.ElapsedMilliseconds,
-                                                                                    BlameOutcome.Ok);
+                                                                                if (extracted.Count > 0)
+                                                                                {
+                                                                                    blame.RecordProvider(
+                                                                                        p.Name,
+                                                                                        "extract",
+                                                                                        extractSw.ElapsedMilliseconds,
+                                                                                        BlameOutcome.Ok);
+                                                                                }
                                                                             }
                                                                             else
                                                                             {
@@ -455,6 +547,18 @@ public static class AnimeEndpoints
                                                                                 "source extraction failed for provider {Provider} url {Url}",
                                                                                 provider,
                                                                                 src.Url);
+                                                                            Interlocked.Increment(ref failedCount);
+                                                                            errors.Add(new DoneErrorItem(
+                                                                                p.Name,
+                                                                                "extract",
+                                                                                $"Upstream extractor hatası. [{src.Url}]"));
+                                                                            channel.Writer.TryWrite(
+                                                                                new SseEnvelope(
+                                                                                    SseHelper.EventProviderError,
+                                                                                    new ProviderErrorPayload(
+                                                                                        p.Name,
+                                                                                        "extract",
+                                                                                        $"Upstream extractor hatası. [{src.Url}]")));
                                                                         }
                                                                     },
                                                                     cancellationToken))
@@ -467,7 +571,7 @@ public static class AnimeEndpoints
                                  await Task.WhenAll(extractionTasks);
                                  await channel.Writer.WriteAsync(
                                      new SseEnvelope(SseHelper.EventDone,
-                                                     new DoneSummary(sentCount, 0, [], sentCount)),
+                                                     new DoneSummary(sentCount, Volatile.Read(ref failedCount), errors.ToList(), sentCount)),
                                      cancellationToken);
                              }
                              finally
@@ -486,7 +590,14 @@ public static class AnimeEndpoints
         try
         {
             var rawSources = await p.GetVideoSourcesAsync(episodeId, group, cancellationToken);
-            blame.RecordProvider(provider, "sources", sourcesSw.ElapsedMilliseconds, BlameOutcome.Ok);
+            logger.LogDebug("sources listed for provider {Provider}: {Count} embeds in {ElapsedMs}ms",
+                            provider,
+                            rawSources.Count,
+                            sourcesSw.ElapsedMilliseconds);
+            blame.RecordProvider(provider,
+                                 "sources",
+                                 sourcesSw.ElapsedMilliseconds,
+                                 rawSources.Count == 0 ? BlameOutcome.Empty : BlameOutcome.Ok);
 
             var tasks = rawSources.Select(src => Task.Run(async () =>
                                                           {
@@ -498,11 +609,12 @@ public static class AnimeEndpoints
                                                                   {
                                                                       var headers = BuildRefererHeaders(p);
 
-                                                                      var extracted =
-                                                                          await extractorManager.ExtractAsync(
+                                                                      var outcome =
+                                                                          await extractorManager.ExtractDetailedAsync(
                                                                               src.Url,
                                                                               headers,
                                                                               cancellationToken);
+                                                                      var extracted = outcome.Sources;
                                                                       var resolved = new List<VideoSource>(extracted.Count);
                                                                       foreach (var ext in extracted)
                                                                       {
@@ -513,11 +625,24 @@ public static class AnimeEndpoints
                                                                           p.Name,
                                                                           "extract",
                                                                           extractSw.ElapsedMilliseconds,
-                                                                          BlameOutcome.Ok);
-                                                                      return resolved;
+                                                                          extracted.Count == 0
+                                                                              ? BlameOutcome.Empty
+                                                                              : BlameOutcome.Ok);
+                                                                      if (extracted.Count == 0)
+                                                                      {
+                                                                          var reason = outcome.Failures.Count > 0
+                                                                              ? $"{outcome.Failures[0].Kind}: {outcome.Failures[0].Detail}"
+                                                                              : "sebep bilinmiyor";
+                                                                          logger.LogWarning(
+                                                                              "embed resolved empty for provider {Provider} url {Url} ({Reason})",
+                                                                              provider,
+                                                                              src.Url,
+                                                                              reason);
+                                                                      }
+                                                                      return (resolved, outcome.Failures);
                                                                   }
 
-                                                                  return (List<VideoSource>) [src];
+                                                                  return ((List<VideoSource>) [src], new List<ExtractionFailure>());
                                                               }
                                                               catch (Exception ex)
                                                               {
@@ -530,24 +655,48 @@ public static class AnimeEndpoints
                                                                       "extract",
                                                                       extractSw.ElapsedMilliseconds,
                                                                       BlameOutcome.Error);
-                                                                  return (List<VideoSource>) [];
+                                                                  return ((List<VideoSource>) [], new List<ExtractionFailure>());
                                                               }
                                                           },
                                                           cancellationToken));
 
             var results         = await Task.WhenAll(tasks);
-            var resolvedSources = results.SelectMany(x => x).ToList();
+            var emptyEmbeds     = results.Count(x => x.Item1.Count == 0);
+            if (emptyEmbeds > 0)
+            {
+                logger.LogWarning("{Empty}/{Total} embeds resolved empty for provider {Provider} episode {EpisodeId}",
+                                  emptyEmbeds,
+                                  results.Length,
+                                  provider,
+                                  episodeId);
+            }
+
+            var resolvedSources = results.SelectMany(x => x.Item1).ToList();
             var finalSources = resolvedSources.GroupBy(x => x.Url, StringComparer.OrdinalIgnoreCase)
                                               .Select(x => x.OrderByDescending(s => s.Bitrate ?? 0).First())
                                               .ToList();
+            var (playable, rawEmbeds) = PartitionEmbeds(finalSources);
 
-            return Results.Ok(finalSources);
+            var emptyPairs = rawSources.Zip(results, (src, r) => (src, r))
+                                           .Where(x => x.r.Item1.Count == 0)
+                                           .ToList();
+            var unresolved = emptyPairs.Select(x => ResolveWarningMapper.UnresolvedFrom(x.src.Url, x.r.Item2))
+                                       .ToList();
+
+            return Results.Ok(new
+            {
+                sources    = playable,
+                embeds     = rawEmbeds,
+                unresolved
+            });
         }
         catch (Exception ex)
         {
             logger.LogWarning(ex, "getSources failed for provider {Provider}", provider);
-            blame.RecordProvider(provider, "sources", sourcesSw.ElapsedMilliseconds, BlameOutcome.Error);
-            return Results.Problem($"Upstream kaynak hatası ({provider}).",
+            var (sourcesOutcome, sourcesError) =
+                ProviderErrorMapper.Map(ex, $"Upstream kaynak hatası ({provider}).");
+            blame.RecordProvider(provider, "sources", sourcesSw.ElapsedMilliseconds, sourcesOutcome);
+            return Results.Problem(sourcesError,
                                    statusCode: StatusCodes.Status502BadGateway,
                                    title: "Upstream hata");
         }

@@ -11,6 +11,8 @@ using System.Text.Json;
 
 namespace Migurdex.Cli.Services;
 
+public sealed record VideoSourcesEnvelope(List<VideoSource> Sources);
+
 public class ApiClientService : IApiClientService
 {
     private static readonly JsonSerializerOptions JsonOpts = new()
@@ -469,8 +471,19 @@ public class ApiClientService : IApiClientService
                 url += $"&group={Uri.EscapeDataString(group)}";
             }
 
-            var sources = await _httpClient.GetFromJsonAsync<List<VideoSource>>(url, JsonOpts, cancellationToken);
-            return ApiResult<IReadOnlyList<VideoSource>>.Ok(sources ?? []);
+            VideoSourcesEnvelope? envelope = null;
+            try
+            {
+                envelope = await _httpClient.GetFromJsonAsync<VideoSourcesEnvelope>(url, JsonOpts, cancellationToken);
+            }
+            catch (System.Text.Json.JsonException)
+            {
+                var legacy = await _httpClient.GetFromJsonAsync<List<VideoSource>>(url, JsonOpts, cancellationToken);
+
+                return ApiResult<IReadOnlyList<VideoSource>>.Ok(legacy ?? []);
+            }
+
+            return ApiResult<IReadOnlyList<VideoSource>>.Ok(envelope?.Sources ?? []);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
