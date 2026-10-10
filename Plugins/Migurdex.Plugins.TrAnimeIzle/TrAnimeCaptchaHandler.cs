@@ -6,8 +6,11 @@ namespace Migurdex.Plugins.TrAnimeIzle;
 
 public class TrAnimeCaptchaHandler : DelegatingHandler
 {
-    private readonly string  _baseUrl;
-    private readonly ILogger _logger;
+    private readonly string        _baseUrl;
+    private readonly ILogger       _logger;
+    private readonly SemaphoreSlim _probeGate = new(1, 1);
+
+    private string TargetHost => new Uri(_baseUrl).Host;
 
     public TrAnimeCaptchaHandler(string baseUrl, ILogger logger, HttpMessageHandler? innerHandler = null)
         : base(innerHandler
@@ -26,6 +29,35 @@ public class TrAnimeCaptchaHandler : DelegatingHandler
     {
         var originalResponse = await base.SendAsync(request, cancellationToken);
         var currentUrl       = originalResponse.RequestMessage?.RequestUri?.ToString() ?? "";
+
+        if (originalResponse.RequestMessage?.RequestUri is { } finalUri
+            && TrAnimeProbeSolver.IsProbeGate(finalUri, TargetHost))
+        {
+            var gateHtml = await originalResponse.Content.ReadAsStringAsync(cancellationToken);
+            originalResponse.Dispose();
+            _logger.LogInformation("rtt probe challenge detected, solving without browser");
+
+            await _probeGate.WaitAsync(cancellationToken);
+            try
+            {
+                await TrAnimeProbeSolver.SolveAsync((req, tok) => base.SendAsync(req, tok),
+                                                    finalUri,
+                                                    gateHtml,
+                                                    _logger,
+                                                    cancellationToken)
+                                        .ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "rtt probe challenge failed");
+            }
+            finally
+            {
+                _probeGate.Release();
+            }
+
+            return await base.SendAsync(CloneRequest(request), cancellationToken);
+        }
 
         if (!currentUrl.Contains("/api/CaptchaChallenge"))
         {
@@ -186,6 +218,26 @@ public class TrAnimeCaptchaHandler : DelegatingHandler
         }
 
         return await base.SendAsync(finalGetRequest, cancellationToken);
+    }
+
+    private static HttpRequestMessage CloneRequest(HttpRequestMessage request)
+    {
+        var clone = new HttpRequestMessage(request.Method, request.RequestUri);
+        foreach (var header in request.Headers)
+        {
+            clone.Headers.TryAddWithoutValidation(header.Key, header.Value);
+        }
+
+        if (request.Content != null)
+        {
+            clone.Content = request.Content;
+            foreach (var header in request.Content.Headers)
+            {
+                clone.Content.Headers.TryAddWithoutValidation(header.Key, header.Value);
+            }
+        }
+
+        return clone;
     }
 
     private static string ComputeMd5(byte[] input)
