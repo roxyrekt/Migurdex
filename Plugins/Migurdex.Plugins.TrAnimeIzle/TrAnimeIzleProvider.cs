@@ -27,80 +27,67 @@ public partial class TrAnimeIzleProvider : IAnimeProvider
         });
 
         _httpClient.DefaultRequestHeaders.Add("User-Agent",
-                                              "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36");
+                                              "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36");
         _httpClient.DefaultRequestHeaders.Add("Referer", BaseUrl);
+        _httpClient.DefaultRequestHeaders.Add("Accept", "application/json");
+        _httpClient.DefaultRequestHeaders.Add("X-Requested-With", "XMLHttpRequest");
     }
 
     public string       Name    => "TrAnimeIzle";
-    public string       BaseUrl => "https://www.tranimeizle.live";
+    public string       BaseUrl => "https://tranimeizle.org.tr";
     public ProviderType Type    => ProviderType.Anime;
 
     public async Task<List<SearchResult>> SearchAsync(string query, CancellationToken cancellationToken = default)
     {
         try
         {
-            var url  = $"{BaseUrl}/arama/{Uri.EscapeDataString(query)}";
-            var html = await _httpClient.GetStringAsync(url, cancellationToken);
-
-            var parser   = new HtmlParser();
-            var document = await parser.ParseDocumentAsync(html);
-
             var results = new List<SearchResult>();
-            var cards   = document.QuerySelectorAll("a.news-image");
-
-            foreach (var card in cards)
+            var url = $"{BaseUrl}/searchAnime?query={Uri.EscapeDataString(query)}&page=1&type=detailed&limit=10&priorityField=info_title&orderBy=info_year&orderDirection=ASC";
+            using var response = await _httpClient.GetAsync(url, cancellationToken);
+            if (!response.IsSuccessStatusCode)
             {
-                var href = card.GetAttribute("href") ?? "";
-                if (string.IsNullOrEmpty(href))
+                return results;
+            }
+
+            using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync(cancellationToken));
+            if (!doc.RootElement.TryGetProperty("data", out var items) || items.ValueKind != JsonValueKind.Array)
+            {
+                return results;
+            }
+
+            foreach (var item in items.EnumerateArray())
+            {
+                var title = item.TryGetProperty("info_title", out var titleProp) ? titleProp.GetString() ?? "" : "";
+                var slug = item.TryGetProperty("info_slug", out var slugProp) ? slugProp.GetString() ?? "" : "";
+                if (string.IsNullOrWhiteSpace(title) || string.IsNullOrWhiteSpace(slug))
                 {
                     continue;
                 }
 
-                if (href.StartsWith("/"))
-                {
-                    href = BaseUrl + href;
-                }
-
-                var segments = href.Split('/', StringSplitOptions.RemoveEmptyEntries);
-                var slug     = segments.LastOrDefault() ?? "";
-
-                var parent  = card.ParentElement;
-                var titleEl = parent?.QuerySelector("h4");
-                var title   = titleEl?.TextContent.Trim() ?? slug;
-
-                if (title.EndsWith(" İzle", StringComparison.OrdinalIgnoreCase))
-                {
-                    title = title[..^5].Trim();
-                }
-                else if (title.EndsWith("İzle", StringComparison.OrdinalIgnoreCase))
-                {
-                    title = title[..^4].Trim();
-                }
-
-                var imgEl     = card.QuerySelector("img");
-                var posterUrl = imgEl?.GetAttribute("src") ?? "";
-
-                var     textInfo  = parent?.TextContent ?? "";
-                string? year      = null;
-                var     yearMatch = YearRegex().Match(textInfo);
-                if (yearMatch.Success)
-                {
-                    year = yearMatch.Value;
-                }
-
-                var isMovie = AnimeDetails.IsMovieTitle(title);
+                var englishTitle = item.TryGetProperty("info_titleenglish", out var englishProp)
+                                       ? englishProp.GetString()
+                                       : null;
+                var poster = item.TryGetProperty("info_poster", out var posterProp)
+                                 ? posterProp.GetString()
+                                 : null;
+                var year = item.TryGetProperty("info_year", out var yearProp) ? yearProp.GetString() : null;
+                var isMovie = AnimeDetails.IsMovieTitle(title) || AnimeDetails.IsMovieTitle(englishTitle);
 
                 results.Add(new SearchResult
                 {
-                    Id           = slug,
-                    Title        = title,
-                    PosterUrl    = posterUrl,
-                    Url          = href,
-                    ProviderName = Name,
-                    Type         = ProviderType.Anime,
-                    Format       = isMovie ? ContentFormat.Movie : ContentFormat.Tv,
-                    Year         = year,
-                    Score        = null
+                    Id            = slug,
+                    Title         = title,
+                    EnglishTitle  = englishTitle,
+                    PosterUrl     = string.IsNullOrWhiteSpace(poster) ? null : $"{BaseUrl}/storage/pcovers/{poster}",
+                    Url           = $"{BaseUrl}/{slug}",
+                    ProviderName  = Name,
+                    Type          = ProviderType.Anime,
+                    Format        = isMovie ? ContentFormat.Movie : ContentFormat.Tv,
+                    Year          = year,
+                    Score         = item.TryGetProperty("info_malpoint", out var scoreProp)
+                                    && scoreProp.ValueKind == JsonValueKind.Number
+                                        ? scoreProp.GetDouble()
+                                        : null
                 });
             }
 
@@ -180,9 +167,13 @@ public partial class TrAnimeIzleProvider : IAnimeProvider
                     continue;
                 }
 
-                if (href.StartsWith("/"))
+                if (Uri.TryCreate(href, UriKind.Absolute, out var episodeUri))
                 {
-                    href = href[1..];
+                    href = episodeUri.AbsolutePath.Trim('/');
+                }
+                else
+                {
+                    href = href.TrimStart('/');
                 }
 
                 var epText = link.QuerySelector(".etitle span")?.TextContent.Trim() ?? link.TextContent.Trim();
@@ -222,7 +213,9 @@ public partial class TrAnimeIzleProvider : IAnimeProvider
 
                 parsedSeasons.Add(seasonNum);
 
-                var compositeId = href;
+                var compositeId = href.EndsWith("-izle", StringComparison.OrdinalIgnoreCase)
+                                      ? href[..^5]
+                                      : href;
 
                 if (details.Episodes.All(e => e.Id != compositeId))
                 {
@@ -277,12 +270,12 @@ public partial class TrAnimeIzleProvider : IAnimeProvider
             var parser   = new HtmlParser();
             var document = await parser.ParseDocumentAsync(html);
 
-            var selectors = document.QuerySelectorAll(".fansubSelector");
+            var selectors = document.QuerySelectorAll("a[data-translatorclick][data-fansub-name]");
             var groups    = new List<string>();
 
             foreach (var selector in selectors)
             {
-                var fansubName = selector.GetAttribute("data-fad")?.Trim() ?? selector.TextContent.Trim();
+                var fansubName = selector.GetAttribute("data-fansub-name")?.Trim() ?? selector.TextContent.Trim();
                 if (!string.IsNullOrEmpty(fansubName))
                 {
                     if (!groups.Contains(fansubName))
@@ -310,192 +303,255 @@ public partial class TrAnimeIzleProvider : IAnimeProvider
 
         try
         {
-            var watchUrl = $"{BaseUrl}/{episodeId}";
-            var html     = await _httpClient.GetStringAsync(watchUrl, cancellationToken);
-
-            var parser   = new HtmlParser();
+            var watchUrl = $"{BaseUrl}/{episodeId}-izle";
+            var html = await _httpClient.GetStringAsync(watchUrl, cancellationToken);
+            var parser = new HtmlParser();
             var document = await parser.ParseDocumentAsync(html);
+            var translators = document.QuerySelectorAll("a[data-translatorclick][data-fansub-name]");
 
-            var epIdMatch = EpisodeIdInputRegex().Match(html);
-            if (!epIdMatch.Success)
+            foreach (var translator in translators)
             {
-                _logger.LogWarning("could not extract episodeId from watch page HTML");
-
-                return [];
-            }
-
-            var serverEpId = int.Parse(epIdMatch.Groups["id"].Value);
-
-            var selectors      = document.QuerySelectorAll(".fansubSelector");
-            var fansubsToFetch = new List<(int Id, string? Name)>();
-
-            if (selectors.Length > 0)
-            {
-                foreach (var selector in selectors)
+                var groupName = translator.GetAttribute("data-fansub-name")?.Trim() ?? "";
+                if (!string.IsNullOrEmpty(group)
+                    && !string.Equals(group, groupName, StringComparison.OrdinalIgnoreCase))
                 {
-                    var fIdStr = selector.GetAttribute("data-fid");
-                    if (!int.TryParse(fIdStr, out var fId))
-                    {
-                        continue;
-                    }
-
-                    var fName     = selector.GetAttribute("data-fad")?.Trim() ?? selector.TextContent.Trim();
-                    var groupName = fName;
-
-                    if (!string.IsNullOrEmpty(group)
-                        && !string.Equals(group, groupName, StringComparison.OrdinalIgnoreCase))
-                    {
-                        continue;
-                    }
-
-                    fansubsToFetch.Add((fId, groupName));
+                    continue;
                 }
-            }
-            else
-            {
-                var fansubIdMatch = InitializeIdRegex().Match(html);
-                if (fansubIdMatch.Success)
+
+                var translatorUrl = translator.GetAttribute("translator")
+                                   ?? translator.GetAttribute("href")
+                                   ?? "";
+                translatorUrl = NormalizeUrl(translatorUrl);
+                if (string.IsNullOrWhiteSpace(translatorUrl))
                 {
-                    var fId = int.Parse(fansubIdMatch.Groups["id"].Value);
-                    fansubsToFetch.Add((fId, null));
+                    continue;
                 }
-            }
 
-            var fansubTasks = fansubsToFetch.Select(async fansub =>
-            {
-                var fansubSources = new List<VideoSource>();
                 try
                 {
-                    _logger.LogDebug("fetching sources HTML for episodeId: {EpId}, fansubId: {FansubId}",
-                                     serverEpId,
-                                     fansub.Id);
-
-                    var payload = new
+                    using var translatorResponse = await _httpClient.GetAsync(translatorUrl, cancellationToken);
+                    if (!translatorResponse.IsSuccessStatusCode)
                     {
-                        EpisodeId = serverEpId,
-                        FansubId  = fansub.Id
-                    };
-                    var payloadJson = JsonSerializer.Serialize(payload);
-                    var content =
-                        new StringContent(payloadJson, Encoding.UTF8, "application/json");
-
-                    var sourcesRequest = new HttpRequestMessage(HttpMethod.Post, $"{BaseUrl}/api/fansubSources")
-                    {
-                        Content = content
-                    };
-                    sourcesRequest.Headers.Referrer = new Uri(watchUrl);
-                    sourcesRequest.Headers.Add("User-Agent",
-                                               "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36");
-
-                    using var sourcesResponse = await _httpClient.SendAsync(sourcesRequest, cancellationToken);
-                    if (!sourcesResponse.IsSuccessStatusCode)
-                    {
-                        _logger.LogError("failed to fetch source buttons HTML from api/fansubSources");
-
-                        return fansubSources;
+                        _logger.LogDebug("translator endpoint returned {StatusCode}: {Url}",
+                                         (int) translatorResponse.StatusCode,
+                                         translatorUrl);
+                        continue;
                     }
 
-                    var buttonsHtml = await sourcesResponse.Content.ReadAsStringAsync(cancellationToken);
-
-                    var buttonsDoc = await parser.ParseDocumentAsync(buttonsHtml);
-                    var buttons    = buttonsDoc.QuerySelectorAll(".sourceBtn");
-
-                    var buttonTasks = buttons.Select(async btn =>
+                    using var translatorJson = JsonDocument.Parse(
+                        await translatorResponse.Content.ReadAsStringAsync(cancellationToken));
+                    if (!translatorJson.RootElement.TryGetProperty("data", out var data)
+                        || data.ValueKind != JsonValueKind.String)
                     {
-                        var dataId = btn.GetAttribute("data-id");
-                        if (string.IsNullOrEmpty(dataId))
+                        continue;
+                    }
+
+                    var buttonsDocument = await parser.ParseDocumentAsync(data.GetString() ?? "");
+                    var videoButtons = buttonsDocument.QuerySelectorAll("[video][data-video-name]");
+                    foreach (var button in videoButtons)
+                    {
+                        var videoUrl = NormalizeUrl(button.GetAttribute("video") ?? "");
+                        if (string.IsNullOrWhiteSpace(videoUrl))
                         {
-                            return null;
+                            continue;
                         }
 
                         try
                         {
-                            var playerRequest =
-                                new HttpRequestMessage(HttpMethod.Post, $"{BaseUrl}/api/sourcePlayer/{dataId}");
-                            playerRequest.Headers.Referrer = new Uri(watchUrl);
-                            playerRequest.Headers.Add("User-Agent",
-                                                      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36");
-                            playerRequest.Headers.Add("Accept", "application/json");
-
-                            using var playerResponse = await _httpClient.SendAsync(playerRequest, cancellationToken);
-                            if (playerResponse.IsSuccessStatusCode)
+                            using var videoResponse = await _httpClient.GetAsync(videoUrl, cancellationToken);
+                            if (!videoResponse.IsSuccessStatusCode)
                             {
-                                var       json = await playerResponse.Content.ReadAsStringAsync(cancellationToken);
-                                using var doc  = JsonDocument.Parse(json);
-                                if (doc.RootElement.TryGetProperty("source", out var sourceProp))
+                                continue;
+                            }
+
+                            using var videoJson = JsonDocument.Parse(
+                                await videoResponse.Content.ReadAsStringAsync(cancellationToken));
+                            if (!videoJson.RootElement.TryGetProperty("player", out var playerProp)
+                                || playerProp.ValueKind != JsonValueKind.String)
+                            {
+                                continue;
+                            }
+
+                            var playerMatch = IframeSrcRegex().Match(playerProp.GetString() ?? "");
+                            if (!playerMatch.Success)
+                            {
+                                continue;
+                            }
+
+                            var playerUrl = NormalizeUrl(playerMatch.Groups[1].Value);
+                            var resolvedUrl = playerUrl;
+                            if (Uri.TryCreate(playerUrl, UriKind.Absolute, out var playerUri)
+                                && playerUri.Host.Equals(new Uri(BaseUrl).Host, StringComparison.OrdinalIgnoreCase)
+                                && playerUri.AbsolutePath.StartsWith("/player/", StringComparison.OrdinalIgnoreCase))
+                            {
+                                using var playerRequest = new HttpRequestMessage(HttpMethod.Get, playerUrl);
+                                playerRequest.Headers.Referrer = new Uri(watchUrl);
+                                playerRequest.Headers.Accept.ParseAdd(
+                                    "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8");
+                                playerRequest.Options.Set(new HttpRequestOptionsKey<bool>("NoFollow"), true);
+
+                                using var playerResponse = await _httpClient.SendAsync(playerRequest, cancellationToken);
+                                if (!playerResponse.IsSuccessStatusCode)
                                 {
-                                    var iframeHtml = sourceProp.GetString() ?? "";
-                                    var srcMatch   = IframeSrcRegex().Match(iframeHtml);
-                                    if (srcMatch.Success)
+                                    continue;
+                                }
+
+                                if (playerResponse.Headers.Location is { } location)
+                                {
+                                    resolvedUrl = location.IsAbsoluteUri
+                                                      ? location.ToString()
+                                                      : new Uri(playerUri, location).ToString();
+                                }
+                                else
+                                {
+                                    var playerHtml = await playerResponse.Content.ReadAsStringAsync(cancellationToken);
+                                    var firePlayerHash = ExtractFirePlayerHash(playerHtml);
+                                    if (!string.IsNullOrEmpty(firePlayerHash))
                                     {
-                                        var embedUrl = srcMatch.Groups[1].Value;
-                                        if (embedUrl.StartsWith("//"))
-                                        {
-                                            embedUrl = "https:" + embedUrl;
-                                        }
-
-                                        if (embedUrl.Contains("embed2/?id="))
-                                        {
-                                            var idIdx = embedUrl.IndexOf("id=", StringComparison.OrdinalIgnoreCase);
-                                            if (idIdx >= 0)
-                                            {
-                                                embedUrl = embedUrl[(idIdx + 3)..];
-                                            }
-                                        }
-
-                                        if (embedUrl.Equals(
-                                                "https://pp.userapi.com/c857436/v857436366/6d9e/84dLrNaE_yo.jpg",
-                                                StringComparison.OrdinalIgnoreCase))
-                                        {
-                                            return null;
-                                        }
-
-                                        return new VideoSource
-                                        {
-                                            Url     = embedUrl,
-                                            Quality = "Embed",
-                                            Type    = VideoType.Embed,
-                                            Group   = fansub.Name
-                                        };
+                                        resolvedUrl = $"https://anizmplayer.com/video/{firePlayerHash}";
                                     }
                                 }
                             }
+
+                            if (resolvedUrl != playerUrl || !playerUrl.Contains("/player/", StringComparison.OrdinalIgnoreCase))
+                            {
+                                sources.Add(new VideoSource
+                                {
+                                    Url = resolvedUrl,
+                                    Quality = button.GetAttribute("data-video-name")?.Trim() ?? "Embed",
+                                    Type = VideoType.Embed,
+                                    Group = groupName
+                                });
+                            }
                         }
-                        catch (Exception ex)
+                        catch (Exception ex) when (ex is not OperationCanceledException)
                         {
-                            _logger.LogWarning(ex,
-                                               "failed to resolve video player for data-id: {DataId}",
-                                               dataId);
+                            _logger.LogDebug(ex, "failed to resolve video source URL: {Url}", videoUrl);
                         }
-
-                        return null;
-                    });
-
-                    var resolvedSources = await Task.WhenAll(buttonTasks);
-                    fansubSources.AddRange(resolvedSources.Where(s => s != null)!);
+                    }
                 }
-                catch (Exception ex)
+                catch (Exception ex) when (ex is not OperationCanceledException)
                 {
-                    _logger.LogWarning(ex,
-                                       "failed to retrieve sources for fansub ID: {FansubId}",
-                                       fansub.Id);
+                    _logger.LogWarning(ex, "failed to retrieve videos for translator URL: {Url}", translatorUrl);
                 }
-
-                return fansubSources;
-            });
-
-            var allFansubSources = await Task.WhenAll(fansubTasks);
-            foreach (var list in allFansubSources)
-            {
-                sources.AddRange(list);
             }
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "getVideoSourcesAsync failed for: {EpisodeId}", episodeId);
         }
 
-        return sources.GroupBy(x => x.Url).Select(x => x.First()).ToList();
+        return sources.GroupBy(source => source.Url, StringComparer.OrdinalIgnoreCase)
+                      .Select(grouping => grouping.First())
+                      .ToList();
+    }
+
+    private string NormalizeUrl(string url)
+    {
+        if (string.IsNullOrWhiteSpace(url))
+        {
+            return "";
+        }
+
+        if (url.StartsWith("//", StringComparison.Ordinal))
+        {
+            return "https:" + url;
+        }
+
+        if (Uri.TryCreate(url, UriKind.Absolute, out _))
+        {
+            return url;
+        }
+
+        return $"{BaseUrl}/{url.TrimStart('/')}";
+    }
+
+    private static string? ExtractFirePlayerHash(string html)
+    {
+        foreach (Match scriptMatch in ScriptRegex().Matches(html))
+        {
+            var script = scriptMatch.Groups[1].Value;
+            var unpacked = UnpackDeanEdwardsScript(script);
+            var match = FirePlayerHashRegex().Match(unpacked ?? script);
+            if (match.Success)
+            {
+                return match.Groups[1].Value;
+            }
+        }
+
+        return null;
+    }
+
+    private static string? UnpackDeanEdwardsScript(string script)
+    {
+        var evalStart = script.IndexOf("eval(function(p,a,c,k,e,d)", StringComparison.Ordinal);
+        if (evalStart < 0)
+        {
+            return null;
+        }
+
+        const string payloadMarker = "return p}('";
+        var markerIndex = script.IndexOf(payloadMarker, evalStart, StringComparison.Ordinal);
+        if (markerIndex < 0)
+        {
+            return null;
+        }
+
+        var payloadStart = markerIndex + payloadMarker.Length;
+        var payloadEnd = script.IndexOf("',", payloadStart, StringComparison.Ordinal);
+        if (payloadEnd < 0)
+        {
+            return null;
+        }
+
+        var args = script[(payloadEnd + 2)..];
+        var argsMatch = PackerArgumentsRegex().Match(args);
+        if (!argsMatch.Success
+            || !int.TryParse(argsMatch.Groups["radix"].Value, out var radix)
+            || !int.TryParse(argsMatch.Groups["count"].Value, out var count)
+            || radix is < 2 or > 62
+            || count is < 1 or > 1000)
+        {
+            return null;
+        }
+
+        var payload = script[payloadStart..payloadEnd];
+        var symbols = argsMatch.Groups["symbols"].Value.Split('|');
+        for (var index = count - 1; index >= 0; index--)
+        {
+            var key = ToRadix(index, radix);
+            var value = index < symbols.Length && !string.IsNullOrEmpty(symbols[index])
+                            ? symbols[index]
+                            : key;
+            payload = Regex.Replace(payload,
+                                    $@"\b{Regex.Escape(key)}\b",
+                                    _ => value,
+                                    RegexOptions.CultureInvariant);
+        }
+
+        return payload;
+    }
+
+    private static string ToRadix(int value, int radix)
+    {
+        const string alphabet = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
+        if (value == 0)
+        {
+            return "0";
+        }
+
+        var result = new StringBuilder();
+        while (value > 0)
+        {
+            result.Insert(0, alphabet[value % radix]);
+            value /= radix;
+        }
+
+        return result.ToString();
     }
 
     [GeneratedRegex(@"\b(19|20)\d{2}\b")]
@@ -510,12 +566,15 @@ public partial class TrAnimeIzleProvider : IAnimeProvider
     [GeneratedRegex(@"(\d+(?:[\.,]\d+)?)-bolum-izle", RegexOptions.IgnoreCase)]
     private static partial Regex BolumHrefRegex();
 
-    [GeneratedRegex(@"id=""EpisodeId""\s+name=""EpisodeId""\s+value=""(?<id>\d+)""")]
-    private static partial Regex EpisodeIdInputRegex();
-
-    [GeneratedRegex(@"animeWatch\.initialize\(\s*\d+\s*,\s*\d+\s*,\s*(?<id>\d+)\s*,")]
-    private static partial Regex InitializeIdRegex();
-
     [GeneratedRegex(@"src=""([^""]+)""")]
     private static partial Regex IframeSrcRegex();
+
+    [GeneratedRegex("<script[^>]*>(.*?)</script>", RegexOptions.IgnoreCase | RegexOptions.Singleline)]
+    private static partial Regex ScriptRegex();
+
+    [GeneratedRegex(@"^(?<radix>\d+),(?<count>\d+),'(?<symbols>.*?)'\.split\('\|'\)", RegexOptions.Singleline)]
+    private static partial Regex PackerArgumentsRegex();
+
+    [GeneratedRegex(@"FirePlayer\(""([a-f0-9]{32})""", RegexOptions.IgnoreCase)]
+    private static partial Regex FirePlayerHashRegex();
 }
