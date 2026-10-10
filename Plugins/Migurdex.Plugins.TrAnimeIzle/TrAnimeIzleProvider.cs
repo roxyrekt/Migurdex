@@ -4,6 +4,7 @@ using Migurdex.Shared.Enums;
 using Migurdex.Shared.Interfaces;
 using Migurdex.Shared.Models;
 using System.Globalization;
+using System.Net;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
@@ -13,9 +14,12 @@ namespace Migurdex.Plugins.TrAnimeIzle;
 public partial class TrAnimeIzleProvider : IAnimeProvider
 {
     private const int MaxConcurrentPlayerRequests = 4;
+    private const int MaxPlayerRequestAttempts    = 2;
 
     private readonly HttpClient                   _httpClient;
     private readonly ILogger<TrAnimeIzleProvider> _logger;
+    private readonly SemaphoreSlim                _playerRequestSlots = new(MaxConcurrentPlayerRequests,
+        MaxConcurrentPlayerRequests);
 
     public TrAnimeIzleProvider(ISharedBridge bridge, ILogger<TrAnimeIzleProvider> logger)
     {
@@ -373,7 +377,6 @@ public partial class TrAnimeIzleProvider : IAnimeProvider
                 }
             }
 
-            using var playerRequestSlots = new SemaphoreSlim(MaxConcurrentPlayerRequests);
             var fansubTasks = fansubsToFetch.Select(async fansub =>
             {
                 var fansubSources = new List<VideoSource>();
@@ -427,31 +430,15 @@ public partial class TrAnimeIzleProvider : IAnimeProvider
                             return null;
                         }
 
-                        var requestSlotAcquired = false;
                         try
                         {
-                            await playerRequestSlots.WaitAsync(cancellationToken);
-                            requestSlotAcquired = true;
-                            using var playerRequest =
-                                new HttpRequestMessage(HttpMethod.Post, $"{BaseUrl}/api/sourcePlayer/{dataId}");
-                            playerRequest.Headers.Referrer = new Uri(watchUrl);
-                            playerRequest.Headers.Add("User-Agent",
-                                                      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36");
-                            playerRequest.Headers.Add("Accept", "application/json");
-
-                            using var playerResponse = await _httpClient.SendAsync(playerRequest, cancellationToken);
-                            if (!playerResponse.IsSuccessStatusCode)
+                            var playerJson = await GetPlayerResponseJsonAsync(watchUrl, dataId, cancellationToken);
+                            if (playerJson is null)
                             {
-                                _logger.LogWarning(
-                                    "source player request failed for data-id {DataId} (HTTP {StatusCode})",
-                                    dataId,
-                                    (int)playerResponse.StatusCode);
-
                                 return null;
                             }
 
-                            var       json = await playerResponse.Content.ReadAsStringAsync(cancellationToken);
-                            using var doc  = JsonDocument.Parse(json);
+                            using var doc = JsonDocument.Parse(playerJson);
                             if (doc.RootElement.TryGetProperty("source", out var sourceProp)
                                 && sourceProp.ValueKind == JsonValueKind.String)
                             {
@@ -498,16 +485,15 @@ public partial class TrAnimeIzleProvider : IAnimeProvider
                                 var reason = iframeHtml.Contains("streamlare", StringComparison.OrdinalIgnoreCase)
                                     ? "Streamlare response did not include an iframe"
                                     : "source response did not include an iframe";
-                                _logger.LogWarning("{Reason} for data-id {DataId} (HTTP {StatusCode})",
-                                                   reason,
-                                                   dataId,
-                                                   (int)playerResponse.StatusCode);
+                                _logger.LogWarning("{Reason} for data-id {DataId}", reason, dataId);
                                 return null;
                             }
 
-                            _logger.LogWarning("source player returned no iframe for data-id {DataId} (HTTP {StatusCode})",
-                                               dataId,
-                                               (int)playerResponse.StatusCode);
+                            _logger.LogWarning("source player returned no iframe for data-id {DataId}", dataId);
+                        }
+                        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                        {
+                            throw;
                         }
                         catch (Exception ex)
                         {
@@ -515,14 +501,6 @@ public partial class TrAnimeIzleProvider : IAnimeProvider
                                                "failed to resolve video player for data-id: {DataId}",
                                                dataId);
                         }
-                        finally
-                        {
-                            if (requestSlotAcquired)
-                            {
-                                playerRequestSlots.Release();
-                            }
-                        }
-
                         return null;
                     });
 
@@ -535,6 +513,10 @@ public partial class TrAnimeIzleProvider : IAnimeProvider
                                            buttons.Length,
                                            fansub.Id);
                     }
+                }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                {
+                    throw;
                 }
                 catch (Exception ex)
                 {
@@ -552,12 +534,69 @@ public partial class TrAnimeIzleProvider : IAnimeProvider
                 sources.AddRange(list);
             }
         }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
         catch (Exception ex)
         {
             _logger.LogError(ex, "getVideoSourcesAsync failed for: {EpisodeId}", episodeId);
         }
 
         return sources.GroupBy(x => x.Url).Select(x => x.First()).ToList();
+    }
+
+    private async Task<string?> GetPlayerResponseJsonAsync(string watchUrl,
+        string                                                        dataId,
+        CancellationToken                                             cancellationToken)
+    {
+        for (var attempt = 1; attempt <= MaxPlayerRequestAttempts; attempt++)
+        {
+            await _playerRequestSlots.WaitAsync(cancellationToken);
+            try
+            {
+                using var playerRequest =
+                    new HttpRequestMessage(HttpMethod.Post, $"{BaseUrl}/api/sourcePlayer/{dataId}");
+                playerRequest.Headers.Referrer = new Uri(watchUrl);
+                playerRequest.Headers.Add("User-Agent",
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36");
+                playerRequest.Headers.Add("Accept", "application/json");
+
+                using var response = await _httpClient.SendAsync(playerRequest, cancellationToken);
+                if (IsTransientStatusCode(response.StatusCode) && attempt < MaxPlayerRequestAttempts)
+                {
+                    _logger.LogWarning(
+                        "source player request returned transient HTTP {StatusCode} for data-id {DataId}; retrying once",
+                        (int)response.StatusCode,
+                        dataId);
+                }
+                else if (!response.IsSuccessStatusCode)
+                {
+                    _logger.LogWarning("source player request failed for data-id {DataId} (HTTP {StatusCode})",
+                        dataId,
+                        (int)response.StatusCode);
+                    return null;
+                }
+                else
+                {
+                    return await response.Content.ReadAsStringAsync(cancellationToken);
+                }
+            }
+            finally
+            {
+                _playerRequestSlots.Release();
+            }
+
+            await Task.Delay(TimeSpan.FromMilliseconds(350 * attempt), cancellationToken);
+        }
+
+        return null;
+    }
+
+    private static bool IsTransientStatusCode(HttpStatusCode statusCode)
+    {
+        var code = (int)statusCode;
+        return statusCode == HttpStatusCode.TooManyRequests || code is >= 500 and <= 599;
     }
 
     [GeneratedRegex(@"\b(19|20)\d{2}\b")]

@@ -123,13 +123,55 @@ public sealed class TrAnimeIzleProviderSourceTests
         Assert.Equal(3, handler.FansubSourceRequests);
     }
 
+    [Fact]
+    public async Task GetVideoSourcesAsync_SharesPlayerRequestLimitAcrossConcurrentEpisodes()
+    {
+        var pages = new Dictionary<string, EpisodeFixture>(StringComparer.Ordinal)
+        {
+            ["anime-a-1-bolum-izle"] = new(301,
+            [
+                new(7, "Group A", Enumerable.Range(0, 8).Select(index => $"https://host.example/a/{index}").ToArray())
+            ]),
+            ["anime-b-1-bolum-izle"] = new(302,
+            [
+                new(8, "Group B", Enumerable.Range(0, 8).Select(index => $"https://host.example/b/{index}").ToArray())
+            ])
+        };
+        var handler = new MultiEpisodeFixtureHandler(pages, playerDelay: TimeSpan.FromMilliseconds(40));
+        var bridge = new FixtureBridge(handler);
+        var provider = new TrAnimeIzleProvider(bridge, bridge.CreateLogger<TrAnimeIzleProvider>());
+
+        var results = await Task.WhenAll(
+            provider.GetVideoSourcesAsync("anime-a-1-bolum-izle", cancellationToken: TestContext.Current.CancellationToken),
+            provider.GetVideoSourcesAsync("anime-b-1-bolum-izle", cancellationToken: TestContext.Current.CancellationToken));
+
+        Assert.Equal(16, results.Sum(sources => sources.Count));
+        Assert.InRange(handler.MaxConcurrentPlayerRequests, 2, 4);
+    }
+
+    [Fact]
+    public async Task GetVideoSourcesAsync_RetriesTransientPlayerResponseOnce()
+    {
+        var handler = new SourceApiFixtureHandler(["https://valid.example/embed/1"], transientPlayerFailures: 1);
+        var bridge = new FixtureBridge(handler);
+        var provider = new TrAnimeIzleProvider(bridge, bridge.CreateLogger<TrAnimeIzleProvider>());
+
+        var sources = await provider.GetVideoSourcesAsync("oshi-no-ko-1-bolum-izle",
+            cancellationToken: TestContext.Current.CancellationToken);
+
+        Assert.Equal("https://valid.example/embed/1", Assert.Single(sources).Url);
+        Assert.Equal(2, handler.SourcePlayerRequests);
+    }
+
     private sealed class SourceApiFixtureHandler(
         IReadOnlyList<string> embedUrls,
         string? watchPageHtml = null,
         string? iframeTemplate = null,
-        Func<int, string, string>? playerHtmlFactory = null) : HttpMessageHandler
+        Func<int, string, string>? playerHtmlFactory = null,
+        int transientPlayerFailures = 0) : HttpMessageHandler
     {
         private int _sourcePlayerRequests;
+        private int _transientPlayerFailuresRemaining = transientPlayerFailures;
         private int _activePlayerRequests;
         private int _maxConcurrentPlayerRequests;
 
@@ -156,6 +198,11 @@ public sealed class TrAnimeIzleProviderSourceTests
             if (request.Method == HttpMethod.Post && path.StartsWith("/api/sourcePlayer/", StringComparison.Ordinal))
             {
                 Interlocked.Increment(ref _sourcePlayerRequests);
+                if (Interlocked.CompareExchange(ref _transientPlayerFailuresRemaining, 0, 1) == 1)
+                {
+                    return new HttpResponseMessage(HttpStatusCode.ServiceUnavailable);
+                }
+
                 var active = Interlocked.Increment(ref _activePlayerRequests);
                 UpdateMaxConcurrent(active);
                 await Task.Delay(TimeSpan.FromMilliseconds(20), cancellationToken);
@@ -197,14 +244,19 @@ public sealed class TrAnimeIzleProviderSourceTests
 
     private sealed record FansubFixture(int Id, string Name, IReadOnlyList<string> EmbedUrls);
 
-    private sealed class MultiEpisodeFixtureHandler(IReadOnlyDictionary<string, EpisodeFixture> pages) : HttpMessageHandler
+    private sealed class MultiEpisodeFixtureHandler(
+        IReadOnlyDictionary<string, EpisodeFixture> pages,
+        TimeSpan? playerDelay = null) : HttpMessageHandler
     {
         private readonly ConcurrentDictionary<string, string> _sources = new(StringComparer.Ordinal);
         private int _fansubSourceRequests;
         private int _sourcePlayerRequests;
+        private int _activePlayerRequests;
+        private int _maxConcurrentPlayerRequests;
 
         public int FansubSourceRequests => Volatile.Read(ref _fansubSourceRequests);
         public int SourcePlayerRequests => Volatile.Read(ref _sourcePlayerRequests);
+        public int MaxConcurrentPlayerRequests => Volatile.Read(ref _maxConcurrentPlayerRequests);
 
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request,
             CancellationToken cancellationToken)
@@ -244,11 +296,20 @@ public sealed class TrAnimeIzleProviderSourceTests
             if (request.Method == HttpMethod.Post && path.StartsWith("/api/sourcePlayer/", StringComparison.Ordinal))
             {
                 Interlocked.Increment(ref _sourcePlayerRequests);
+                var active = Interlocked.Increment(ref _activePlayerRequests);
+                UpdateMax(active);
+                if (playerDelay is { } delay)
+                {
+                    await Task.Delay(delay, cancellationToken);
+                }
+
                 var dataId = path["/api/sourcePlayer/".Length..];
                 if (_sources.TryGetValue(dataId, out var embedUrl))
                 {
+                    Interlocked.Decrement(ref _activePlayerRequests);
                     return Ok(JsonSerializer.Serialize(new { source = $"<iframe src=\"{embedUrl}\"></iframe>" }));
                 }
+                Interlocked.Decrement(ref _activePlayerRequests);
             }
 
             return new HttpResponseMessage(HttpStatusCode.NotFound);
@@ -258,6 +319,18 @@ public sealed class TrAnimeIzleProviderSourceTests
         {
             Content = new StringContent(content)
         };
+
+        private void UpdateMax(int active)
+        {
+            while (active > Volatile.Read(ref _maxConcurrentPlayerRequests))
+            {
+                var current = Volatile.Read(ref _maxConcurrentPlayerRequests);
+                if (active <= current || Interlocked.CompareExchange(ref _maxConcurrentPlayerRequests, active, current) == current)
+                {
+                    return;
+                }
+            }
+        }
     }
 
     private sealed class FixtureBridge(HttpMessageHandler handler) : ISharedBridge
