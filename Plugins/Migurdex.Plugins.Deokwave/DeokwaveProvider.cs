@@ -10,19 +10,34 @@ namespace Migurdex.Plugins.Deokwave;
 
 public partial class DeokwaveProvider : IAnimeProvider
 {
+    private const string DeokwaveUa =
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36";
+
     private readonly HttpClient                _httpClient;
     private readonly ILogger<DeokwaveProvider> _logger;
 
     public DeokwaveProvider(ISharedBridge bridge, ILogger<DeokwaveProvider> logger)
     {
-        _httpClient = bridge.CreateHttpClient(o => o.Emulation = BrowserEmulation.Chrome147);
-        _logger     = logger;
+        _httpClient = bridge.CreateHttpClient(o =>
+        {
+            o.Emulation  = BrowserEmulation.Chrome147;
+            o.UseCookies = true;
+        });
+        _logger = logger;
 
         if (!_httpClient.DefaultRequestHeaders.Contains("Referer"))
         {
             _httpClient.DefaultRequestHeaders.TryAddWithoutValidation("Referer", "https://deokwave.com/");
         }
+
+        if (!_httpClient.DefaultRequestHeaders.Contains("User-Agent"))
+        {
+            _httpClient.DefaultRequestHeaders.TryAddWithoutValidation("User-Agent", DeokwaveUa);
+        }
     }
+
+    private readonly Lock                       _cookieLock = new();
+    private readonly Dictionary<string, string> _cookies    = new(StringComparer.OrdinalIgnoreCase);
 
     public string       Name    => "Deokwave";
     public string       BaseUrl => "https://deokwave.com";
@@ -235,8 +250,12 @@ public partial class DeokwaveProvider : IAnimeProvider
                              && fansubs.ValueKind == JsonValueKind.Array
                              && fansubs.GetArrayLength() > 0;
 
-            var     sources = new List<VideoSource>();
-            string? token   = null;
+            var sources = new List<VideoSource>();
+
+            var watchUrl    = BuildWatchReferer(animeId, season, episode);
+            var watchTokens = await FetchWatchTokensAsync(watchUrl, cancellationToken);
+            var sid         = watchTokens?.Sid;
+            var csrf        = watchTokens?.Csrf;
 
             if (hasFansubs)
             {
@@ -287,25 +306,33 @@ public partial class DeokwaveProvider : IAnimeProvider
                     }
 
                     var qualities = CollectQualities(f, root);
-                    token ??= await FetchVideoTokenAsync(animeId, season, episode, cancellationToken);
-                    if (string.IsNullOrWhiteSpace(token))
+                    if (string.IsNullOrWhiteSpace(sid) || string.IsNullOrWhiteSpace(csrf))
                     {
                         continue;
                     }
 
                     foreach (var q in qualities.OrderByDescending(RankQuality))
                     {
+                        var qDigits = new string(q.Where(char.IsDigit).ToArray());
+                        if (string.IsNullOrWhiteSpace(qDigits))
+                        {
+                            continue;
+                        }
+
+                        var qToken = await FetchVideoTokenAsync(vid, qDigits, sid, csrf, watchUrl, cancellationToken);
+                        if (string.IsNullOrWhiteSpace(qToken))
+                        {
+                            continue;
+                        }
+
                         sources.Add(new VideoSource
                         {
-                            Url     = BuildSw2Url(vid, q, token),
+                            Url     = BuildSw2Url(vid, q, qToken),
                             Quality = NormalizeQuality(q),
                             Type    = VideoType.Mp4,
                             Hoster  = "Deokwave",
                             Group   = BuildGroupLabel(name, extra),
-                            Headers = new Dictionary<string, string>
-                            {
-                                { "Referer", "https://deokwave.com/" }
-                            }
+                            Headers = PlaybackHeaders()
                         });
                     }
                 }
@@ -318,22 +345,31 @@ public partial class DeokwaveProvider : IAnimeProvider
             {
                 var rootVid   = rootVidProp.GetString()!;
                 var qualities = CollectQualities(null, root);
-                token ??= await FetchVideoTokenAsync(animeId, season, episode, cancellationToken);
-                if (!string.IsNullOrWhiteSpace(token))
+                if (!string.IsNullOrWhiteSpace(sid) && !string.IsNullOrWhiteSpace(csrf))
                 {
                     foreach (var q in qualities.OrderByDescending(RankQuality))
                     {
+                        var qDigits = new string(q.Where(char.IsDigit).ToArray());
+                        if (string.IsNullOrWhiteSpace(qDigits))
+                        {
+                            continue;
+                        }
+
+                        var qToken =
+                            await FetchVideoTokenAsync(rootVid, qDigits, sid, csrf, watchUrl, cancellationToken);
+                        if (string.IsNullOrWhiteSpace(qToken))
+                        {
+                            continue;
+                        }
+
                         sources.Add(new VideoSource
                         {
-                            Url     = BuildSw2Url(rootVid, q, token),
+                            Url     = BuildSw2Url(rootVid, q, qToken),
                             Quality = NormalizeQuality(q),
                             Type    = VideoType.Mp4,
                             Hoster  = "Deokwave",
                             Group   = "Deokwave",
-                            Headers = new Dictionary<string, string>
-                            {
-                                { "Referer", "https://deokwave.com/" }
-                            }
+                            Headers = PlaybackHeaders()
                         });
                     }
                 }
@@ -446,14 +482,26 @@ public partial class DeokwaveProvider : IAnimeProvider
                 using var resp = await _httpClient.SendAsync(req, ct);
                 if (!resp.IsSuccessStatusCode)
                 {
+                    _logger.LogDebug("deokwave video-info {Status} ({Url})", (int) resp.StatusCode, url);
                     continue;
                 }
 
-                var json = await resp.Content.ReadAsStringAsync(ct);
-                var doc  = JsonDocument.Parse(json);
+                var          json = await resp.Content.ReadAsStringAsync(ct);
+                JsonDocument doc;
+                try
+                {
+                    doc = JsonDocument.Parse(json);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogDebug(ex, "deokwave video-info JSON değil ({Url}, {Len}b)", url, json.Length);
+                    continue;
+                }
+
                 if (doc.RootElement.TryGetProperty("success", out var ok)
                     && ok.ValueKind == JsonValueKind.False)
                 {
+                    _logger.LogDebug("deokwave video-info success:false ({Url})", url);
                     doc.Dispose();
                     continue;
                 }
@@ -796,22 +844,131 @@ public partial class DeokwaveProvider : IAnimeProvider
         return list;
     }
 
-    private async Task<string?> FetchVideoTokenAsync(string animeId,
-        string                                              season,
-        string                                              episode,
-        CancellationToken                                   ct)
+    private Dictionary<string, string> PlaybackHeaders()
     {
-        using var req = new HttpRequestMessage(HttpMethod.Get, $"{BaseUrl}/api/v1/video/token/");
-        req.Headers.TryAddWithoutValidation("Referer", BuildWatchReferer(animeId, season, episode));
-        using var resp = await _httpClient.SendAsync(req, ct);
-        if (!resp.IsSuccessStatusCode)
+        var headers = new Dictionary<string, string>
         {
-            return null;
+            { "Referer", "https://deokwave.com/" },
+            { "User-Agent", DeokwaveUa }
+        };
+
+        lock (_cookieLock)
+        {
+            if (_cookies.Count > 0)
+            {
+                headers["Cookie"] = string.Join("; ", _cookies.Select(kv => $"{kv.Key}={kv.Value}"));
+            }
         }
 
-        var       json = await resp.Content.ReadAsStringAsync(ct);
-        using var doc  = JsonDocument.Parse(json);
-        return doc.RootElement.TryGetProperty("token", out var t) ? t.GetString() : null;
+        return headers;
+    }
+
+    private void RecordResponseCookies(HttpResponseMessage response)
+    {
+        if (!response.Headers.TryGetValues("Set-Cookie", out var setCookies))
+        {
+            return;
+        }
+
+        lock (_cookieLock)
+        {
+            foreach (var header in setCookies)
+            {
+                var pair = header.Split(';', 2)[0].Split('=', 2);
+                if (pair.Length == 2
+                    && !string.IsNullOrWhiteSpace(pair[0])
+                    && !string.IsNullOrEmpty(pair[1]))
+                {
+                    _cookies[pair[0].Trim()] = pair[1].Trim();
+                }
+            }
+        }
+    }
+
+    private sealed record WatchTokens(string Sid, string Csrf);
+
+    private async Task<WatchTokens?> FetchWatchTokensAsync(string watchUrl, CancellationToken ct)
+    {
+        try
+        {
+            using var req = new HttpRequestMessage(HttpMethod.Get, watchUrl);
+            req.Headers.TryAddWithoutValidation("Referer", BaseUrl + "/");
+            using var resp = await _httpClient.SendAsync(req, ct);
+            if (!resp.IsSuccessStatusCode)
+            {
+                return null;
+            }
+
+            RecordResponseCookies(resp);
+            var html = await resp.Content.ReadAsStringAsync(ct);
+            var sid  = PlaybackSidRegex().Match(html) is { Success: true } sidMatch ? sidMatch.Groups[1].Value : null;
+            var csrf = CsrfTokenRegex().Match(html) is { Success  : true } csrfMatch ? csrfMatch.Groups[1].Value : null;
+            if (string.IsNullOrWhiteSpace(sid) || string.IsNullOrWhiteSpace(csrf))
+            {
+                _logger.LogDebug("deokwave watch tokens yok ({Url}, {Len}b)", watchUrl, html.Length);
+                return null;
+            }
+
+            return new WatchTokens(sid, csrf);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "deokwave watch sayfası alınamadı ({Url})", watchUrl);
+            return null;
+        }
+    }
+
+    private async Task<string?> FetchVideoTokenAsync(string videoid,
+        string                                              qualityDigits,
+        string                                              sid,
+        string                                              csrf,
+        string                                              referer,
+        CancellationToken                                   ct)
+    {
+        try
+        {
+            using var req = new HttpRequestMessage(HttpMethod.Post, $"{BaseUrl}/api/v1/video/token/")
+            {
+                Content = new StringContent(
+                    JsonSerializer.Serialize(new
+                    {
+                        videoid,
+                        quality = qualityDigits,
+                        sid
+                    }),
+                    System.Text.Encoding.UTF8,
+                    "application/json")
+            };
+            req.Headers.TryAddWithoutValidation("Referer", referer);
+            req.Headers.TryAddWithoutValidation("X-CSRF-TOKEN", csrf);
+            req.Headers.TryAddWithoutValidation("X-Requested-With", "XMLHttpRequest");
+            using var resp = await _httpClient.SendAsync(req, ct);
+            if (!resp.IsSuccessStatusCode)
+            {
+                _logger.LogDebug("deokwave token {Status} ({Vid}/{Q})", (int) resp.StatusCode, videoid, qualityDigits);
+                return null;
+            }
+
+            RecordResponseCookies(resp);
+            var       json = await resp.Content.ReadAsStringAsync(ct);
+            using var doc  = JsonDocument.Parse(json);
+            if (doc.RootElement.TryGetProperty("success", out var ok)
+                && ok.ValueKind == JsonValueKind.False)
+            {
+                _logger.LogDebug("deokwave token success:false ({Vid}/{Q}): {Body}",
+                                 videoid,
+                                 qualityDigits,
+                                 json.Length > 120 ? json[..120] : json);
+                return null;
+            }
+
+            return doc.RootElement.TryGetProperty("token", out var t) ? t.GetString() : null;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "deokwave token isteği patladı ({Vid}/{Q})", videoid, qualityDigits);
+            return null;
+        }
     }
 
     private static int RankQuality(string q)
@@ -849,4 +1006,10 @@ public partial class DeokwaveProvider : IAnimeProvider
 
     [GeneratedRegex(@"/watch/([A-Fa-f0-9]{7})/season/(\d+)/episode/(\d+)", RegexOptions.Compiled)]
     private static partial Regex WatchUrlRegex();
+
+    [GeneratedRegex(@"playbackSessionId[^0-9a-f]*([0-9a-f]{32})", RegexOptions.IgnoreCase | RegexOptions.Compiled)]
+    private static partial Regex PlaybackSidRegex();
+
+    [GeneratedRegex(@"csrfToken[^0-9a-f]*([0-9a-f]{64})", RegexOptions.IgnoreCase | RegexOptions.Compiled)]
+    private static partial Regex CsrfTokenRegex();
 }

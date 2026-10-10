@@ -18,7 +18,7 @@ pub fn get_client_with_options(key: ClientKey) -> Client {
         .or_insert_with(|| {
             let mut builder = Client::builder()
                 .emulation(key.emulation)
-                .cookie_store(true);
+                .cookie_store(false);
 
             if key.skip_cert_verify {
                 builder = builder.tls_cert_verification(false);
