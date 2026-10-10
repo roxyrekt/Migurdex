@@ -53,15 +53,16 @@ public sealed class TrAnimeIzleProviderTests
         }));
 
         var provider = new TrAnimeIzleProvider(new StubBridge(client), NullLogger<TrAnimeIzleProvider>.Instance);
-        var sources = await provider.GetVideoSourcesAsync("episode-1");
+        var sources = await provider.GetVideoSourcesAsync("episode-1",
+                                                           cancellationToken: TestContext.Current.CancellationToken);
 
         var source = Assert.Single(sources);
         Assert.Equal($"https://anizmplayer.com/video/{hash}", source.Url);
         Assert.Equal("Akira", source.Group);
         Assert.Equal("Aincrad", source.Quality);
         Assert.Equal(VideoType.Embed, source.Type);
-        Assert.Contains("/episode/16907/translator/87492", requestedUrls);
-        Assert.Contains("/player/1468796", requestedUrls);
+        Assert.Contains(requestedUrls, url => url.Contains("/episode/16907/translator/87492", StringComparison.Ordinal));
+        Assert.Contains(requestedUrls, url => url.Contains("/player/1468796", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -73,7 +74,7 @@ public sealed class TrAnimeIzleProviderTests
                                              """, "application/json")
                                          : new HttpResponseMessage(HttpStatusCode.NotFound));
 
-        var result = Assert.Single(await provider.SearchAsync("Fullmetal"));
+        var result = Assert.Single(await provider.SearchAsync("Fullmetal", TestContext.Current.CancellationToken));
 
         Assert.Equal("fullmetal-alchemist-brotherhood", result.Id);
         Assert.Equal("Fullmetal Alchemist: Brotherhood", result.Title);
@@ -95,7 +96,8 @@ public sealed class TrAnimeIzleProviderTests
                                              """)
                                          : new HttpResponseMessage(HttpStatusCode.NotFound));
 
-        var details = await provider.GetDetailsAsync("fullmetal-alchemist-brotherhood");
+        var details = await provider.GetDetailsAsync("fullmetal-alchemist-brotherhood",
+                                                      TestContext.Current.CancellationToken);
 
         Assert.Equal("Fullmetal Alchemist: Brotherhood", details.Title);
         Assert.Equal(2, details.Episodes.Count);
@@ -105,10 +107,10 @@ public sealed class TrAnimeIzleProviderTests
         Assert.Equal(2, details.Episodes[1].Number);
     }
 
-    private static TrAnimeIzleProvider Create(Func<HttpRequestMessage, HttpResponseMessage> route)
+    private static TrAnimeIzleProvider Create(Func<string, HttpResponseMessage> route)
     {
         return new TrAnimeIzleProvider(
-            new StubBridge(new HttpClient(new RoutingHandler(route))),
+            new StubBridge(new HttpClient(new RoutingHandler(request => route(request.RequestUri!.AbsoluteUri)))),
             NullLogger<TrAnimeIzleProvider>.Instance);
     }
 
