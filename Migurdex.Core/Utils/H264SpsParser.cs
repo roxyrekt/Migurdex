@@ -54,7 +54,7 @@ public static class H264SpsParser
     {
         return height switch
         {
-            >= 2160 => "4K",
+            >= 2160 => "2160p",
             >= 1440 => "1440p",
             >= 1000 => "1080p",
             >= 700  => "720p",
