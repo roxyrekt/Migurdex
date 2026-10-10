@@ -17,7 +17,10 @@ public partial class AnizmProvider : IAnimeProvider
 
     public AnizmProvider(ISharedBridge bridge, ILogger<AnizmProvider> logger)
     {
-        _httpClient = bridge.CreateHttpClient();
+        _httpClient = bridge.CreateHttpClient(x =>
+        {
+            x.AllowAutoRedirect = true;
+        });
         _logger     = logger;
 
         _httpClient.DefaultRequestHeaders.Add("Referer", BaseUrl);
