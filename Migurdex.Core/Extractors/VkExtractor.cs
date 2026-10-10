@@ -14,11 +14,20 @@ public partial class VkExtractor : IExtractor
     private readonly ILogger<VkExtractor>  _logger;
     private readonly M3U8PlaylistExtractor _m3U8Extractor;
 
+    private const string FirefoxUa = "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:151.0) Gecko/20100101 Firefox/151.0";
+
     public VkExtractor(M3U8PlaylistExtractor m3U8Extractor, ISharedBridge bridge)
     {
-        _httpClient    = bridge.CreateHttpClient(o => o.AllowAutoRedirect = true);
+        _httpClient = bridge.CreateHttpClient(o =>
+        {
+            o.AllowAutoRedirect = true;
+            o.UseCookies        = true;
+        });
+
         _m3U8Extractor = m3U8Extractor;
         _logger        = bridge.CreateLogger<VkExtractor>();
+
+        _httpClient.DefaultRequestHeaders.Add("User-Agent", FirefoxUa);
     }
 
     public string Name => "VK";
@@ -41,8 +50,7 @@ public partial class VkExtractor : IExtractor
             _logger.LogInformation("starting extraction for URL: {Url}", url);
 
             var request = new HttpRequestMessage(HttpMethod.Get, url);
-            request.Headers.Add("User-Agent",
-                                "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:151.0) Gecko/20100101 Firefox/151.0");
+            request.Headers.Add("User-Agent", FirefoxUa);
 
             if (!string.IsNullOrEmpty(referer))
             {
@@ -90,31 +98,21 @@ public partial class VkExtractor : IExtractor
                                                                       });
                     foreach (var src in extracted)
                     {
-                        src.Headers ??= new Dictionary<string, string>();
-                        src.Headers["User-Agent"] =
-                            "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:151.0) Gecko/20100101 Firefox/151.0";
+                        src.Headers               ??= new Dictionary<string, string>();
+                        src.Headers["User-Agent"] =   FirefoxUa;
                         sources.Add(src);
                     }
                 }
-                else if (key.StartsWith("mp4_") || key.StartsWith("url"))
+                else if (key.StartsWith("mp4_"))
                 {
-                    var quality = key.Replace("mp4_", "").Replace("url", "") + "p";
-                    if (quality == "p")
-                    {
-                        quality = "Auto";
-                    }
-
                     sources.Add(new VideoSource
                     {
                         Url     = value,
-                        Quality = quality,
+                        Quality = key.Replace("mp4_", "") + "p",
                         Type    = VideoType.Mp4,
                         Headers = new Dictionary<string, string>
                         {
-                            {
-                                "User-Agent",
-                                "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:151.0) Gecko/20100101 Firefox/151.0"
-                            }
+                            { "User-Agent", FirefoxUa }
                         }
                     });
                 }
