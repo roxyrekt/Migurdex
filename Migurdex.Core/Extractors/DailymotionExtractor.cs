@@ -47,6 +47,8 @@ public class DailymotionExtractor : IExtractor
                 videoId = url.Split("dai.ly/").LastOrDefault()?.Split('?').FirstOrDefault();
             }
 
+            videoId = string.IsNullOrEmpty(videoId) ? GetQueryVideoId(url) : videoId;
+
             if (string.IsNullOrEmpty(videoId))
             {
                 _logger.LogWarning("could not extract video ID from URL: {Url}", url);
@@ -124,6 +126,35 @@ public class DailymotionExtractor : IExtractor
         }
 
         return sources;
+    }
+
+    private static string? GetQueryVideoId(string url)
+    {
+        if (!Uri.TryCreate(url, UriKind.Absolute, out var uri) || string.IsNullOrEmpty(uri.Query))
+        {
+            return null;
+        }
+
+        foreach (var pair in uri.Query.TrimStart('?').Split('&', StringSplitOptions.RemoveEmptyEntries))
+        {
+            var eq = pair.IndexOf('=');
+            if (eq <= 0)
+            {
+                continue;
+            }
+
+            var key = pair[..eq];
+            if (key is "video" or "v")
+            {
+                var value = Uri.UnescapeDataString(pair[(eq + 1)..]);
+                if (!string.IsNullOrWhiteSpace(value))
+                {
+                    return value.Trim();
+                }
+            }
+        }
+
+        return null;
     }
 
     private class DailymotionMetadata
