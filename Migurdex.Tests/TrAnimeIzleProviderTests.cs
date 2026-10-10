@@ -46,7 +46,7 @@ public sealed class TrAnimeIzleProviderTests
 
             if (url == "https://tranimeizle.org.tr/player/1468796")
             {
-                return Ok($"<script>eval(function(p,a,c,k,e,d){{return p}}('FirePlayer(\"{hash}\")',62,1,'0'.split('|'),0,0))</script>");
+                return Ok($"<script>eval(function(p,a,c,k,e,d){{return p}}('0(\"{hash}\")',62,1,'FirePlayer'.split('|'),0,0))</script>");
             }
 
             return new HttpResponseMessage(HttpStatusCode.NotFound);
