@@ -18,8 +18,8 @@ public class ExtractorManager : IExtractorManager
     private readonly PluginLoader              _pluginLoader;
 
     public ExtractorManager(ILogger<ExtractorManager> logger,
-        IMp4MetadataReader                                metadataReader,
-        PluginLoader                                      pluginLoader)
+        IMp4MetadataReader                            metadataReader,
+        PluginLoader                                  pluginLoader)
     {
         _logger         = logger;
         _metadataReader = metadataReader;
@@ -128,14 +128,13 @@ public class ExtractorManager : IExtractorManager
             }
         }
 
-        await FillMissingMetadataAsync(sources, headers, cancellationToken);
+        await FillMissingMetadataAsync(sources, cancellationToken);
 
         return sources;
     }
 
     private async Task FillMissingMetadataAsync(List<VideoSource> sources,
-        IDictionary<string, string>?                                    headers,
-        CancellationToken                                               cancellationToken)
+        CancellationToken                                         cancellationToken)
     {
         var pending = sources.Where(s => s.Type == VideoType.Mp4
                                          && !string.IsNullOrWhiteSpace(s.Url)
@@ -154,10 +153,6 @@ public class ExtractorManager : IExtractorManager
             return;
         }
 
-        var fallbackHeaders = headers as Dictionary<string, string>
-                              ?? headers?.ToDictionary(x => x.Key, x => x.Value)
-                              ?? new Dictionary<string, string>();
-
         var groups = pending.GroupBy(s => s.Url, StringComparer.OrdinalIgnoreCase).ToList();
 
         await Task.WhenAll(groups.Select(async group =>
@@ -167,9 +162,11 @@ public class ExtractorManager : IExtractorManager
 
             try
             {
-                var first          = group.First();
-                var requestHeaders = first.Headers is { Count: > 0 } ? first.Headers : fallbackHeaders;
-                var metadata       =
+                var first = group.First();
+                var requestHeaders = first.Headers is { Count: > 0 }
+                                         ? first.Headers
+                                         : new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                var metadata =
                     await _metadataReader.GetVideoMetadataAsync(first.Url, requestHeaders, cts.Token);
 
                 foreach (var source in group)

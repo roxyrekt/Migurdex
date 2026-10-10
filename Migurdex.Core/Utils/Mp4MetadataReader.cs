@@ -1,5 +1,6 @@
 using Microsoft.Extensions.DependencyInjection;
 using Migurdex.Core.Extractors;
+using Migurdex.Shared.Enums;
 using Migurdex.Shared.Infrastructure;
 using Migurdex.Shared.Interfaces;
 using System.Net;
@@ -28,6 +29,7 @@ public class Mp4MetadataReader : IMp4MetadataReader
         {
             o.AllowAutoRedirect = true;
             o.SkipCertVerify    = true;
+            o.Emulation         = BrowserEmulation.Chrome120;
         }));
     }
 

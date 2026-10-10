@@ -15,14 +15,16 @@ public partial class GoogleDriveExtractor : IExtractor
     private readonly ILogger<GoogleDriveExtractor> _logger;
     private readonly M3U8PlaylistExtractor         _m3U8Extractor;
 
+    private const string ChromeUa = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
+
     public GoogleDriveExtractor(M3U8PlaylistExtractor m3U8Extractor, ISharedBridge bridge)
     {
-        _httpClient     = bridge.CreateHttpClient();
-        _m3U8Extractor  = m3U8Extractor;
-        _logger         = bridge.CreateLogger<GoogleDriveExtractor>();
+        _httpClient = bridge.CreateHttpClient(o => o.Emulation = BrowserEmulation.Chrome120);
+        _m3U8Extractor = m3U8Extractor;
+        _logger        = bridge.CreateLogger<GoogleDriveExtractor>();
 
         _httpClient.DefaultRequestHeaders.Add("Referer", "https://drive.google.com/");
-        _httpClient.DefaultRequestHeaders.Add("User-Agent", "Mozilla/5.0");
+        _httpClient.DefaultRequestHeaders.Add("User-Agent", ChromeUa);
     }
 
     public string Name => "GoogleDrive";
@@ -77,7 +79,7 @@ public partial class GoogleDriveExtractor : IExtractor
                                                             new Dictionary<string, string>
                                                             {
                                                                 { "Referer", "https://drive.google.com/" },
-                                                                { "User-Agent", "Mozilla/5.0" }
+                                                                { "User-Agent", ChromeUa }
                                                             });
 
                                     if (extractedM3U8.Count > 0)
@@ -85,7 +87,7 @@ public partial class GoogleDriveExtractor : IExtractor
                                         foreach (var src in extractedM3U8)
                                         {
                                             src.Headers               ??= new Dictionary<string, string>();
-                                            src.Headers["User-Agent"] =   "Mozilla/5.0";
+                                            src.Headers["User-Agent"] =   ChromeUa;
 
                                             sources.Add(src);
                                         }
@@ -94,12 +96,12 @@ public partial class GoogleDriveExtractor : IExtractor
                                     {
                                         sources.Add(new VideoSource
                                         {
-                                            Url     = hlsUrl,
-                                            Type    = VideoType.M3U8,
+                                            Url  = hlsUrl,
+                                            Type = VideoType.M3U8,
                                             Headers = new Dictionary<string, string>
                                             {
                                                 { "Referer", "https://drive.google.com/" },
-                                                { "User-Agent", "Mozilla/5.0" }
+                                                { "User-Agent", ChromeUa }
                                             }
                                         });
                                     }
@@ -137,15 +139,15 @@ public partial class GoogleDriveExtractor : IExtractor
                 }
             }
 
-            // fallback
-            if (!sources.Any())
+            var downloadUrl =
+                $"https://drive.usercontent.google.com/download?id={videoId}&export=download&confirm=t";
+
+            if (!sources.Any(s => s.Url.Equals(downloadUrl, StringComparison.OrdinalIgnoreCase)))
             {
                 _logger.LogInformation(
-                    "no transcode sources found, attempting fallback to direct download URL for ID: {VideoId}",
+                    "adding direct download URL for ID: {VideoId}",
                     videoId);
 
-                var downloadUrl =
-                    $"https://drive.usercontent.google.com/download?id={videoId}&export=download&confirm=t";
                 sources.Add(new VideoSource
                 {
                     Url  = downloadUrl,
@@ -234,7 +236,7 @@ public partial class GoogleDriveExtractor : IExtractor
             Headers = new Dictionary<string, string>
             {
                 { "Referer", "https://drive.google.com/" },
-                { "User-Agent", "Mozilla/5.0" }
+                { "User-Agent", ChromeUa }
             }
         });
     }

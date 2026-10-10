@@ -87,7 +87,9 @@ public partial class M3U8PlaylistExtractor : IExtractor
             using var response = await _httpClient.SendAsync(request, cancellationToken);
             if (!response.IsSuccessStatusCode)
             {
-                _logger.LogWarning("M3U8 playlist request failed.");
+                _logger.LogWarning("M3U8 playlist request failed: {StatusCode} for {Host}",
+                                   response.StatusCode,
+                                   baseUri.Host);
 
                 return sources;
             }
