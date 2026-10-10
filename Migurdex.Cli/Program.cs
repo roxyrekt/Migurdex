@@ -1,10 +1,13 @@
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Migurdex.Cli.Services;
 using Migurdex.Cli.Services.Downloads;
 using Migurdex.Cli.Tui;
 using Migurdex.Cli.Tui.Views;
 using Migurdex.Core.Database;
+using Migurdex.Core.Extensions;
 using Migurdex.Core.Services;
+using Migurdex.Core.Services.Turnstile;
 using Migurdex.Shared.Models;
 using Migurdex.Shared.Update;
 using Spectre.Console;
@@ -83,8 +86,8 @@ public static class Program
 
         AppDomain.CurrentDomain.ProcessExit += (s, e) => RestoreCursor();
         TuiApplicationCancellation.Reset();
-        ITuiNavigator? activeNavigator = null;
-        var cancelSignalCount = 0;
+        ITuiNavigator? activeNavigator   = null;
+        var            cancelSignalCount = 0;
         ConsoleCancelEventHandler tuiCancelHandler = (_, eventArgs) =>
         {
             eventArgs.Cancel = true;
@@ -136,7 +139,8 @@ public static class Program
 
                                                             ctx.Status(
                                                                 "API başlatılıyor...");
-                                                            var started = await apiService.TryStartApiDaemonAsync(tuiToken);
+                                                            var started =
+                                                                await apiService.TryStartApiDaemonAsync(tuiToken);
                                                             tuiToken.ThrowIfCancellationRequested();
                                                             return started;
                                                         });
@@ -159,7 +163,7 @@ public static class Program
 
             var navigator = serviceProvider.GetRequiredService<ITuiNavigator>();
             activeNavigator = navigator;
-            var mainMenu  = serviceProvider.GetRequiredService<MainMenuView>();
+            var mainMenu = serviceProvider.GetRequiredService<MainMenuView>();
 
             _ = Task.Run(() => serviceProvider.GetRequiredService<WatchSyncService>().FlushQueueAsync());
 
@@ -275,11 +279,18 @@ public static class Program
 
     private static void ConfigureServices(IServiceCollection services)
     {
+        var stderrProvider = new StderrLoggerProvider();
+        services.AddLogging(builder => builder.AddProvider(stderrProvider));
+        services.AddSingleton(stderrProvider);
         services.AddSingleton<IConfigurationService, ConfigurationService>();
         services.AddSingleton<MigurdexDatabase>(sp =>
                                                     new MigurdexDatabase(
                                                         sp.GetRequiredService<IConfigurationService>()
                                                           .ConfigDirectory));
+        services.AddTurnstileServices(TurnstilePaths.DataRoot(),
+                                      TurnstilePaths.BrowserCacheRoot(),
+                                      sp => sp.GetRequiredService<IConfigurationService>()
+                                              .Config.EnableIncognitoMode);
         services.AddSingleton<IHistoryService>(sp =>
                                                    new HistoryService(sp.GetRequiredService<IConfigurationService>(),
                                                                       sp.GetRequiredService<MigurdexDatabase>()));

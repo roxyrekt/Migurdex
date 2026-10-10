@@ -1,12 +1,8 @@
 namespace Migurdex.Cli.Services;
 
-/// <summary>
-/// Üst düzey yardım rotası. TUI'ye ihtiyaç duymaz: yalnızca stdout'a yazar,
-/// böylece stdin/stdout yönlendirilmiş (TTY'siz) ortamlarda da çalışır.
-/// </summary>
 public static class HelpCommand
 {
-    private static readonly string[] DelegatedCommands =
+    private static readonly string[] _delegatedCommands =
     [
         "version",
         "update",
@@ -15,7 +11,8 @@ public static class HelpCommand
         "play",
         "continue",
         "download",
-        "blame"
+        "blame",
+        "solve"
     ];
 
     public static bool IsHelpToken(string arg)
@@ -38,7 +35,7 @@ public static class HelpCommand
             return true;
         }
 
-        if (DelegatedCommands.Any(command => args[0].Equals(command, StringComparison.OrdinalIgnoreCase)))
+        if (_delegatedCommands.Any(command => args[0].Equals(command, StringComparison.OrdinalIgnoreCase)))
         {
             return false;
         }

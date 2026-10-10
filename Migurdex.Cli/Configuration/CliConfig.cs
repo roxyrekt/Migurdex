@@ -38,6 +38,8 @@ public class CliConfig
     public string  UpdateChannel      { get; set; } = "stable";
     public string? SkippedVersion     { get; set; }
 
+    public TurnstileConfig Turnstile { get; set; } = new();
+
     public List<string> AutoNeverHosters   { get; set; } = [];
     public List<string> AutoOnlyHosters    { get; set; } = [];
     public List<string> AutoNeverQualities { get; set; } = [];
@@ -136,5 +138,12 @@ public class CliConfig
 
             return Path.Combine(userProfile, "Downloads", "Migurdex");
         }
+    }
+
+    public sealed class TurnstileConfig
+    {
+        public bool   Enabled        { get; set; } = true;
+        public bool   AllowDownload  { get; set; } = true;
+        public double TimeoutSeconds { get; set; } = 45;
     }
 }

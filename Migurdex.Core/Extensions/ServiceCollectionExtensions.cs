@@ -1,49 +1,75 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using Migurdex.Core.Database;
 using Migurdex.Core.Extractors;
 using Migurdex.Core.PluginSystem;
+using Migurdex.Core.Services.Turnstile;
 using Migurdex.Shared.Interfaces;
 
 namespace Migurdex.Core.Extensions;
 
 public static class ServiceCollectionExtensions
 {
-    public static IServiceCollection AddCoreExtractors(this IServiceCollection services)
+    extension(IServiceCollection services)
     {
-        services.AddSingleton<M3U8PlaylistExtractor>();
-
-        services.AddSingleton<IExtractorManager>(sp =>
+        public IServiceCollection AddTurnstileServices(string dataRoot,
+            string                                            browserCacheRoot,
+            Func<IServiceProvider, bool>?                     incognitoProvider = null)
         {
-            var loader  = sp.GetRequiredService<PluginLoader>();
-            var logger  = sp.GetRequiredService<ILogger<ExtractorManager>>();
-            var reader  = sp.GetRequiredService<IMp4MetadataReader>();
-            var manager = new ExtractorManager(logger, reader, loader);
-
-            var m3U8 = sp.GetRequiredService<M3U8PlaylistExtractor>();
-            manager.RegisterExtractor(m3U8);
-
-            var extractorTypes = typeof(M3U8PlaylistExtractor).Assembly
-                                                              .GetTypes()
-                                                              .Where(t => typeof(IExtractor).IsAssignableFrom(t)
-                                                                          && t is { IsClass: true, IsAbstract: false }
-                                                                          && t != typeof(M3U8PlaylistExtractor));
-
-            foreach (var type in extractorTypes)
+            services.AddSingleton(sp => new CfClearanceStore(sp.GetRequiredService<MigurdexDatabase>()));
+            services.AddSingleton(sp =>
             {
-                try
-                {
-                    var extractor = (IExtractor) ActivatorUtilities.CreateInstance(sp, type);
-                    manager.RegisterExtractor(extractor);
-                }
-                catch (Exception ex)
-                {
-                    logger.LogError(ex, "failed to instantiate built-in extractor: {ExtractorType}", type.Name);
-                }
-            }
+                var incognito = incognitoProvider?.Invoke(sp) ?? false;
+                return new TurnstileService(sp.GetRequiredService<CfClearanceStore>(),
+                                            dataRoot,
+                                            browserCacheRoot,
+                                            incognito,
+                                            sp.GetService<IBlameCollector>(),
+                                            sp.GetService<ILogger<TurnstileService>>());
+            });
+            return services;
+        }
 
-            return manager;
-        });
+        public IServiceCollection AddCoreExtractors()
+        {
+            services.AddSingleton<M3U8PlaylistExtractor>();
 
-        return services;
+            services.AddSingleton<IExtractorManager>(sp =>
+            {
+                var loader  = sp.GetRequiredService<PluginLoader>();
+                var logger  = sp.GetRequiredService<ILogger<ExtractorManager>>();
+                var reader  = sp.GetRequiredService<IMp4MetadataReader>();
+                var manager = new ExtractorManager(logger, reader, loader);
+
+                var m3U8 = sp.GetRequiredService<M3U8PlaylistExtractor>();
+                manager.RegisterExtractor(m3U8);
+
+                var extractorTypes = typeof(M3U8PlaylistExtractor).Assembly
+                                                                  .GetTypes()
+                                                                  .Where(t => typeof(IExtractor).IsAssignableFrom(t)
+                                                                              && t is
+                                                                              {
+                                                                                  IsClass: true, IsAbstract: false
+                                                                              }
+                                                                              && t != typeof(M3U8PlaylistExtractor));
+
+                foreach (var type in extractorTypes)
+                {
+                    try
+                    {
+                        var extractor = (IExtractor) ActivatorUtilities.CreateInstance(sp, type);
+                        manager.RegisterExtractor(extractor);
+                    }
+                    catch (Exception ex)
+                    {
+                        logger.LogError(ex, "failed to instantiate built-in extractor: {ExtractorType}", type.Name);
+                    }
+                }
+
+                return manager;
+            });
+
+            return services;
+        }
     }
 }
