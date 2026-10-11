@@ -583,8 +583,8 @@ public static class DownloadCommand
             else
             {
                 foreach (var epNum in options.Episodes!)
-                    Console.WriteLine($"Bölüm {epNum} (dry-run)");
-                Console.WriteLine("Kaynak çözüldü; --debug nedeniyle indirme başlatılmadı.");
+                    Console.WriteLine($"Bölüm {epNum} (dry-run, kaynak aranmadı)");
+                Console.WriteLine("--debug nedeniyle indirme başlatılmadı (batch modda kaynak çözülmez).");
             }
             return 0;
         }
@@ -624,6 +624,7 @@ public static class DownloadCommand
             }
             var done = false;
             string? lastError = null;
+            VideoSource? failedSource = null;
             foreach (var source in resolved.Candidates)
             {
                 ct.ThrowIfCancellationRequested();
@@ -645,11 +646,12 @@ public static class DownloadCommand
                     break;
                 }
                 lastError = r.Error;
+                failedSource = source;
             }
             if (!done)
             {
                 failed++;
-                var msg = lastError ?? "Video indirilemedi.";
+                var msg = failedSource is not null ? SanitizeFailure(lastError, failedSource) : (lastError ?? "Video indirilemedi.");
                 errors.Add(new { episode = epNum, error = msg });
                 await Console.Error.WriteLineAsync($"Bölüm {epNum}: {msg}").ConfigureAwait(false);
             }
