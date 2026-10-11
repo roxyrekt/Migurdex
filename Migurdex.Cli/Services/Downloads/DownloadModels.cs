@@ -20,7 +20,16 @@ public sealed class DownloadProgress
     {
     }
 
-    public DownloadProgress(DownloadStage stage, long bytesDownloaded, long? totalBytes = null, double? speedBytesPerSecond = null, int? fragmentsDone = null, int? fragmentsTotal = null, TimeSpan? eta = null, double? percent = null, string? track = null, bool isAudioTrack = false)
+    public DownloadProgress(DownloadStage stage,
+        long                              bytesDownloaded,
+        long?                             totalBytes          = null,
+        double?                           speedBytesPerSecond = null,
+        int?                              fragmentsDone       = null,
+        int?                              fragmentsTotal      = null,
+        TimeSpan?                         eta                 = null,
+        double?                           percent             = null,
+        string?                           track               = null,
+        bool                              isAudioTrack        = false)
     {
         Stage               = stage;
         BytesDownloaded     = bytesDownloaded;
@@ -33,16 +42,16 @@ public sealed class DownloadProgress
         Track               = track;
     }
 
-    public DownloadStage Stage          { get; init; }
-    public long          BytesDownloaded { get; init; }
-    public long?         TotalBytes      { get; init; }
+    public DownloadStage Stage               { get; init; }
+    public long          BytesDownloaded     { get; init; }
+    public long?         TotalBytes          { get; init; }
     public double?       SpeedBytesPerSecond { get; init; }
-    public int?          FragmentsDone   { get; init; }
-    public int?          FragmentsTotal  { get; init; }
-    public TimeSpan?     Eta             { get; init; }
-    public double?       Percent         { get; init; }
-    public string?       Track           { get; init; }
-    public bool          IsAudioTrack    { get; init; }
+    public int?          FragmentsDone       { get; init; }
+    public int?          FragmentsTotal      { get; init; }
+    public TimeSpan?     Eta                 { get; init; }
+    public double?       Percent             { get; init; }
+    public string?       Track               { get; init; }
+    public bool          IsAudioTrack        { get; init; }
 
     public long  Bytes => BytesDownloaded;
     public long? Total => TotalBytes;
@@ -59,11 +68,11 @@ public sealed class DownloadRequest
         string                       outputDirectory,
         string                       animeTitle,
         string                       episodeTitle,
-        int                          season          = 1,
-        double                       episodeNumber   = 1,
-        bool                         overwrite       = false,
-        bool                         resume          = true,
-        IProgress<DownloadProgress>? progress        = null)
+        int                          season        = 1,
+        double                       episodeNumber = 1,
+        bool                         overwrite     = false,
+        bool                         resume        = true,
+        IProgress<DownloadProgress>? progress      = null)
     {
         Source          = source;
         OutputDirectory = outputDirectory;
@@ -76,16 +85,17 @@ public sealed class DownloadRequest
         Progress        = progress;
     }
 
-    public VideoSource                 Source          { get; set; } = new();
-    public string                      OutputDirectory { get; set; } = string.Empty;
-    public string                      AnimeTitle      { get; set; } = string.Empty;
-    public string                      EpisodeTitle    { get; set; } = string.Empty;
-    public int                         Season          { get; set; } = 1;
-    public double                      EpisodeNumber   { get; set; } = 1;
-    public bool                        Overwrite       { get; set; }
-    public bool                        Resume          { get; set; } = true;
-    public bool                        DownloadSubtitles { get; set; } = true;
-    public IProgress<DownloadProgress>? Progress        { get; set; }
+    public VideoSource                  Source             { get; set; } = new();
+    public string                       OutputDirectory    { get; set; } = string.Empty;
+    public string                       AnimeTitle         { get; set; } = string.Empty;
+    public string                       EpisodeTitle       { get; set; } = string.Empty;
+    public int                          Season             { get; set; } = 1;
+    public double                       EpisodeNumber      { get; set; } = 1;
+    public bool                         Overwrite          { get; set; }
+    public bool                         Resume             { get; set; } = true;
+    public bool                         DownloadSubtitles  { get; set; } = true;
+    public int                          ConnectionsPerFile { get; set; } = 4;
+    public IProgress<DownloadProgress>? Progress           { get; set; }
 
     public bool IncludeSubtitles
     {
@@ -120,10 +130,24 @@ public sealed class DownloadRequest
 
 public sealed class DownloadResult
 {
+    public bool                  Success       { get; init; }
+    public string?               MediaPath     { get; init; }
+    public IReadOnlyList<string> SubtitlePaths { get; init; } = [];
+    public IReadOnlyList<string> Warnings      { get; init; } = [];
+
+    public string? Error       { get; init; }
+    public bool    IsCancelled { get; init; }
+
+    public bool    IsSuccess    => Success;
+    public string? ErrorMessage => Error;
+    public string? VideoPath    => MediaPath;
+    public string? OutputPath   => MediaPath;
+    public bool    Cancelled    => IsCancelled;
+
     public static DownloadResult Successful(
-        string             mediaPath,
+        string               mediaPath,
         IEnumerable<string>? subtitlePaths = null,
-        IEnumerable<string>? warnings     = null)
+        IEnumerable<string>? warnings      = null)
     {
         return new DownloadResult
         {
@@ -142,38 +166,28 @@ public sealed class DownloadResult
             Error   = error
         };
     }
-
-    public bool             Success       { get; init; }
-    public string?          MediaPath     { get; init; }
-    public IReadOnlyList<string> SubtitlePaths { get; init; } = [];
-    public IReadOnlyList<string> Warnings      { get; init; } = [];
-
-    public string? Error       { get; init; }
-    public bool    IsCancelled { get; init; }
-
-    public bool   IsSuccess => Success;
-    public string? ErrorMessage => Error;
-    public string? VideoPath => MediaPath;
-    public string? OutputPath => MediaPath;
-    public bool   Cancelled => IsCancelled;
 }
 
 public sealed class MediaDownloadResult
 {
-    public MediaDownloadResult(string outputPath, long bytes = 0, long? totalBytes = null, bool resumed = false, IReadOnlyList<string>? warnings = null)
+    public MediaDownloadResult(string outputPath,
+        long                          bytes      = 0,
+        long?                         totalBytes = null,
+        bool                          resumed    = false,
+        IReadOnlyList<string>?        warnings   = null)
     {
-        OutputPath  = outputPath;
-        Bytes       = bytes;
-        TotalBytes  = totalBytes;
-        WasResumed  = resumed;
-        Warnings    = warnings ?? [];
+        OutputPath = outputPath;
+        Bytes      = bytes;
+        TotalBytes = totalBytes;
+        WasResumed = resumed;
+        Warnings   = warnings ?? [];
     }
 
-    public string OutputPath { get; }
-    public long   Bytes      { get; }
-    public long?  TotalBytes { get; }
-    public bool   WasResumed { get; }
-    public IReadOnlyList<string> Warnings { get; }
+    public string                OutputPath { get; }
+    public long                  Bytes      { get; }
+    public long?                 TotalBytes { get; }
+    public bool                  WasResumed { get; }
+    public IReadOnlyList<string> Warnings   { get; }
 
     public string Path => OutputPath;
 }
@@ -191,20 +205,20 @@ public sealed class SubtitleDownloadResult
 
 public sealed class HlsDownloadOptions
 {
-    public string Executable   { get; set; } = "yt-dlp";
-    public int    MaxAttempts { get; set; } = 3;
-    public TimeSpan RetryDelay { get; set; } = TimeSpan.FromSeconds(1);
-    public int ConcurrentFragments { get; set; } = 5;
+    public string   Executable          { get; set; } = "yt-dlp";
+    public int      MaxAttempts         { get; set; } = 3;
+    public TimeSpan RetryDelay          { get; set; } = TimeSpan.FromSeconds(1);
+    public int      ConcurrentFragments { get; set; } = 5;
 }
 
 public sealed class DownloadPath
 {
     public DownloadPath(
-        string       rootDirectory,
-        string       animeDirectory,
-        string       fileStem,
-        string?      extension = null,
-        string?      mediaPath = null)
+        string  rootDirectory,
+        string  animeDirectory,
+        string  fileStem,
+        string? extension = null,
+        string? mediaPath = null)
     {
         RootDirectory  = rootDirectory;
         AnimeDirectory = animeDirectory;
@@ -213,26 +227,26 @@ public sealed class DownloadPath
         MediaPath      = mediaPath ?? GetMediaPath(extension);
     }
 
-    public string       RootDirectory  { get; }
-    public string       AnimeDirectory { get; }
-    public string       FileStem       { get; }
-    public string?      Extension      { get; }
-    public string       MediaPath      { get; }
+    public string  RootDirectory  { get; }
+    public string  AnimeDirectory { get; }
+    public string  FileStem       { get; }
+    public string? Extension      { get; }
+    public string  MediaPath      { get; }
 
     public string AnimeFolder => AnimeDirectory;
-    public string Stem       => FileStem;
-    public string Directory  => AnimeDirectory;
-    public string FullPath   => MediaPath;
-    public string Path       => MediaPath;
+    public string Stem        => FileStem;
+    public string Directory   => AnimeDirectory;
+    public string FullPath    => MediaPath;
+    public string Path        => MediaPath;
 
     public string GetMediaPath(string? extension = null)
     {
         var selectedExtension = string.IsNullOrWhiteSpace(extension)
                                     ? Extension
                                     : DownloadPathBuilder.NormalizeExtension(extension);
-        var fileName          = selectedExtension is null
-                                    ? FileStem
-                                    : FileStem + selectedExtension;
+        var fileName = selectedExtension is null
+                           ? FileStem
+                           : FileStem + selectedExtension;
         var path = System.IO.Path.Combine(AnimeDirectory, fileName);
         DownloadPathBuilder.EnsureFullPathBudget(path, DownloadPathBuilder.TemporarySuffixUtf8Bytes);
         return path;

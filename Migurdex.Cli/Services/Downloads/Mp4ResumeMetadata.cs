@@ -6,19 +6,19 @@ internal sealed class Mp4ResumeMetadata
 {
     private const int CurrentVersion = 1;
 
-    public int Version { get; init; } = CurrentVersion;
-    public string SourceFingerprint { get; init; } = string.Empty;
-    public string? ETagDigest { get; init; }
+    public int     Version            { get; init; } = CurrentVersion;
+    public string  SourceFingerprint  { get; init; } = string.Empty;
+    public string? ETagDigest         { get; init; }
     public string? LastModifiedDigest { get; init; }
-    public long? TotalBytes { get; init; }
-    public int? SegmentCount { get; init; }
+    public long?   TotalBytes         { get; init; }
+    public int?    SegmentCount       { get; init; }
 
     public static Mp4ResumeMetadata Create(
-        string sourceFingerprint,
+        string  sourceFingerprint,
         string? etag,
         string? lastModified,
-        long?      totalBytes,
-        int?       segmentCount = null)
+        long?   totalBytes,
+        int?    segmentCount = null)
     {
         return new Mp4ResumeMetadata
         {
@@ -53,8 +53,8 @@ internal sealed class Mp4ResumeMetadata
     }
 
     public static bool TryRead(
-        string path,
-        string sourceFingerprint,
+        string                 path,
+        string                 sourceFingerprint,
         out Mp4ResumeMetadata? metadata)
     {
         metadata = null;
@@ -65,7 +65,7 @@ internal sealed class Mp4ResumeMetadata
                 return false;
             }
 
-            var json = File.ReadAllText(path);
+            var json  = File.ReadAllText(path);
             var value = JsonSerializer.Deserialize<Mp4ResumeMetadata>(json);
             if (value is null
                 || value.Version != CurrentVersion
@@ -80,24 +80,53 @@ internal sealed class Mp4ResumeMetadata
             return true;
         }
         catch (Exception ex) when (ex is IOException
-                                      or UnauthorizedAccessException
-                                      or JsonException
-                                      or NotSupportedException)
+                                         or UnauthorizedAccessException
+                                         or JsonException
+                                         or NotSupportedException)
         {
             return false;
         }
     }
 
+    public static bool TryReadAny(string path, out Mp4ResumeMetadata? metadata)
+    {
+        metadata = null;
+        try
+        {
+            if (!File.Exists(path))
+            {
+                return false;
+            }
+
+            var value = JsonSerializer.Deserialize<Mp4ResumeMetadata>(File.ReadAllText(path));
+            if (value is null || value.Version != CurrentVersion)
+            {
+                return false;
+            }
+
+            metadata = value;
+            return true;
+        }
+        catch (Exception ex) when (ex is IOException
+                                         or UnauthorizedAccessException
+                                         or JsonException
+                                         or NotSupportedException)
+        {
+            metadata = null;
+            return false;
+        }
+    }
+
     public static async Task WriteAsync(
-        string               path,
-        Mp4ResumeMetadata    metadata,
-        CancellationToken    cancellationToken)
+        string            path,
+        Mp4ResumeMetadata metadata,
+        CancellationToken cancellationToken)
     {
         var temporaryPath = path + ".tmp";
         DeleteIfExists(temporaryPath);
         var json = JsonSerializer.Serialize(metadata);
         await File.WriteAllTextAsync(temporaryPath, json, cancellationToken).ConfigureAwait(false);
-        File.Move(temporaryPath, path, overwrite: true);
+        File.Move(temporaryPath, path, true);
     }
 
     public static void Delete(string? path)

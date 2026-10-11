@@ -76,15 +76,15 @@ public sealed class DownloadCommandTests
     public void IsDirectDownloadable_OnlyAcceptsHttpMp4AndM3u8()
     {
         Assert.True(DownloadSourceResolver.IsDirectDownloadable(
-            Source("https://origin.example/video.mp4", VideoType.Mp4)));
+                        Source("https://origin.example/video.mp4", VideoType.Mp4)));
         Assert.True(DownloadSourceResolver.IsDirectDownloadable(
-            Source("https://origin.example/video.m3u8", VideoType.M3U8)));
+                        Source("https://origin.example/video.m3u8", VideoType.M3U8)));
         Assert.False(DownloadSourceResolver.IsDirectDownloadable(
-            Source("https://origin.example/embed", VideoType.Embed)));
+                         Source("https://origin.example/embed", VideoType.Embed)));
         Assert.False(DownloadSourceResolver.IsDirectDownloadable(
-            Source("https://origin.example/unknown", VideoType.Unknown)));
+                         Source("https://origin.example/unknown", VideoType.Unknown)));
         Assert.False(DownloadSourceResolver.IsDirectDownloadable(
-            Source("file:///tmp/video.mp4", VideoType.Mp4)));
+                         Source("file:///tmp/video.mp4", VideoType.Mp4)));
     }
 
     [Fact]
@@ -120,8 +120,8 @@ public sealed class DownloadCommandTests
         };
 
         var selected = Assert.Single(DownloadSourceResolver.SelectCandidates(sources,
-                                                                               DownloadSourceFormat.Hls,
-                                                                               new CliConfig()));
+                                                                             DownloadSourceFormat.Hls,
+                                                                             new CliConfig()));
 
         Assert.Equal("https://origin.example/hls", selected.Url);
         Assert.Equal(VideoType.M3U8, selected.Type);
@@ -157,8 +157,8 @@ public sealed class DownloadCommandTests
         };
 
         var selected = Assert.Single(DownloadSourceResolver.SelectCandidates(sources,
-                                                                               DownloadSourceFormat.Auto,
-                                                                               config));
+                                                                             DownloadSourceFormat.Auto,
+                                                                             config));
         Assert.Equal(VideoType.Mp4, selected.Type);
     }
 
@@ -169,10 +169,30 @@ public sealed class DownloadCommandTests
         {
             Episodes =
             [
-                new Episode { Id = "s2e1", Season = 2, Number = 1 },
-                new Episode { Id = "s1e3", Season = 1, Number = 3 },
-                new Episode { Id = "s1e1", Season = 1, Number = 1 },
-                new Episode { Id = "s1e2", Season = 1, Number = 2 }
+                new Episode
+                {
+                    Id     = "s2e1",
+                    Season = 2,
+                    Number = 1
+                },
+                new Episode
+                {
+                    Id     = "s1e3",
+                    Season = 1,
+                    Number = 3
+                },
+                new Episode
+                {
+                    Id     = "s1e1",
+                    Season = 1,
+                    Number = 1
+                },
+                new Episode
+                {
+                    Id     = "s1e2",
+                    Season = 1,
+                    Number = 2
+                }
             ]
         };
 
@@ -187,25 +207,31 @@ public sealed class DownloadCommandTests
     {
         var providers = new List<ProviderInfo>
         {
-            new() { Name = "TurkAnime" },
-            new() { Name = "AniHub" }
+            new()
+            {
+                Name = "TurkAnime"
+            },
+            new()
+            {
+                Name = "AniHub"
+            }
         };
 
         Assert.True(MediaSelection.TryResolveProvider(providers,
-                                                             "turkanime",
-                                                             out var provider,
-                                                             out var providerError));
+                                                      "turkanime",
+                                                      out var provider,
+                                                      out var providerError));
         Assert.Equal("TurkAnime", provider);
         Assert.Null(providerError);
         Assert.True(MediaSelection.TryResolveProvider(providers,
-                                                             "Turk",
-                                                             out var partialProvider,
-                                                             out _));
+                                                      "Turk",
+                                                      out var partialProvider,
+                                                      out _));
         Assert.Equal("TurkAnime", partialProvider);
         Assert.False(MediaSelection.TryResolveProvider(providers,
-                                                              "xyz",
-                                                              out _,
-                                                              out _));
+                                                       "xyz",
+                                                       out _,
+                                                       out _));
 
         Assert.True(MediaSelection.TryResolveGroup(["Fansub", "Duals"], "fansub", out var group));
         Assert.Equal("Fansub", group);
@@ -230,10 +256,23 @@ public sealed class DownloadCommandTests
         Assert.Equal("yt-dlp", nullConfig.YtDlpPath);
     }
 
+    [Fact]
+    public void CliConfig_BatchFieldsHaveSafeDefaultsOnOldConfigs()
+    {
+        var oldConfig = JsonSerializer.Deserialize<CliConfig>("{}");
+        Assert.NotNull(oldConfig);
+        Assert.Equal(2, oldConfig.MaxConcurrentEpisodes);
+        Assert.Equal(4, oldConfig.ConnectionsPerFile);
+        Assert.Equal(8, oldConfig.MaxSocketsPerHoster);
+        Assert.Equal("Ask", oldConfig.DefaultEpisodeAction);
+        Assert.Equal("Ask", oldConfig.BatchSourceSelection);
+        Assert.NotNull(oldConfig.PreferredGroupOrder);
+    }
+
     private static VideoSource Source(string url,
-        VideoType                  type,
-        string                     quality = "1080p",
-        string?                    hoster  = "Hoster")
+        VideoType                            type,
+        string                               quality = "1080p",
+        string?                              hoster  = "Hoster")
     {
         return new VideoSource
         {

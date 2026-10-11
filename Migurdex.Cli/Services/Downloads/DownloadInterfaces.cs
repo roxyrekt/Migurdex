@@ -1,6 +1,5 @@
 using Migurdex.Shared.Models;
 using System.Diagnostics;
-using System.Net.Http;
 
 namespace Migurdex.Cli.Services.Downloads;
 
@@ -15,29 +14,29 @@ public interface IDownloadService
         AnimeDetails                 details,
         Episode                      episode,
         string                       outputDirectory,
-        bool                         overwrite           = false,
-        bool                         resume              = true,
-        IProgress<DownloadProgress>? progress           = null,
-        CancellationToken             cancellationToken = default);
+        bool                         overwrite         = false,
+        bool                         resume            = true,
+        IProgress<DownloadProgress>? progress          = null,
+        CancellationToken            cancellationToken = default);
 }
 
 public interface IDownloadPathBuilder
 {
     DownloadPath Build(
-        string       rootDirectory,
-        string       animeTitle,
-        string       episodeTitle,
-        int          season,
-        double       episodeNumber,
-        string?      extension = null);
+        string  rootDirectory,
+        string  animeTitle,
+        string  episodeTitle,
+        int     season,
+        double  episodeNumber,
+        string? extension = null);
 
     DownloadPath Build(
-        string       rootDirectory,
-        string       animeTitle,
-        int          season,
-        double       episodeNumber,
-        string       episodeTitle,
-        string?      extension = null);
+        string  rootDirectory,
+        string  animeTitle,
+        int     season,
+        double  episodeNumber,
+        string  episodeTitle,
+        string? extension = null);
 
     DownloadPath Build(
         string       rootDirectory,
@@ -50,12 +49,12 @@ public interface IDownloadPathBuilder
     string BuildFileStem(int season, double episodeNumber, string episodeTitle);
 
     string BuildFilePath(
-        string       rootDirectory,
-        string       animeTitle,
-        string       episodeTitle,
-        int          season,
-        double       episodeNumber,
-        string?      extension = null);
+        string  rootDirectory,
+        string  animeTitle,
+        string  episodeTitle,
+        int     season,
+        double  episodeNumber,
+        string? extension = null);
 }
 
 public interface IDownloadHttpClientFactory
@@ -70,20 +69,21 @@ public interface IMp4Downloader
         string                       destinationPath,
         bool                         overwrite           = false,
         bool                         resume              = true,
-        IProgress<DownloadProgress>? progress           = null,
-        CancellationToken             cancellationToken = default);
+        IProgress<DownloadProgress>? progress            = null,
+        CancellationToken            cancellationToken   = default,
+        int                          maxParallelSegments = 4);
 }
 
 public interface ISubtitleDownloader
 {
     Task<SubtitleDownloadResult> DownloadAsync(
-        Subtitle                              subtitle,
+        Subtitle                             subtitle,
         string                               mediaPath,
-        IReadOnlyDictionary<string, string>? sourceHeaders = null,
-        bool                                 overwrite       = false,
-        int                                  index           = 0,
-        IProgress<DownloadProgress>?         progress        = null,
-        CancellationToken                     cancellationToken = default);
+        IReadOnlyDictionary<string, string>? sourceHeaders     = null,
+        bool                                 overwrite         = false,
+        int                                  index             = 0,
+        IProgress<DownloadProgress>?         progress          = null,
+        CancellationToken                    cancellationToken = default);
 }
 
 public interface IHlsDownloader
@@ -91,23 +91,21 @@ public interface IHlsDownloader
     Task<MediaDownloadResult> DownloadAsync(
         VideoSource                  source,
         DownloadPath                 destination,
-        bool                         overwrite           = false,
-        IProgress<DownloadProgress>? progress           = null,
-        CancellationToken             cancellationToken = default);
+        bool                         overwrite         = false,
+        IProgress<DownloadProgress>? progress          = null,
+        CancellationToken            cancellationToken = default);
 }
 
 public interface IExternalProcessRunner
 {
     Task<ExternalProcessResult> RunAsync(
-        ProcessStartInfo             startInfo,
-        CancellationToken            cancellationToken = default);
+        ProcessStartInfo  startInfo,
+        CancellationToken cancellationToken = default);
 
-    // Yeni isteğe bağlı aşırı yükleme; mevcut IExternalProcessRunner uygulamaları için
-    // varsayılan olarak eski RunAsync çağrısına yönlendirilir.
     Task<ExternalProcessResult> RunAsync(
-        ProcessStartInfo             startInfo,
-        Action<string>?              onStandardOutput,
-        CancellationToken            cancellationToken = default)
+        ProcessStartInfo  startInfo,
+        Action<string>?   onStandardOutput,
+        CancellationToken cancellationToken = default)
     {
         return RunAsync(startInfo, cancellationToken);
     }

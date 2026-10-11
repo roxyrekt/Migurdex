@@ -11,6 +11,7 @@ using Migurdex.Core.Services.Turnstile;
 using Migurdex.Shared.Models;
 using Migurdex.Shared.Update;
 using Spectre.Console;
+using System.Text;
 
 namespace Migurdex.Cli;
 
@@ -20,7 +21,7 @@ public static class Program
     {
         try
         {
-            Console.OutputEncoding = System.Text.Encoding.UTF8;
+            Console.OutputEncoding = Encoding.UTF8;
         }
         catch
         {
@@ -29,7 +30,7 @@ public static class Program
 
         try
         {
-            Console.InputEncoding = System.Text.Encoding.UTF8;
+            Console.InputEncoding = Encoding.UTF8;
         }
         catch
         {
@@ -167,6 +168,8 @@ public static class Program
 
             _ = Task.Run(() => serviceProvider.GetRequiredService<WatchSyncService>().FlushQueueAsync());
 
+            RestorePendingDownloads(serviceProvider);
+
             var noUpdateCheck = args.Any(a => a.Equals("--no-update-check", StringComparison.OrdinalIgnoreCase));
             await MaybePromptForUpdateAsync(serviceProvider, noUpdateCheck);
             tuiToken.ThrowIfCancellationRequested();
@@ -294,6 +297,7 @@ public static class Program
         services.AddSingleton<IHistoryService>(sp =>
                                                    new HistoryService(sp.GetRequiredService<IConfigurationService>(),
                                                                       sp.GetRequiredService<MigurdexDatabase>()));
+        services.AddSingleton<IDownloadJobStore, DownloadJobStore>();
         services.AddDownloadServices(provider =>
         {
             var config = provider.GetRequiredService<IConfigurationService>().Config;
@@ -348,6 +352,56 @@ public static class Program
         services.AddTransient<FavoritesView>();
         services.AddTransient<WatchHistoryView>();
         services.AddTransient<SettingsView>();
+        services.AddTransient<DownloadsView>();
+    }
+
+    private static void RestorePendingDownloads(IServiceProvider serviceProvider)
+    {
+        try
+        {
+            var tracker   = serviceProvider.GetRequiredService<BackgroundDownloadTracker>();
+            var store     = serviceProvider.GetRequiredService<IDownloadJobStore>();
+            var api       = serviceProvider.GetRequiredService<IApiClientService>();
+            var downloads = serviceProvider.GetRequiredService<IDownloadService>();
+            var config    = serviceProvider.GetRequiredService<IConfigurationService>().Config;
+
+            tracker.Store = store;
+            tracker.RestorePending(spec =>
+            {
+                var filter = new DownloadFilterSpec(
+                    spec.Groups,
+                    spec.Hosters,
+                    spec.Qualities,
+                    spec.Formats);
+                var episode = new Episode
+                {
+                    Id     = spec.EpisodeId,
+                    Title  = spec.EpisodeTitle,
+                    Number = spec.Number,
+                    Season = spec.Season
+                };
+
+                return control => DownloadJobRunner.RunEpisodeAsync(
+                    api,
+                    downloads,
+                    tracker,
+                    config,
+                    spec.Provider,
+                    spec.AnimeTitle,
+                    episode,
+                    spec.Season,
+                    filter,
+                    spec.OutputDirectory,
+                    spec.DownloadSubtitles,
+                    config.DownloadOverwrite,
+                    config.DownloadResume,
+                    config.ConnectionsPerFile,
+                    control);
+            });
+        }
+        catch
+        {
+        }
     }
 
     private static async Task<EpisodeMappingResult> MapEpisodeAsync(IApiClientService api,

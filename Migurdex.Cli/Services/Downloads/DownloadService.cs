@@ -1,26 +1,28 @@
 using Migurdex.Shared.Enums;
 using Migurdex.Shared.Models;
-using System.Net.Http;
 
 namespace Migurdex.Cli.Services.Downloads;
 
 public sealed class DownloadService : IDownloadService
 {
+    private readonly IHlsDownloader       _hlsDownloader;
+    private readonly IMp4Downloader       _mp4Downloader;
     private readonly IDownloadPathBuilder _pathBuilder;
-    private readonly IMp4Downloader        _mp4Downloader;
-    private readonly IHlsDownloader        _hlsDownloader;
-    private readonly ISubtitleDownloader   _subtitleDownloader;
+    private readonly ISubtitleDownloader  _subtitleDownloader;
+    private readonly BandwidthLimiter?    _limiter;
 
     public DownloadService(
         IDownloadPathBuilder pathBuilder,
-        IMp4Downloader        mp4Downloader,
-        IHlsDownloader        hlsDownloader,
-        ISubtitleDownloader   subtitleDownloader)
+        IMp4Downloader       mp4Downloader,
+        IHlsDownloader       hlsDownloader,
+        ISubtitleDownloader  subtitleDownloader,
+        BandwidthLimiter?    limiter = null)
     {
-        _pathBuilder      = pathBuilder ?? throw new ArgumentNullException(nameof(pathBuilder));
-        _mp4Downloader    = mp4Downloader ?? throw new ArgumentNullException(nameof(mp4Downloader));
-        _hlsDownloader    = hlsDownloader ?? throw new ArgumentNullException(nameof(hlsDownloader));
+        _pathBuilder        = pathBuilder ?? throw new ArgumentNullException(nameof(pathBuilder));
+        _mp4Downloader      = mp4Downloader ?? throw new ArgumentNullException(nameof(mp4Downloader));
+        _hlsDownloader      = hlsDownloader ?? throw new ArgumentNullException(nameof(hlsDownloader));
         _subtitleDownloader = subtitleDownloader ?? throw new ArgumentNullException(nameof(subtitleDownloader));
+        _limiter            = limiter;
     }
 
     public DownloadService()
@@ -37,6 +39,17 @@ public sealed class DownloadService : IDownloadService
                new YtDlpHlsDownloader(processRunner ?? new ExternalProcessRunner()),
                new SubtitleDownloader(handler))
     {
+    }
+
+    private async Task<MediaDownloadResult> DownloadWithLimitAsync(
+        Func<Task<MediaDownloadResult>> download,
+        CancellationToken               cancellationToken)
+    {
+        using (BandwidthLimiter.Activate(_limiter))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            return await download().ConfigureAwait(false);
+        }
     }
 
     public async Task<DownloadResult> DownloadAsync(
@@ -73,31 +86,35 @@ public sealed class DownloadService : IDownloadService
                 extension);
             Directory.CreateDirectory(destination.AnimeDirectory);
             request.Progress?.Report(new DownloadProgress(DownloadStage.Preparing,
-                                                          0,
-                                                          null));
+                                                          0));
 
             var media = source.Type == VideoType.Mp4
-                            ? await _mp4Downloader.DownloadAsync(source,
-                                                                  destination.MediaPath,
-                                                                  request.Overwrite,
-                                                                  request.Resume,
-                                                                  request.Progress,
-                                                                  cancellationToken)
-                            : await _hlsDownloader.DownloadAsync(source,
-                                                                  destination,
-                                                                  request.Overwrite,
-                                                                  request.Progress,
-                                                                  cancellationToken);
+                            ? await DownloadWithLimitAsync(
+                                () => _mp4Downloader.DownloadAsync(source,
+                                                                   destination.MediaPath,
+                                                                   request.Overwrite,
+                                                                   request.Resume,
+                                                                   request.Progress,
+                                                                   cancellationToken,
+                                                                   Math.Clamp(request.ConnectionsPerFile, 1, 8)),
+                                cancellationToken)
+                            : await DownloadWithLimitAsync(
+                                () => _hlsDownloader.DownloadAsync(source,
+                                                                   destination,
+                                                                   request.Overwrite,
+                                                                   request.Progress,
+                                                                   cancellationToken),
+                                cancellationToken);
 
             if (string.IsNullOrWhiteSpace(media.OutputPath) || !File.Exists(media.OutputPath))
             {
-                request.Progress?.Report(new DownloadProgress(DownloadStage.Failed, 0, null));
+                request.Progress?.Report(new DownloadProgress(DownloadStage.Failed, 0));
                 return DownloadResult.Failed("Video medya dosyası oluşturulamadı.");
             }
 
             if (cancellationToken.IsCancellationRequested)
             {
-                request.Progress?.Report(new DownloadProgress(DownloadStage.Cancelled, 0, null));
+                request.Progress?.Report(new DownloadProgress(DownloadStage.Cancelled, 0));
                 return new DownloadResult
                 {
                     Success     = true,
@@ -108,12 +125,12 @@ public sealed class DownloadService : IDownloadService
             }
 
             var subtitlePaths = new List<string>();
-            var warnings       = new List<string>();
+            var warnings      = new List<string>();
             warnings.AddRange(media.Warnings);
 
             using var subtitleLock = await TryAcquireSubtitleLockAsync(destination,
-                                                                        cancellationToken)
-                                             .ConfigureAwait(false);
+                                                                       cancellationToken)
+                                         .ConfigureAwait(false);
             if (subtitleLock is null)
             {
                 warnings.Add("Altyazılar için hedef kilidi alınamadı; altyazılar atlandı.");
@@ -134,7 +151,7 @@ public sealed class DownloadService : IDownloadService
                                                      && File.Exists(media.OutputPath))
             {
                 warnings.Add("Video tamamlandı; altyazı indirme iptal edildi.");
-                request.Progress?.Report(new DownloadProgress(DownloadStage.Cancelled, 0, null));
+                request.Progress?.Report(new DownloadProgress(DownloadStage.Cancelled, 0));
                 return new DownloadResult
                 {
                     Success       = true,
@@ -150,17 +167,17 @@ public sealed class DownloadService : IDownloadService
         }
         catch (OperationCanceledException)
         {
-            request.Progress?.Report(new DownloadProgress(DownloadStage.Cancelled, 0, null));
+            request.Progress?.Report(new DownloadProgress(DownloadStage.Cancelled, 0));
             throw;
         }
         catch (DownloadException exception)
         {
-            request.Progress?.Report(new DownloadProgress(DownloadStage.Failed, 0, null));
+            request.Progress?.Report(new DownloadProgress(DownloadStage.Failed, 0));
             return DownloadResult.Failed(SafeFailureMessage(source, exception));
         }
         catch
         {
-            request.Progress?.Report(new DownloadProgress(DownloadStage.Failed, 0, null));
+            request.Progress?.Report(new DownloadProgress(DownloadStage.Failed, 0));
             return DownloadResult.Failed("Video indirilemedi.");
         }
     }
@@ -170,10 +187,10 @@ public sealed class DownloadService : IDownloadService
         AnimeDetails                 details,
         Episode                      episode,
         string                       outputDirectory,
-        bool                         overwrite           = false,
-        bool                         resume              = true,
-        IProgress<DownloadProgress>? progress           = null,
-        CancellationToken             cancellationToken = default)
+        bool                         overwrite         = false,
+        bool                         resume            = true,
+        IProgress<DownloadProgress>? progress          = null,
+        CancellationToken            cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(source);
         ArgumentNullException.ThrowIfNull(details);
@@ -202,10 +219,10 @@ public sealed class DownloadService : IDownloadService
         string                       episodeTitle,
         int                          season,
         double                       episodeNumber,
-        bool                         overwrite           = false,
-        bool                         resume              = true,
-        IProgress<DownloadProgress>? progress           = null,
-        CancellationToken             cancellationToken = default)
+        bool                         overwrite         = false,
+        bool                         resume            = true,
+        IProgress<DownloadProgress>? progress          = null,
+        CancellationToken            cancellationToken = default)
     {
         var request = new DownloadRequest
         {
@@ -228,8 +245,9 @@ public sealed class DownloadService : IDownloadService
         var message = exception.Message;
         if ((!string.IsNullOrWhiteSpace(source.Url)
              && message.Contains(source.Url, StringComparison.Ordinal))
-            || (source.Headers?.Values.Any(value => !string.IsNullOrEmpty(value)
-                                                   && message.Contains(value, StringComparison.Ordinal)) == true))
+            || source.Headers?.Values.Any(value => !string.IsNullOrEmpty(value)
+                                                   && message.Contains(value, StringComparison.Ordinal))
+            == true)
         {
             return "Video indirilemedi.";
         }
@@ -244,37 +262,37 @@ public sealed class DownloadService : IDownloadService
         try
         {
             return await DownloadTargetLock.AcquireAsync(
-                                 Path.Combine(destination.AnimeDirectory, destination.FileStem),
-                                 cancellationToken)
-                                 .ConfigureAwait(false);
+                                               Path.Combine(destination.AnimeDirectory, destination.FileStem),
+                                               cancellationToken)
+                                           .ConfigureAwait(false);
         }
         catch (ConcurrentDownloadException)
         {
             return null;
         }
         catch (Exception exception) when (exception is ArgumentException
-                                               or IOException
-                                               or UnauthorizedAccessException)
+                                                       or IOException
+                                                       or UnauthorizedAccessException)
         {
             return null;
         }
     }
 
     private async Task DownloadSubtitlesAsync(
-        DownloadRequest  request,
-        string           mediaPath,
+        DownloadRequest     request,
+        string              mediaPath,
         ICollection<string> subtitlePaths,
         ICollection<string> warnings,
-        Uri?                 sourceUri,
-        CancellationToken     cancellationToken)
+        Uri?                sourceUri,
+        CancellationToken   cancellationToken)
     {
         if (!request.DownloadSubtitles || request.Source.Subtitles is not { Count: > 0 })
         {
             return;
         }
 
-        request.Progress?.Report(new DownloadProgress(DownloadStage.Subtitle, 0, null));
-        var usedSuffixes  = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        request.Progress?.Report(new DownloadProgress(DownloadStage.Subtitle, 0));
+        var usedSuffixes   = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
         var anonymousIndex = 0;
         foreach (var subtitle in request.Source.Subtitles)
         {
@@ -304,7 +322,7 @@ public sealed class DownloadService : IDownloadService
                 Uri? subtitleUri = null;
                 if (Uri.TryCreate(subtitle.Url, UriKind.Absolute, out var parsedSubtitleUri)
                     && (parsedSubtitleUri.Scheme.Equals(Uri.UriSchemeHttp,
-                                                         StringComparison.OrdinalIgnoreCase)
+                                                        StringComparison.OrdinalIgnoreCase)
                         || parsedSubtitleUri.Scheme.Equals(Uri.UriSchemeHttps,
                                                            StringComparison.OrdinalIgnoreCase)))
                 {
@@ -314,17 +332,17 @@ public sealed class DownloadService : IDownloadService
                 var fallbackHeaders = subtitleUri is null
                                           ? null
                                           : DownloadHttp.CopySubtitleFallbackHeaders(request.Source.Headers,
-                                                                                    sourceUri,
-                                                                                    subtitleUri);
+                                              sourceUri,
+                                              subtitleUri);
                 var subtitleResult = await _subtitleDownloader.DownloadAsync(
-                    subtitle,
-                    mediaPath,
-                    fallbackHeaders,
-                    request.Overwrite,
-                    ordinal,
-                    request.Progress,
-                    cancellationToken)
-                                      .ConfigureAwait(false);
+                                                                  subtitle,
+                                                                  mediaPath,
+                                                                  fallbackHeaders,
+                                                                  request.Overwrite,
+                                                                  ordinal,
+                                                                  request.Progress,
+                                                                  cancellationToken)
+                                                              .ConfigureAwait(false);
                 if (!string.IsNullOrWhiteSpace(subtitleResult.OutputPath)
                     && File.Exists(subtitleResult.OutputPath))
                 {
@@ -343,7 +361,6 @@ public sealed class DownloadService : IDownloadService
             {
                 warnings.Add("Altyazı indirilemedi.");
             }
-
         }
     }
 }

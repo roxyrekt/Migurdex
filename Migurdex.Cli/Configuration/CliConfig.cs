@@ -1,7 +1,14 @@
+using System.Text.RegularExpressions;
+
 namespace Migurdex.Cli.Configuration;
 
 public class CliConfig
 {
+    private static readonly Regex _environmentVariablePattern = new(
+        "%(?<percent>[^%]+)%|\\$(?:\\{(?<braced>[A-Za-z_][A-Za-z0-9_]*)\\}|(?<plain>[A-Za-z_][A-Za-z0-9_]*))",
+        RegexOptions.Compiled
+        | RegexOptions.CultureInvariant);
+
     private string _downloadDirectory = DefaultDownloadDirectory;
     private string _ytDlpPath         = "yt-dlp";
 
@@ -18,7 +25,7 @@ public class CliConfig
     public string DownloadDirectory
     {
         get => string.IsNullOrWhiteSpace(_downloadDirectory) ? DefaultDownloadDirectory : _downloadDirectory;
-        set => _downloadDirectory = string.IsNullOrWhiteSpace(value) ? DefaultDownloadDirectory : value.Trim();
+        set => _downloadDirectory = NormalizeDownloadDirectory(value);
     }
 
     public string YtDlpPath
@@ -33,6 +40,19 @@ public class CliConfig
 
     public bool   AutoDownloadBestSource           { get; set; } = false;
     public double DownloadAutoSelectTimeoutSeconds { get; set; } = 5;
+
+    public int    MaxConcurrentEpisodes         { get; set; } = 2;
+    public int    ConnectionsPerFile            { get; set; } = 4;
+    public int    MaxSocketsPerHoster           { get; set; } = 8;
+    public int    DownloadMaxRetries            { get; set; } = 3;
+    public double DownloadRetryBaseDelaySeconds { get; set; } = 2;
+    /// <summary>Global indirme hız limiti (KB/sn). 0 = sınırsız.</summary>
+    public long   MaxDownloadSpeedKbps          { get; set; } = 0;
+
+    public string DefaultEpisodeAction { get; set; } = "Ask";
+    public string BatchSourceSelection { get; set; } = "Ask";
+
+    public List<string> PreferredGroupOrder { get; set; } = [];
 
     public bool    UpdateCheckEnabled { get; set; } = true;
     public string  UpdateChannel      { get; set; } = "stable";
@@ -138,6 +158,44 @@ public class CliConfig
 
             return Path.Combine(userProfile, "Downloads", "Migurdex");
         }
+    }
+
+    public static string NormalizeDownloadDirectory(string? path)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            return DefaultDownloadDirectory;
+        }
+
+        var trimmed = path.Trim().Trim('"');
+        if (trimmed.Length == 0)
+        {
+            return DefaultDownloadDirectory;
+        }
+
+        if (trimmed.StartsWith('~')
+            && (trimmed.Length == 1 || trimmed[1] == Path.DirectorySeparatorChar || trimmed[1] == '/'))
+        {
+            var userProfile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+            if (!string.IsNullOrWhiteSpace(userProfile))
+            {
+                trimmed = userProfile + trimmed[1..];
+            }
+        }
+
+        var expanded = _environmentVariablePattern.Replace(trimmed,
+                                                           match =>
+                                                           {
+                                                               var name = match.Groups["percent"].Success
+                                                                              ? match.Groups["percent"].Value
+                                                                              : match.Groups["braced"].Success
+                                                                                  ? match.Groups["braced"].Value
+                                                                                  : match.Groups["plain"].Value;
+                                                               return Environment.GetEnvironmentVariable(name)
+                                                                      ?? match.Value;
+                                                           });
+
+        return string.IsNullOrWhiteSpace(expanded) ? DefaultDownloadDirectory : expanded;
     }
 
     public sealed class TurnstileConfig

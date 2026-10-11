@@ -1,18 +1,31 @@
 using Microsoft.Data.Sqlite;
 using Migurdex.Core.Services.Turnstile;
 using Migurdex.Shared.Models;
+using SQLitePCL;
 using System.Globalization;
+using System.Runtime.InteropServices;
+using System.Runtime.Loader;
 using System.Text.Json;
 
 namespace Migurdex.Core.Database;
 
 public class MigurdexDatabase
 {
+    private static readonly JsonSerializerOptions _jsonOpts = new()
+    {
+        PropertyNameCaseInsensitive = true
+    };
+
+    private readonly string _configDirectory;
+
+    private readonly string _connectionString;
+    private readonly Lock   _lock = new();
+
     static MigurdexDatabase()
     {
         try
         {
-            System.Runtime.Loader.AssemblyLoadContext.Default.ResolvingUnmanagedDll += (assembly, libraryName) =>
+            AssemblyLoadContext.Default.ResolvingUnmanagedDll += (assembly, libraryName) =>
             {
                 if (!libraryName.Equals("e_sqlite3", StringComparison.OrdinalIgnoreCase)
                     && !libraryName.Equals("libe_sqlite3", StringComparison.OrdinalIgnoreCase)
@@ -38,7 +51,7 @@ public class MigurdexDatabase
                     Path.Combine(baseDir, "api", "e_sqlite3.dll"),
                     Path.Combine(baseDir, "e_sqlite3.dll"),
                     Path.Combine(baseDir, "api", "libe_sqlite3.dylib"),
-                    Path.Combine(baseDir, "libe_sqlite3.dylib"),
+                    Path.Combine(baseDir, "libe_sqlite3.dylib")
                 };
 
                 foreach (var candidate in candidates)
@@ -49,7 +62,7 @@ public class MigurdexDatabase
                     }
 
                     if (File.Exists(candidate)
-                        && System.Runtime.InteropServices.NativeLibrary.TryLoad(candidate, out var handle))
+                        && NativeLibrary.TryLoad(candidate, out var handle))
                     {
                         return handle;
                     }
@@ -63,18 +76,8 @@ public class MigurdexDatabase
             // ignored
         }
 
-        SQLitePCL.Batteries_V2.Init();
+        Batteries_V2.Init();
     }
-
-    private static readonly JsonSerializerOptions _jsonOpts = new()
-    {
-        PropertyNameCaseInsensitive = true
-    };
-
-    private readonly string _configDirectory;
-
-    private readonly string _connectionString;
-    private readonly Lock   _lock = new();
 
     public MigurdexDatabase(string? configDirectory = null)
     {
@@ -198,6 +201,29 @@ public class MigurdexDatabase
                                       source                  TEXT NOT NULL DEFAULT '',
                                       updated_at_utc          TEXT NOT NULL
                                   );
+
+                                  CREATE TABLE IF NOT EXISTS download_jobs (
+                                      id                      TEXT PRIMARY KEY,
+                                      provider_name           TEXT NOT NULL,
+                                      anime_id                TEXT NOT NULL,
+                                      anime_title             TEXT NOT NULL,
+                                      episode_id              TEXT NOT NULL,
+                                      episode_title           TEXT NOT NULL DEFAULT '',
+                                      season                  INTEGER NOT NULL DEFAULT 1,
+                                      episode_number          REAL NOT NULL DEFAULT 1,
+                                      group_filter            TEXT NOT NULL DEFAULT '[]',
+                                      hoster_filter           TEXT NOT NULL DEFAULT '[]',
+                                      quality_filter          TEXT NOT NULL DEFAULT '[]',
+                                      format_filter           TEXT NOT NULL DEFAULT '[]',
+                                      output_directory        TEXT NOT NULL DEFAULT '',
+                                      download_subtitles      INTEGER NOT NULL DEFAULT 1,
+                                      state                   TEXT NOT NULL DEFAULT 'queued',
+                                      error                   TEXT,
+                                      media_path              TEXT,
+                                      enqueued_at_utc         TEXT NOT NULL,
+                                      updated_at_utc          TEXT NOT NULL
+                                  );
+                                  CREATE INDEX IF NOT EXISTS idx_download_jobs_state ON download_jobs(state);
                               """;
 
             cmd.ExecuteNonQuery();
@@ -1111,6 +1137,125 @@ public class MigurdexDatabase
     private static string NormalizeHost(string host)
     {
         return TurnstileDetector.NormalizeHost(host);
+    }
+
+#endregion
+
+#region Download Jobs
+
+    public void SaveDownloadJob(StoredDownloadJob job)
+    {
+        ArgumentNullException.ThrowIfNull(job);
+
+        using var connection = CreateConnection();
+        using var cmd        = connection.CreateCommand();
+
+        cmd.CommandText = """
+                              INSERT INTO download_jobs (
+                                  id, provider_name, anime_id, anime_title, episode_id, episode_title,
+                                  season, episode_number, group_filter, hoster_filter, quality_filter,
+                                  format_filter, output_directory, download_subtitles, state, error,
+                                  media_path, enqueued_at_utc, updated_at_utc)
+                              VALUES (
+                                  $id, $provider, $animeId, $animeTitle, $episodeId, $episodeTitle,
+                                  $season, $number, $groups, $hosters, $qualities,
+                                  $formats, $output, $subs, $state, $error,
+                                  $media, $enqueuedAt, $updatedAt)
+                              ON CONFLICT(id) DO UPDATE SET
+                                  state            = excluded.state,
+                                  error            = excluded.error,
+                                  media_path       = excluded.media_path,
+                                  updated_at_utc   = excluded.updated_at_utc;
+                          """;
+
+        cmd.Parameters.AddWithValue("$id", job.Id.ToString("D"));
+        cmd.Parameters.AddWithValue("$provider", job.Provider);
+        cmd.Parameters.AddWithValue("$animeId", job.AnimeId);
+        cmd.Parameters.AddWithValue("$animeTitle", job.AnimeTitle);
+        cmd.Parameters.AddWithValue("$episodeId", job.EpisodeId);
+        cmd.Parameters.AddWithValue("$episodeTitle", job.EpisodeTitle);
+        cmd.Parameters.AddWithValue("$season", job.Season);
+        cmd.Parameters.AddWithValue("$number", job.Number);
+        cmd.Parameters.AddWithValue("$groups", JsonSerializer.Serialize(job.Groups));
+        cmd.Parameters.AddWithValue("$hosters", JsonSerializer.Serialize(job.Hosters));
+        cmd.Parameters.AddWithValue("$qualities", JsonSerializer.Serialize(job.Qualities));
+        cmd.Parameters.AddWithValue("$formats", JsonSerializer.Serialize(job.Formats));
+        cmd.Parameters.AddWithValue("$output", job.OutputDirectory);
+        cmd.Parameters.AddWithValue("$subs", job.DownloadSubtitles ? 1 : 0);
+        cmd.Parameters.AddWithValue("$state", job.State);
+        cmd.Parameters.AddWithValue("$error", (object?) job.Error ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("$media", (object?) job.MediaPath ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("$enqueuedAt",
+                                    job.EnqueuedAtUtc.ToUniversalTime().ToString("o", CultureInfo.InvariantCulture));
+        cmd.Parameters.AddWithValue("$updatedAt",
+                                    job.UpdatedAtUtc.ToUniversalTime().ToString("o", CultureInfo.InvariantCulture));
+
+        cmd.ExecuteNonQuery();
+    }
+
+    public void DeleteDownloadJob(Guid id)
+    {
+        using var connection = CreateConnection();
+        using var cmd        = connection.CreateCommand();
+
+        cmd.CommandText = "DELETE FROM download_jobs WHERE id = $id";
+        cmd.Parameters.AddWithValue("$id", id.ToString("D"));
+        cmd.ExecuteNonQuery();
+    }
+
+    public List<StoredDownloadJob> LoadDownloadJobs()
+    {
+        using var connection = CreateConnection();
+        using var cmd        = connection.CreateCommand();
+
+        cmd.CommandText = """
+                              SELECT id, provider_name, anime_id, anime_title, episode_id, episode_title,
+                                     season, episode_number, group_filter, hoster_filter, quality_filter,
+                                     format_filter, output_directory, download_subtitles, state, error,
+                                     media_path, enqueued_at_utc, updated_at_utc
+                              FROM download_jobs
+                              ORDER BY enqueued_at_utc ASC
+                          """;
+
+        var       list   = new List<StoredDownloadJob>();
+        using var reader = cmd.ExecuteReader();
+        while (reader.Read())
+        {
+            list.Add(new StoredDownloadJob(
+                         Guid.Parse(reader.GetString(0)),
+                         reader.GetString(1),
+                         reader.GetString(2),
+                         reader.GetString(3),
+                         reader.GetString(4),
+                         reader.GetString(5),
+                         reader.GetInt32(6),
+                         reader.GetDouble(7),
+                         ReadStringList(reader.GetString(8)),
+                         ReadStringList(reader.GetString(9)),
+                         ReadStringList(reader.GetString(10)),
+                         ReadStringList(reader.GetString(11)),
+                         reader.GetString(12),
+                         reader.GetInt32(13) != 0,
+                         reader.GetString(14),
+                         reader.IsDBNull(15) ? null : reader.GetString(15),
+                         reader.IsDBNull(16) ? null : reader.GetString(16),
+                         DateTimeOffset.Parse(reader.GetString(17), CultureInfo.InvariantCulture),
+                         DateTimeOffset.Parse(reader.GetString(18), CultureInfo.InvariantCulture)));
+        }
+
+        return list;
+    }
+
+    private static List<string> ReadStringList(string json)
+    {
+        try
+        {
+            return JsonSerializer.Deserialize<List<string>>(json) ?? [];
+        }
+        catch (JsonException)
+        {
+            return [];
+        }
     }
 
 #endregion

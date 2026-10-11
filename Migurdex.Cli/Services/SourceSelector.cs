@@ -21,11 +21,11 @@ public static class SourceSelector
                 "Quality" => s => GetRankFromOrderList(s.Quality, config.PreferredQualityOrder),
                 "Format"  => s => GetRankFromOrderList(s.Type.ToString(), config.PreferredFormatOrder),
                 "Hoster"  => s => GetRankFromOrderList(s.Hoster, config.PreferredHosterOrder),
-                "Group"   => s => s.Group ?? "",
+                "Group"   => s => GetRankFromOrderList(s.Group, config.PreferredGroupOrder),
                 _         => s => 0
             };
 
-            var descending = criterion != "Group";
+            const bool descending = true;
 
             if (ordered == null)
             {

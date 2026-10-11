@@ -70,6 +70,12 @@ public class SettingsView : BaseView
             },
             new()
             {
+                Id          = "DefaultEpisodeAction",
+                Label       = "Bölüm Tuşu",
+                ValueGetter = c => EpisodeActionLabel(c.DefaultEpisodeAction)
+            },
+            new()
+            {
                 IsSection = true,
                 Label     = "İndirme"
             },
@@ -84,6 +90,18 @@ public class SettingsView : BaseView
                 Id          = "DownloadTimeout",
                 Label       = "İndirme Bekleme",
                 ValueGetter = c => $"{c.DownloadAutoSelectTimeoutSeconds:F1} sn"
+            },
+            new()
+            {
+                Id          = "DownloadMaxSpeed",
+                Label       = "Maks Hız",
+                ValueGetter = c => c.MaxDownloadSpeedKbps <= 0 ? "Sınırsız" : $"{c.MaxDownloadSpeedKbps} KB/sn"
+            },
+            new()
+            {
+                Id          = "DownloadMaxRetries",
+                Label       = "Tekrar Deneme",
+                ValueGetter = c => $"{c.DownloadMaxRetries}x"
             },
             new()
             {
@@ -108,6 +126,30 @@ public class SettingsView : BaseView
                 Id          = "DownloadDirectory",
                 Label       = "İndirme Dizini",
                 ValueGetter = c => c.DownloadDirectory
+            },
+            new()
+            {
+                Id          = "BatchSourceSelection",
+                Label       = "Toplu Kaynak Seçimi",
+                ValueGetter = c => BatchSourceLabel(c.BatchSourceSelection)
+            },
+            new()
+            {
+                Id          = "MaxConcurrentEpisodes",
+                Label       = "Eşzamanlı Bölüm",
+                ValueGetter = c => $"{c.MaxConcurrentEpisodes} bölüm"
+            },
+            new()
+            {
+                Id          = "ConnectionsPerFile",
+                Label       = "Dosya Başı Parça",
+                ValueGetter = c => $"{c.ConnectionsPerFile} parça"
+            },
+            new()
+            {
+                Id          = "MaxSocketsPerHoster",
+                Label       = "Hoster Soket Limiti",
+                ValueGetter = c => $"{c.MaxSocketsPerHoster} soket"
             },
             new()
             {
@@ -287,7 +329,10 @@ public class SettingsView : BaseView
                              .StartAsync(async ctx =>
                              {
                                  var last = string.Empty;
-                                 while (settingsRunning && pendingSelection is null && !pendingEscape && !TuiConsole.IsAppExitRequested)
+                                 while (settingsRunning
+                                        && pendingSelection is null
+                                        && !pendingEscape
+                                        && !TuiConsole.IsAppExitRequested)
                                  {
                                      var config = _configService.Config;
                                      var fp     = cursorIndex + "|" + SnapshotConfig();
@@ -363,6 +408,41 @@ public class SettingsView : BaseView
     private static string NormalizeRpcTitleMode(string? mode)
     {
         return _rpcTitleModes.Contains(mode) ? mode! : "İçerik";
+    }
+
+    private static string EpisodeActionLabel(string? action)
+    {
+        if (string.Equals(action, "Play", StringComparison.OrdinalIgnoreCase))
+        {
+            return "Doğrudan Oynat";
+        }
+
+        if (string.Equals(action, "Download", StringComparison.OrdinalIgnoreCase))
+        {
+            return "Doğrudan İndir";
+        }
+
+        return "Her Zaman Sor";
+    }
+
+    private static string NextEpisodeAction(string? action)
+    {
+        if (string.Equals(action, "Ask", StringComparison.OrdinalIgnoreCase))
+        {
+            return "Play";
+        }
+
+        return string.Equals(action, "Play", StringComparison.OrdinalIgnoreCase) ? "Download" : "Ask";
+    }
+
+    private static string BatchSourceLabel(string? selection)
+    {
+        return string.Equals(selection, "Auto", StringComparison.OrdinalIgnoreCase) ? "Otomatik" : "Her Zaman Sor";
+    }
+
+    private static string NextBatchSource(string? selection)
+    {
+        return string.Equals(selection, "Auto", StringComparison.OrdinalIgnoreCase) ? "Ask" : "Auto";
     }
 
     private static string ChannelLabel(string? channel)
@@ -657,6 +737,9 @@ public class SettingsView : BaseView
             case "PlayerLogs":
                 config.ShowPlayerLogs = !config.ShowPlayerLogs;
                 break;
+            case "DefaultEpisodeAction":
+                config.DefaultEpisodeAction = NextEpisodeAction(config.DefaultEpisodeAction);
+                break;
             case "AutoDownload":
                 config.AutoDownloadBestSource = !config.AutoDownloadBestSource;
                 break;
@@ -674,6 +757,18 @@ public class SettingsView : BaseView
                     config.DownloadAutoSelectTimeoutSeconds = 120.0;
                 }
 
+                break;
+            case "DownloadMaxSpeed":
+                config.MaxDownloadSpeedKbps = Math.Clamp(
+                    Theme.Ask("Maks hız (KB/sn, 0=sınırsız):", config.MaxDownloadSpeedKbps),
+                    0L,
+                    1_000_000L);
+                break;
+            case "DownloadMaxRetries":
+                config.DownloadMaxRetries = Math.Clamp(
+                    Theme.Ask("Tekrar deneme sayısı (1-10):", config.DownloadMaxRetries),
+                    1,
+                    10);
                 break;
             case "DownloadSubtitles":
                 config.DownloadSubtitles = !config.DownloadSubtitles;
@@ -694,11 +789,32 @@ public class SettingsView : BaseView
 
                 config.DownloadDirectory = downloadDir;
                 break;
+            case "BatchSourceSelection":
+                config.BatchSourceSelection = NextBatchSource(config.BatchSourceSelection);
+                break;
+            case "MaxConcurrentEpisodes":
+                config.MaxConcurrentEpisodes = Math.Clamp(
+                    Theme.Ask("Eşzamanlı bölüm sayısı (1-5):", config.MaxConcurrentEpisodes),
+                    1,
+                    5);
+                break;
+            case "ConnectionsPerFile":
+                config.ConnectionsPerFile = Math.Clamp(
+                    Theme.Ask("Dosya başına parça sayısı (1-8):", config.ConnectionsPerFile),
+                    1,
+                    8);
+                break;
+            case "MaxSocketsPerHoster":
+                config.MaxSocketsPerHoster = Math.Clamp(
+                    Theme.Ask("Hoster başına soket limiti (1-32):", config.MaxSocketsPerHoster),
+                    1,
+                    32);
+                break;
             case "UpdateCheck":
                 config.UpdateCheckEnabled = !config.UpdateCheckEnabled;
                 break;
             case "UpdateChannel":
-                config.UpdateChannel = NextChannel(config.UpdateChannel);
+                config.UpdateChannel  = NextChannel(config.UpdateChannel);
                 config.SkippedVersion = null;
                 break;
             case "CheckUpdate":
@@ -1276,10 +1392,21 @@ public class SettingsView : BaseView
         var bold = isSelected ? "bold " : "";
         var color = id switch
         {
-            "AutoPlay" or "Rpc" or "Incognito" or "PlayerLogs" or "UpdateCheck"
-                or "AutoDownload" or "DownloadSubtitles" or "DownloadResume" or "DownloadOverwrite" =>
+            "AutoPlay"
+                or "Rpc"
+                or "Incognito"
+                or "PlayerLogs"
+                or "UpdateCheck"
+                or "AutoDownload"
+                or "DownloadSubtitles"
+                or "DownloadResume"
+                or "DownloadOverwrite" =>
                 value == "Açık" ? "green" : "grey",
-            "UpdateChannel" => value == "Pre-release" ? "yellow" : value == "Nightly" ? "blue" : "green",
+            "UpdateChannel" => value == "Pre-release"
+                                   ? "yellow"
+                                   : value == "Nightly"
+                                       ? "blue"
+                                       : "green",
             "AniList" or "MyAnimeList" => value.Contains("Süresi dolmuş")
                                               ? "red"
                                               : value.StartsWith("Bağlı (yenilenecek)")
