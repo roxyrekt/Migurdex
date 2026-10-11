@@ -269,6 +269,8 @@ public class MigurdexDatabase
                             """;
                             foreach (var entry in entries)
                             {
+                                if (entry is null)
+                                    continue;
                                 cmd.Parameters.Clear();
                                 BindWatchHistory(cmd, entry);
                                 cmd.ExecuteNonQuery();
@@ -309,6 +311,8 @@ public class MigurdexDatabase
                             """;
                             foreach (var fav in favs)
                             {
+                                if (fav is null)
+                                    continue;
                                 cmd.Parameters.Clear();
                                 BindFavorite(cmd, fav);
                                 cmd.ExecuteNonQuery();
@@ -512,10 +516,10 @@ public class MigurdexDatabase
 
     private static void BindWatchHistory(SqliteCommand cmd, WatchHistoryEntry entry)
     {
-        cmd.Parameters.AddWithValue("$provider", entry.ProviderName.Trim());
-        cmd.Parameters.AddWithValue("$animeId", entry.AnimeId.Trim());
-        cmd.Parameters.AddWithValue("$episodeId", entry.EpisodeId.Trim());
-        cmd.Parameters.AddWithValue("$animeTitle", entry.AnimeTitle.Trim());
+        cmd.Parameters.AddWithValue("$provider", entry.ProviderName?.Trim() ?? string.Empty);
+        cmd.Parameters.AddWithValue("$animeId", entry.AnimeId?.Trim() ?? string.Empty);
+        cmd.Parameters.AddWithValue("$episodeId", entry.EpisodeId?.Trim() ?? string.Empty);
+        cmd.Parameters.AddWithValue("$animeTitle", entry.AnimeTitle?.Trim() ?? string.Empty);
         cmd.Parameters.AddWithValue("$episodeTitle",
                                     string.IsNullOrWhiteSpace(entry.EpisodeTitle)
                                         ? DBNull.Value
@@ -636,9 +640,9 @@ public class MigurdexDatabase
 
     private static void BindFavorite(SqliteCommand cmd, FavoriteEntry entry)
     {
-        cmd.Parameters.AddWithValue("$provider", entry.ProviderName.Trim());
-        cmd.Parameters.AddWithValue("$animeId", entry.AnimeId.Trim());
-        cmd.Parameters.AddWithValue("$animeTitle", entry.AnimeTitle.Trim());
+        cmd.Parameters.AddWithValue("$provider", entry.ProviderName?.Trim() ?? string.Empty);
+        cmd.Parameters.AddWithValue("$animeId", entry.AnimeId?.Trim() ?? string.Empty);
+        cmd.Parameters.AddWithValue("$animeTitle", entry.AnimeTitle?.Trim() ?? string.Empty);
         cmd.Parameters.AddWithValue("$posterUrl",
                                     string.IsNullOrWhiteSpace(entry.PosterUrl) ? DBNull.Value : entry.PosterUrl.Trim());
         cmd.Parameters.AddWithValue("$addedAt",
