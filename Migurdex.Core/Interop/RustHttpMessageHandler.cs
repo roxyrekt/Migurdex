@@ -39,70 +39,87 @@ public class RustHttpMessageHandler : HttpMessageHandler
             return;
         }
 
+        HttpResponseMessage? httpResponse = null;
+        RustNativeStream? ownedStream = null;
         try
         {
             if (response.ErrorPtr != null && response.ErrorLen > 0)
             {
                 var err = Encoding.UTF8.GetString(
                     new ReadOnlySpan<byte>(response.ErrorPtr, (int) response.ErrorLen));
-                tcs.SetException(new HttpRequestException($"Rust side error: {err}"));
                 RustBridge.FreeBuffer(response.ErrorPtr, response.ErrorLen);
+                tcs.TrySetException(new HttpRequestException($"Rust side error: {err}"));
 
                 return;
             }
 
-            var httpResponse = new HttpResponseMessage((HttpStatusCode) response.Status);
-
             if (response.BodyPtr != null && response.BodyLen > 0)
             {
-                var stream =
-                    new RustNativeStream(response.BodyPtr, response.BodyLen, &RustBridge.FreeBufferUnmanaged);
+                try
+                {
+                    ownedStream = new RustNativeStream(response.BodyPtr, response.BodyLen, &RustBridge.FreeBufferUnmanaged);
+                }
+                catch
+                {
+                    RustBridge.FreeBuffer(response.BodyPtr, response.BodyLen);
+                    throw;
+                }
+            }
 
-                httpResponse.Content = new StreamContent(stream);
+            List<(string Key, string Value)>? parsedHeaders = null;
+            if (response.Headers != null && response.HeadersLen > 0)
+            {
+                try
+                {
+                    parsedHeaders = [];
+                    var headersSpan = new ReadOnlySpan<FfiHeader>(response.Headers, (int) response.HeadersLen);
+                    for (var i = 0; i < headersSpan.Length; i++)
+                    {
+                        var h = headersSpan[i];
+                        parsedHeaders.Add((
+                            Encoding.UTF8.GetString(new ReadOnlySpan<byte>(h.KeyPtr, (int) h.KeyLen)),
+                            Encoding.UTF8.GetString(new ReadOnlySpan<byte>(h.ValuePtr, (int) h.ValueLen))));
+                    }
+                }
+                finally
+                {
+                    RustBridge.FreeHeaders(response.Headers, response.HeadersLen);
+                }
+            }
+
+            httpResponse = new HttpResponseMessage((HttpStatusCode) response.Status);
+            if (ownedStream is not null)
+            {
+                httpResponse.Content = new StreamContent(ownedStream);
+                ownedStream = null;
             }
             else
             {
                 httpResponse.Content = new EmptyContent();
             }
 
-            if (response.Headers != null && response.HeadersLen > 0)
+            if (parsedHeaders is not null)
             {
-                var headersSpan = new ReadOnlySpan<FfiHeader>(response.Headers, (int) response.HeadersLen);
-                for (var i = 0; i < headersSpan.Length; i++)
+                foreach (var (key, val) in parsedHeaders)
                 {
-                    var h   = headersSpan[i];
-                    var key = Encoding.UTF8.GetString(new ReadOnlySpan<byte>(h.KeyPtr, (int) h.KeyLen));
-                    var val = Encoding.UTF8.GetString(new ReadOnlySpan<byte>(h.ValuePtr, (int) h.ValueLen));
-
                     if (!httpResponse.Headers.TryAddWithoutValidation(key, val))
                     {
                         httpResponse.Content.Headers.TryAddWithoutValidation(key, val);
                     }
                 }
-
-                RustBridge.FreeHeaders(response.Headers, response.HeadersLen);
             }
 
-            tcs.SetResult(httpResponse);
+            if (!tcs.TrySetResult(httpResponse))
+            {
+                httpResponse.Dispose();
+            }
+            httpResponse = null;
         }
         catch (Exception ex)
         {
-            if (response.ErrorPtr != null && response.ErrorLen > 0)
-            {
-                RustBridge.FreeBuffer(response.ErrorPtr, response.ErrorLen);
-            }
-
-            if (response.Headers != null && response.HeadersLen > 0)
-            {
-                RustBridge.FreeHeaders(response.Headers, response.HeadersLen);
-            }
-
-            if (response.BodyPtr != null && response.BodyLen > 0)
-            {
-                RustBridge.FreeBuffer(response.BodyPtr, response.BodyLen);
-            }
-
-            tcs.SetException(ex);
+            httpResponse?.Dispose();
+            ownedStream?.Dispose();
+            tcs.TrySetException(ex);
         }
     }
 

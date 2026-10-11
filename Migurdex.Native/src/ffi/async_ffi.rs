@@ -131,7 +131,7 @@ pub unsafe extern "C" fn rust_send_async(
                             let (v_ptr, v_len) = to_raw_bytes(v.into_bytes());
                             if k_ptr.is_null() && k_len == 0 {
                                 if !v_ptr.is_null() {
-                                    free_raw_bytes(v_ptr, v_len);
+                                    unsafe { free_raw_bytes(v_ptr, v_len) };
                                 }
                                 continue;
                             }

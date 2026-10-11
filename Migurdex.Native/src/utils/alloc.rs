@@ -51,7 +51,7 @@ pub unsafe extern "C" fn rust_free_headers(ptr: *mut FfiHeader, len: usize) {
             }
         }
     }
-    let _ = unsafe { Vec::from_raw_parts(ptr, len, len) };
+    let _ = unsafe { Box::from_raw(std::slice::from_raw_parts_mut(ptr, len)) };
 }
 
 pub fn to_raw_bytes(vec: Vec<u8>) -> (*mut u8, usize) {
@@ -73,7 +73,7 @@ pub fn to_raw_bytes(vec: Vec<u8>) -> (*mut u8, usize) {
     }
 }
 
-pub fn free_raw_bytes(ptr: *mut u8, len: usize) {
+pub unsafe fn free_raw_bytes(ptr: *mut u8, len: usize) {
     if ptr.is_null() || len == 0 {
         return;
     }
@@ -82,12 +82,11 @@ pub fn free_raw_bytes(ptr: *mut u8, len: usize) {
     }
 }
 
-pub fn to_raw_layout<T>(mut vec: Vec<T>) -> (*mut T, usize) {
-    let len = vec.len();
+pub fn to_raw_layout<T>(vec: Vec<T>) -> (*mut T, usize) {
+    let slice = vec.into_boxed_slice();
+    let len = slice.len();
     if len == 0 {
         return (std::ptr::null_mut(), 0);
     }
-    let ptr = vec.as_mut_ptr();
-    std::mem::forget(vec);
-    (ptr, len)
+    (Box::into_raw(slice) as *mut T, len)
 }
