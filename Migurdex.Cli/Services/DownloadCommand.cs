@@ -15,6 +15,7 @@ public sealed class DownloadCommandOptions
     public string?              Group           { get; set; }
     public string?              OutputDirectory { get; set; }
     public double?              Episode         { get; set; }
+    public List<double>?        Episodes        { get; set; }
     public int?                 Season          { get; set; }
     public DownloadSourceFormat Format          { get; set; } = DownloadSourceFormat.Auto;
     public bool?                Subtitles       { get; set; }
@@ -53,18 +54,14 @@ public static class DownloadCommand
             else if (Is(argument, "-e", "--episode"))
             {
                 if (!TryReadValue(args, ref index, argument, out var value, out error)
-                    || !double.TryParse(value,
-                                        NumberStyles.Float,
-                                        CultureInfo.InvariantCulture,
-                                        out var episode)
-                    || !double.IsFinite(episode)
-                    || episode <= 0)
+                    || !TryParseEpisodes(value, out var episodes))
                 {
-                    error ??= $"{argument} için geçerli bir bölüm numarası gerekli.";
+                    error ??= $"{argument} için geçerli bir bölüm numarası gerekli (örn. 12, 1-12, 1,3,5).";
                     return false;
                 }
 
-                options.Episode = episode;
+                options.Episodes = episodes;
+                options.Episode = episodes[0];
             }
             else if (Is(argument, "-s", "--season"))
             {
@@ -289,6 +286,11 @@ public static class DownloadCommand
         }
 
         var details = detailsResult.Data;
+        if (options.Episodes is { Count: > 1 })
+        {
+            return await ExecuteBatchAsync(options, services, api, config, picked, details, cancellationToken);
+        }
+
         var episode = MediaSelection.PickEpisode(details, options.Season, options.Episode);
         if (episode is null)
         {
@@ -497,7 +499,7 @@ public static class DownloadCommand
         Console.WriteLine(
             "                     [--format auto|mp4|hls] [--subs|--no-subs] [--force] [--no-resume] [--debug] [--json]");
         Console.WriteLine();
-        Console.WriteLine("  -e, --episode <n>       İndirilecek bölüm. Verilmezse deterministik ilk bölüm seçilir.");
+        Console.WriteLine("  -e, --episode <n>       Bölüm: 12, 1-12 veya 1,3,5. Verilmezse deterministik ilk bölüm.");
         Console.WriteLine("  -s, --season <n>        Sezon filtresi.");
         Console.WriteLine("  -p, --provider <ad>     Sağlayıcıyı doğrular ve aramayı sınırlar.");
         Console.WriteLine("  -g, --group <ad>        Fansub grubunu doğrular.");
@@ -552,6 +554,72 @@ public static class DownloadCommand
         return 2;
     }
 
+    private static async Task<int> ExecuteBatchAsync(DownloadCommandOptions options,
+        IServiceProvider services, IApiClientService api, CliConfig config,
+        SearchResult picked, AnimeDetails details, CancellationToken ct)
+    {
+        var downloadService = services.GetRequiredService<IDownloadService>();
+        var outputDirectory = string.IsNullOrWhiteSpace(options.OutputDirectory)
+            ? config.DownloadDirectory : options.OutputDirectory;
+        var downloadSubtitles = options.Subtitles ?? config.DownloadSubtitles;
+        var overwrite = options.Force || config.DownloadOverwrite;
+        var resume = config.DownloadResume && !options.NoResume;
+        var results = new List<object>();
+        var failed = 0;
+        foreach (var epNum in options.Episodes!)
+        {
+            ct.ThrowIfCancellationRequested();
+            var episode = MediaSelection.PickEpisode(details, options.Season, epNum);
+            if (episode is null)
+            {
+                failed++;
+                await Console.Error.WriteLineAsync($"Bölüm {epNum} bulunamadı.").ConfigureAwait(false);
+                continue;
+            }
+            string? group = null;
+            if (!string.IsNullOrWhiteSpace(options.Group))
+            {
+                var gr = await api.GetEpisodeGroupsAsync(picked.ProviderName, episode.Id, ct);
+                if (!gr.IsSuccess || !MediaSelection.TryResolveGroup(gr.Data, options.Group, out group))
+                {
+                    failed++;
+                    continue;
+                }
+            }
+            var resolved = await DownloadCandidateResolver.ResolveAsync(api, picked.ProviderName,
+                episode.Id, group, options.Format, config, config.DownloadAutoSelectTimeoutSeconds, ct);
+            if (resolved.Error is not null || resolved.Candidates.Count == 0)
+            {
+                failed++;
+                continue;
+            }
+            var done = false;
+            foreach (var source in resolved.Candidates)
+            {
+                ct.ThrowIfCancellationRequested();
+                var progress = new ConsoleDownloadProgress();
+                var r = await downloadService.DownloadAsync(new DownloadRequest
+                {
+                    Source = source, OutputDirectory = outputDirectory, AnimeTitle = details.Title,
+                    EpisodeTitle = episode.Title, Season = episode.Season ?? 1, EpisodeNumber = episode.Number,
+                    Overwrite = overwrite, Resume = resume, DownloadSubtitles = downloadSubtitles, Progress = progress
+                }, ct).ConfigureAwait(false);
+                if (r.Success)
+                {
+                    results.Add(new { episode = episode.Number, mediaPath = r.MediaPath });
+                    await Console.Out.WriteLineAsync($"İndirildi ({episode.Number}): {r.MediaPath}").ConfigureAwait(false);
+                    done = true;
+                    break;
+                }
+            }
+            if (!done)
+                failed++;
+        }
+        if (options.Json)
+            WriteJson(new { success = failed == 0, completed = results.Count, failed, results });
+        return failed == 0 ? 0 : 1;
+    }
+
     private static bool TryReadValue(string[] args,
         ref int                           index,
         string                            option,
@@ -594,6 +662,43 @@ public static class DownloadCommand
 
         format = DownloadSourceFormat.Auto;
         return false;
+    }
+
+    private static bool TryParseEpisodes(string value, out List<double> episodes)
+    {
+        episodes = [];
+        foreach (var part in value.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            var dash = part.IndexOf('-');
+            if (dash >= 0)
+            {
+                var a = part[..dash].Trim();
+                var b = part[(dash + 1)..].Trim();
+                if (!double.TryParse(a, NumberStyles.Float, CultureInfo.InvariantCulture, out var from)
+                    || !double.TryParse(b, NumberStyles.Float, CultureInfo.InvariantCulture, out var to)
+                    || !double.IsFinite(from) || !double.IsFinite(to) || from <= 0 || to < from || to - from > 500)
+                    return false;
+                for (var e = from; e <= to; e += e % 1 == 0 && to % 1 == 0 ? 1 : 0.5)
+                {
+                    if (!episodes.Contains(e))
+                        episodes.Add(e);
+                    if (episodes.Count > 500)
+                        return false;
+                }
+            }
+            else if (double.TryParse(part, NumberStyles.Float, CultureInfo.InvariantCulture, out var single)
+                && double.IsFinite(single) && single > 0)
+            {
+                if (!episodes.Contains(single))
+                    episodes.Add(single);
+            }
+            else
+            {
+                return false;
+            }
+        }
+        episodes.Sort();
+        return episodes.Count > 0 && episodes.Count <= 500;
     }
 
     private static bool Is(string value, params string[] names)

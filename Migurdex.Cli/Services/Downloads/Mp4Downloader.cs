@@ -1,5 +1,6 @@
 using Migurdex.Shared.Enums;
 using Migurdex.Shared.Models;
+using System.Buffers;
 using System.Diagnostics;
 using System.Globalization;
 using System.Net;
@@ -344,7 +345,9 @@ public sealed class Mp4Downloader : IMp4Downloader
                 lastKnownTotal   = total;
                 Report(progress, DownloadStage.Downloading, downloaded, total);
 
-                var buffer         = new byte[BufferSize];
+                var buffer = ArrayPool<byte>.Shared.Rent(BufferSize);
+                try
+                {
                 var lastReportTime = Stopwatch.GetTimestamp();
                 while (true)
                 {
@@ -403,6 +406,11 @@ public sealed class Mp4Downloader : IMp4Downloader
                 Report(progress, DownloadStage.Completed, downloaded, total);
 
                 return new MediaDownloadResult(finalPath, downloaded, total, append);
+                }
+                finally
+                {
+                    ArrayPool<byte>.Shared.Return(buffer);
+                }
             }
 
             throw new DownloadException("Video kaynağı güvenli biçimde yeniden başlatılamadı.");
@@ -1078,7 +1086,9 @@ public sealed class Mp4Downloader : IMp4Downloader
             throw new DownloadException("Video parçası indirme sırasında değişti.");
         }
 
-        var buffer = new byte[BufferSize];
+        var buffer = ArrayPool<byte>.Shared.Rent(BufferSize);
+        try
+        {
         var remaining = expectedRemaining;
         while (remaining > 0)
         {
@@ -1108,6 +1118,11 @@ public sealed class Mp4Downloader : IMp4Downloader
         {
             throw new DownloadException("Video sunucusu aralık uzunluğu tutarsız.");
         }
+        }
+        finally
+        {
+            ArrayPool<byte>.Shared.Return(buffer);
+        }
     }
 
     private static async Task MergeSegmentsAsync(string partPath, int segmentCount, CancellationToken cancellationToken)
@@ -1120,7 +1135,9 @@ public sealed class Mp4Downloader : IMp4Downloader
                                                     FileShare.None,
                                                     BufferSize,
                                                     FileOptions.Asynchronous | FileOptions.SequentialScan);
-            var buffer = new byte[BufferSize];
+            var buffer = ArrayPool<byte>.Shared.Rent(BufferSize);
+            try
+            {
             for (var i = 0; i < segmentCount; i++)
             {
                 cancellationToken.ThrowIfCancellationRequested();
@@ -1139,6 +1156,11 @@ public sealed class Mp4Downloader : IMp4Downloader
             }
 
             await output.FlushAsync(cancellationToken).ConfigureAwait(false);
+            }
+            finally
+            {
+                ArrayPool<byte>.Shared.Return(buffer);
+            }
         }
         catch (OperationCanceledException)
         {
