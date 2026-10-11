@@ -177,7 +177,8 @@ public class RustHttpMessageHandler : HttpMessageHandler
             fixed (byte* emuPtr = emuBytes)
             {
                 var ffiHeaders = new FfiHeader[requestHeaders.Count];
-                var handles    = new GCHandle[requestHeaders.Count * 2];
+                var pinCache = new Dictionary<byte[], GCHandle>(ReferenceEqualityComparer.Instance);
+                var handles = new List<GCHandle>(requestHeaders.Count * 2);
 
                 try
                 {
@@ -186,11 +187,19 @@ public class RustHttpMessageHandler : HttpMessageHandler
                         var hKey = requestHeaders[i].Key;
                         var hVal = requestHeaders[i].Val;
 
-                        var pinKey = GCHandle.Alloc(hKey, GCHandleType.Pinned);
-                        var pinVal = GCHandle.Alloc(hVal, GCHandleType.Pinned);
+                        if (!pinCache.TryGetValue(hKey, out var pinKey))
+                        {
+                            pinKey = GCHandle.Alloc(hKey, GCHandleType.Pinned);
+                            pinCache[hKey] = pinKey;
+                            handles.Add(pinKey);
+                        }
 
-                        handles[i * 2]       = pinKey;
-                        handles[(i * 2) + 1] = pinVal;
+                        if (!pinCache.TryGetValue(hVal, out var pinVal))
+                        {
+                            pinVal = GCHandle.Alloc(hVal, GCHandleType.Pinned);
+                            pinCache[hVal] = pinVal;
+                            handles.Add(pinVal);
+                        }
 
                         ffiHeaders[i] = new FfiHeader
                         {
@@ -222,7 +231,7 @@ public class RustHttpMessageHandler : HttpMessageHandler
                             (nuint) urlBytes.Length,
                             methodPtr,
                             (nuint) methodBytes.Length,
-                            ffiHeadersPtr,
+                            ffiHeaders.Length > 0 ? ffiHeadersPtr : (FfiHeader*) 0,
                             (nuint) ffiHeaders.Length,
                             bodyBytes.Length > 0 ? bodyPtr : (byte*) 0,
                             (nuint) bodyBytes.Length,

@@ -1,15 +1,21 @@
 use std::ffi::CStr;
 use std::os::raw::c_char;
+use std::sync::LazyLock;
 use regex::Regex;
 use super::alloc::to_raw_bytes;
 use crate::ffi::types::NativeBuffer;
 
-pub fn unpack_packed(html: &str) -> Option<String> {
-    let re = Regex::new(
-        r#"eval\s*\(\s*function\s*\(\s*p\s*,\s*a\s*,\s*c\s*,\s*k\s*,\s*e\s*,\s*d\s*\).+?\}\s*\(\s*['"](.*?)['"]\s*,\s*(\d+)\s*,\s*(\d+)\s*,\s*['"](.*?)['"]\s*\.split\(['"]\|['"]\)"#
-    ).ok()?;
+static PACKED_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(
+        r#"eval\s*\(\s*function\s*\(\s*p\s*,\s*a\s*,\s*c\s*,\s*k\s*,\s*e\s*,\s*d\s*\).+?\}\s*\(\s*['"](.*?)['"]\s*,\s*(\d+)\s*,\s*(\d+)\s*,\s*['"](.*?)['"]\s*\.split\(['"]\|['"]\)"#,
+    ).expect("packed regex must compile")
+});
 
-    let caps = re.captures(html)?;
+static WORD_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"\b[0-9a-zA-Z]+\b").expect("word regex must compile"));
+
+pub fn unpack_packed(html: &str) -> Option<String> {
+    let caps = PACKED_RE.captures(html)?;
     let packed = caps.get(1)?.as_str();
     let radix: u32 = caps.get(2)?.as_str().parse().ok()?;
     let words_str = caps.get(4)?.as_str();
@@ -19,12 +25,7 @@ pub fn unpack_packed(html: &str) -> Option<String> {
 }
 
 pub fn unpack(packed: &str, radix: u32, words: &[&str]) -> String {
-    let re = match Regex::new(r"\b[0-9a-zA-Z]+\b") {
-        Ok(r) => r,
-        Err(_) => return packed.to_string(),
-    };
-
-    re.replace_all(packed, |caps: &regex::Captures| {
+    WORD_RE.replace_all(packed, |caps: &regex::Captures| {
         let value = caps.get(0).unwrap().as_str();
         let index = unbase(value, radix);
         if index < words.len() && !words[index].is_empty() {

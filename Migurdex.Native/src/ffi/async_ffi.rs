@@ -5,7 +5,7 @@ use crate::ffi::types::{FfiCallback, FfiHeader, FfiRequestOptions, FfiResponse};
 use crate::http::client::{get_client_with_options, ClientKey};
 use crate::http::emulation::parse_emulation;
 use crate::http::rate_limit::RUNTIME;
-use crate::utils::alloc::{to_raw_bytes, to_raw_layout};
+use crate::utils::alloc::{free_raw_bytes, to_raw_bytes, to_raw_layout};
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn rust_send_async(
@@ -124,14 +124,22 @@ pub unsafe extern "C" fn rust_send_async(
                 match resp.bytes().await {
                     Ok(bytes) => {
                         let (b_ptr, b_len) = to_raw_bytes(bytes.to_vec());
-
-                        let mut ffi_headers = Vec::new();
-                        for (k, v) in &headers_data {
+                        // Header bytes owned by Rust, freed in rust_free_headers.
+                        let mut ffi_headers = Vec::with_capacity(headers_data.len());
+                        for (k, v) in headers_data {
+                            let (k_ptr, k_len) = to_raw_bytes(k.into_bytes());
+                            let (v_ptr, v_len) = to_raw_bytes(v.into_bytes());
+                            if k_ptr.is_null() && k_len == 0 {
+                                if !v_ptr.is_null() {
+                                    free_raw_bytes(v_ptr, v_len);
+                                }
+                                continue;
+                            }
                             ffi_headers.push(FfiHeader {
-                                key_ptr: k.as_ptr(),
-                                key_len: k.len(),
-                                val_ptr: v.as_ptr(),
-                                val_len: v.len(),
+                                key_ptr: k_ptr as *const u8,
+                                key_len: k_len,
+                                val_ptr: v_ptr as *const u8,
+                                val_len: v_len,
                             });
                         }
 
