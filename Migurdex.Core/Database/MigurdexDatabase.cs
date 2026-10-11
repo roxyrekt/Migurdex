@@ -106,7 +106,7 @@ public class MigurdexDatabase
         connection.Open();
 
         using var cmd = connection.CreateCommand();
-        cmd.CommandText = "PRAGMA busy_timeout = 5000; PRAGMA foreign_keys = ON;";
+        cmd.CommandText = "PRAGMA busy_timeout = 5000; PRAGMA synchronous = NORMAL; PRAGMA foreign_keys = ON;";
         cmd.ExecuteNonQuery();
 
         return connection;
@@ -119,6 +119,8 @@ public class MigurdexDatabase
             using var connection = CreateConnection();
             using var cmd        = connection.CreateCommand();
 
+            cmd.CommandText = "PRAGMA journal_mode = WAL;";
+            cmd.ExecuteNonQuery();
             cmd.CommandText = """
                                   CREATE TABLE IF NOT EXISTS watch_history (
                                       provider_name           TEXT NOT NULL,
@@ -199,8 +201,6 @@ public class MigurdexDatabase
                                   );
                               """;
 
-            cmd.ExecuteNonQuery();
-            cmd.CommandText = "PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL;";
             cmd.ExecuteNonQuery();
             RestrictDbFilePermissions();
         }
