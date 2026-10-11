@@ -565,7 +565,29 @@ public static class DownloadCommand
         var overwrite = options.Force || config.DownloadOverwrite;
         var resume = config.DownloadResume && !options.NoResume;
         var results = new List<object>();
+        var errors = new List<object>();
         var failed = 0;
+        if (options.Debug)
+        {
+            if (options.Json)
+            {
+                WriteJson(new
+                {
+                    success = true,
+                    dryRun = true,
+                    provider = picked.ProviderName,
+                    animeTitle = details.Title,
+                    episodes = options.Episodes
+                });
+            }
+            else
+            {
+                foreach (var epNum in options.Episodes!)
+                    Console.WriteLine($"Bölüm {epNum} (dry-run)");
+                Console.WriteLine("Kaynak çözüldü; --debug nedeniyle indirme başlatılmadı.");
+            }
+            return 0;
+        }
         foreach (var epNum in options.Episodes!)
         {
             ct.ThrowIfCancellationRequested();
@@ -573,6 +595,7 @@ public static class DownloadCommand
             if (episode is null)
             {
                 failed++;
+                errors.Add(new { episode = epNum, error = "Bölüm bulunamadı." });
                 await Console.Error.WriteLineAsync($"Bölüm {epNum} bulunamadı.").ConfigureAwait(false);
                 continue;
             }
@@ -583,6 +606,9 @@ public static class DownloadCommand
                 if (!gr.IsSuccess || !MediaSelection.TryResolveGroup(gr.Data, options.Group, out group))
                 {
                     failed++;
+                    var msg = gr.IsSuccess ? $"Grup bulunamadı: {options.Group}." : (gr.Error ?? "Fansub grupları alınamadı.");
+                    errors.Add(new { episode = epNum, error = msg });
+                    await Console.Error.WriteLineAsync($"Bölüm {epNum}: {msg}").ConfigureAwait(false);
                     continue;
                 }
             }
@@ -591,9 +617,13 @@ public static class DownloadCommand
             if (resolved.Error is not null || resolved.Candidates.Count == 0)
             {
                 failed++;
+                var msg = resolved.Error ?? "Uygun kaynak bulunamadı.";
+                errors.Add(new { episode = epNum, error = msg });
+                await Console.Error.WriteLineAsync($"Bölüm {epNum}: {msg}").ConfigureAwait(false);
                 continue;
             }
             var done = false;
+            string? lastError = null;
             foreach (var source in resolved.Candidates)
             {
                 ct.ThrowIfCancellationRequested();
@@ -606,17 +636,26 @@ public static class DownloadCommand
                 }, ct).ConfigureAwait(false);
                 if (r.Success)
                 {
-                    results.Add(new { episode = episode.Number, mediaPath = r.MediaPath });
-                    await Console.Out.WriteLineAsync($"İndirildi ({episode.Number}): {r.MediaPath}").ConfigureAwait(false);
+                    results.Add(new { episode = episode.Number, mediaPath = r.MediaPath, subtitlePaths = r.SubtitlePaths, warnings = r.Warnings });
+                    if (options.Json)
+                        await Console.Error.WriteLineAsync($"İndirildi ({episode.Number}): {r.MediaPath}").ConfigureAwait(false);
+                    else
+                        await Console.Out.WriteLineAsync($"İndirildi ({episode.Number}): {r.MediaPath}").ConfigureAwait(false);
                     done = true;
                     break;
                 }
+                lastError = r.Error;
             }
             if (!done)
+            {
                 failed++;
+                var msg = lastError ?? "Video indirilemedi.";
+                errors.Add(new { episode = epNum, error = msg });
+                await Console.Error.WriteLineAsync($"Bölüm {epNum}: {msg}").ConfigureAwait(false);
+            }
         }
         if (options.Json)
-            WriteJson(new { success = failed == 0, completed = results.Count, failed, results });
+            WriteJson(new { success = failed == 0, completed = results.Count, failed, results, errors });
         return failed == 0 ? 0 : 1;
     }
 
@@ -678,7 +717,8 @@ public static class DownloadCommand
                     || !double.TryParse(b, NumberStyles.Float, CultureInfo.InvariantCulture, out var to)
                     || !double.IsFinite(from) || !double.IsFinite(to) || from <= 0 || to < from || to - from > 500)
                     return false;
-                for (var e = from; e <= to; e += e % 1 == 0 && to % 1 == 0 ? 1 : 0.5)
+                var step = from % 1 == 0 && to % 1 == 0 ? 1.0 : 0.5;
+                for (var e = from; e <= to; e += step)
                 {
                     if (!episodes.Contains(e))
                         episodes.Add(e);
