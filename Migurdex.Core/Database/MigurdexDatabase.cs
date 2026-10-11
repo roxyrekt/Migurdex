@@ -106,8 +106,7 @@ public class MigurdexDatabase
         connection.Open();
 
         using var cmd = connection.CreateCommand();
-        cmd.CommandText =
-            "PRAGMA journal_mode = WAL; PRAGMA busy_timeout = 5000; PRAGMA synchronous = NORMAL; PRAGMA foreign_keys = ON;";
+        cmd.CommandText = "PRAGMA busy_timeout = 5000; PRAGMA foreign_keys = ON;";
         cmd.ExecuteNonQuery();
 
         return connection;
@@ -201,6 +200,8 @@ public class MigurdexDatabase
                               """;
 
             cmd.ExecuteNonQuery();
+            cmd.CommandText = "PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL;";
+            cmd.ExecuteNonQuery();
             RestrictDbFilePermissions();
         }
     }
@@ -236,14 +237,43 @@ public class MigurdexDatabase
                 {
                     try
                     {
-                        var json    = File.ReadAllText(historyPath);
-                        var entries = JsonSerializer.Deserialize<List<WatchHistoryEntry>>(json, _jsonOpts);
+                        List<WatchHistoryEntry>? entries;
+                        using (var fs = File.OpenRead(historyPath))
+                            entries = JsonSerializer.Deserialize<List<WatchHistoryEntry>>(fs, _jsonOpts);
                         if (entries is { Count: > 0 })
                         {
+                            using var connection = CreateConnection();
+                            using var tx = connection.BeginTransaction();
+                            using var cmd = connection.CreateCommand();
+                            cmd.Transaction = tx;
+                            cmd.CommandText = """
+                                INSERT INTO watch_history (
+                                    provider_name, anime_id, episode_id, anime_title, episode_title,
+                                    season, episode_number, last_position_seconds, total_duration_seconds,
+                                    is_completed, poster_url, last_watched_at_utc
+                                ) VALUES (
+                                    $provider, $animeId, $episodeId, $animeTitle, $episodeTitle,
+                                    $season, $episodeNumber, $lastPos, $totalDur,
+                                    $completed, $posterUrl, $lastWatched
+                                )
+                                ON CONFLICT(provider_name, anime_id, episode_id) DO UPDATE SET
+                                    anime_title = excluded.anime_title,
+                                    episode_title = COALESCE(excluded.episode_title, watch_history.episode_title),
+                                    season = excluded.season,
+                                    episode_number = excluded.episode_number,
+                                    last_position_seconds = excluded.last_position_seconds,
+                                    total_duration_seconds = excluded.total_duration_seconds,
+                                    is_completed = excluded.is_completed,
+                                    poster_url = COALESCE(excluded.poster_url, watch_history.poster_url),
+                                    last_watched_at_utc = excluded.last_watched_at_utc;
+                            """;
                             foreach (var entry in entries)
                             {
-                                SaveWatchHistory(entry);
+                                cmd.Parameters.Clear();
+                                BindWatchHistory(cmd, entry);
+                                cmd.ExecuteNonQuery();
                             }
+                            tx.Commit();
                         }
 
                         File.Move(historyPath, $"{historyPath}.migrated.bak", true);
@@ -260,14 +290,30 @@ public class MigurdexDatabase
                 {
                     try
                     {
-                        var json = File.ReadAllText(favPath);
-                        var favs = JsonSerializer.Deserialize<List<FavoriteEntry>>(json, _jsonOpts);
+                        List<FavoriteEntry>? favs;
+                        using (var fs = File.OpenRead(favPath))
+                            favs = JsonSerializer.Deserialize<List<FavoriteEntry>>(fs, _jsonOpts);
                         if (favs is { Count: > 0 })
                         {
+                            using var connection = CreateConnection();
+                            using var tx = connection.BeginTransaction();
+                            using var cmd = connection.CreateCommand();
+                            cmd.Transaction = tx;
+                            cmd.CommandText = """
+                                INSERT INTO favorites (provider_name, anime_id, anime_title, poster_url, added_at_utc)
+                                VALUES ($provider, $animeId, $animeTitle, $posterUrl, $addedAt)
+                                ON CONFLICT(provider_name, anime_id) DO UPDATE SET
+                                    anime_title = excluded.anime_title,
+                                    poster_url = COALESCE(excluded.poster_url, favorites.poster_url),
+                                    added_at_utc = excluded.added_at_utc;
+                            """;
                             foreach (var fav in favs)
                             {
-                                AddFavorite(fav);
+                                cmd.Parameters.Clear();
+                                BindFavorite(cmd, fav);
+                                cmd.ExecuteNonQuery();
                             }
+                            tx.Commit();
                         }
 
                         File.Move(favPath, $"{favPath}.migrated.bak", true);
@@ -284,8 +330,9 @@ public class MigurdexDatabase
                 {
                     try
                     {
-                        var json    = File.ReadAllText(searchPath);
-                        var queries = JsonSerializer.Deserialize<List<string>>(json, _jsonOpts);
+                        List<string>? queries;
+                        using (var fs = File.OpenRead(searchPath))
+                            queries = JsonSerializer.Deserialize<List<string>>(fs, _jsonOpts);
                         if (queries is { Count: > 0 })
                         {
                             for (var i = queries.Count - 1; i >= 0; i--)
@@ -308,8 +355,9 @@ public class MigurdexDatabase
                 {
                     try
                     {
-                        var json   = File.ReadAllText(tokensPath);
-                        var tokens = JsonSerializer.Deserialize<Dictionary<string, OAuthToken>>(json, _jsonOpts);
+                        Dictionary<string, OAuthToken>? tokens;
+                        using (var fs = File.OpenRead(tokensPath))
+                            tokens = JsonSerializer.Deserialize<Dictionary<string, OAuthToken>>(fs, _jsonOpts);
                         if (tokens is { Count: > 0 })
                         {
                             foreach (var kvp in tokens)
@@ -332,9 +380,9 @@ public class MigurdexDatabase
                 {
                     try
                     {
-                        var json = File.ReadAllText(mappingsPath);
-                        var mappings =
-                            JsonSerializer.Deserialize<Dictionary<string, TrackerMappingEntry>>(json, _jsonOpts);
+                        Dictionary<string, TrackerMappingEntry>? mappings;
+                        using (var fs = File.OpenRead(mappingsPath))
+                            mappings = JsonSerializer.Deserialize<Dictionary<string, TrackerMappingEntry>>(fs, _jsonOpts);
                         if (mappings is { Count: > 0 })
                         {
                             foreach (var kvp in mappings)
@@ -357,8 +405,9 @@ public class MigurdexDatabase
                 {
                     try
                     {
-                        var json  = File.ReadAllText(queuePath);
-                        var queue = JsonSerializer.Deserialize<List<SyncQueueItem>>(json, _jsonOpts);
+                        List<SyncQueueItem>? queue;
+                        using (var fs = File.OpenRead(queuePath))
+                            queue = JsonSerializer.Deserialize<List<SyncQueueItem>>(fs, _jsonOpts);
                         if (queue is { Count: > 0 })
                         {
                             foreach (var item in queue)
@@ -457,6 +506,12 @@ public class MigurdexDatabase
                                   last_watched_at_utc    = excluded.last_watched_at_utc;
                           """;
 
+        BindWatchHistory(cmd, entry);
+        cmd.ExecuteNonQuery();
+    }
+
+    private static void BindWatchHistory(SqliteCommand cmd, WatchHistoryEntry entry)
+    {
         cmd.Parameters.AddWithValue("$provider", entry.ProviderName.Trim());
         cmd.Parameters.AddWithValue("$animeId", entry.AnimeId.Trim());
         cmd.Parameters.AddWithValue("$episodeId", entry.EpisodeId.Trim());
@@ -474,8 +529,6 @@ public class MigurdexDatabase
                                     string.IsNullOrWhiteSpace(entry.PosterUrl) ? DBNull.Value : entry.PosterUrl.Trim());
         cmd.Parameters.AddWithValue("$lastWatched",
                                     entry.LastWatchedAt.ToUniversalTime().ToString("o", CultureInfo.InvariantCulture));
-
-        cmd.ExecuteNonQuery();
     }
 
     public void DeleteWatchHistory(string animeId, string providerName)
@@ -577,6 +630,12 @@ public class MigurdexDatabase
                                   added_at_utc = excluded.added_at_utc;
                           """;
 
+        BindFavorite(cmd, entry);
+        cmd.ExecuteNonQuery();
+    }
+
+    private static void BindFavorite(SqliteCommand cmd, FavoriteEntry entry)
+    {
         cmd.Parameters.AddWithValue("$provider", entry.ProviderName.Trim());
         cmd.Parameters.AddWithValue("$animeId", entry.AnimeId.Trim());
         cmd.Parameters.AddWithValue("$animeTitle", entry.AnimeTitle.Trim());
@@ -584,8 +643,6 @@ public class MigurdexDatabase
                                     string.IsNullOrWhiteSpace(entry.PosterUrl) ? DBNull.Value : entry.PosterUrl.Trim());
         cmd.Parameters.AddWithValue("$addedAt",
                                     entry.AddedAt.ToUniversalTime().ToString("o", CultureInfo.InvariantCulture));
-
-        cmd.ExecuteNonQuery();
     }
 
     public void RemoveFavorite(string animeId, string providerName)
