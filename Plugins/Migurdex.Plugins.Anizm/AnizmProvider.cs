@@ -15,6 +15,8 @@ public partial class AnizmProvider : IAnimeProvider
     private readonly HttpClient             _httpClient;
     private readonly ILogger<AnizmProvider> _logger;
 
+    private sealed record V3TranslatorInfo(string SourcesUrl, string Name, bool IsActive);
+
     public AnizmProvider(ISharedBridge bridge, ILogger<AnizmProvider> logger)
     {
         _httpClient = bridge.CreateHttpClient(x =>
@@ -173,7 +175,13 @@ public partial class AnizmProvider : IAnimeProvider
 
     public async Task<AnimeDetails> GetDetailsAsync(string animeId, CancellationToken cancellationToken = default)
     {
-        var html     = await _httpClient.GetStringAsync($"{BaseUrl}/{animeId}", cancellationToken);
+        var html = await _httpClient.GetStringAsync($"{BaseUrl}/{animeId}", cancellationToken);
+
+        if (TryParseV3DetailsFast(html, animeId, out var fastDetails) && fastDetails is not null)
+        {
+            return fastDetails;
+        }
+
         var parser   = new HtmlParser();
         var document = await parser.ParseDocumentAsync(html);
 
@@ -246,23 +254,11 @@ public partial class AnizmProvider : IAnimeProvider
             }
         }
 
-        var poster = document.QuerySelector("meta[property='og:image']")?.GetAttribute("content")
-                     ?? document.QuerySelector(".v3-anime-detail-cover img")?.GetAttribute("src")
-                     ?? document.QuerySelector(
-                                    ".infoPoster img, .posterImg img, .anizm_boxPoster img, img[src*='pcovers']")
-                                ?.GetAttribute("src");
-
-        if (!string.IsNullOrWhiteSpace(poster))
-        {
-            if (poster.StartsWith("//"))
-            {
-                poster = "https:" + poster;
-            }
-            else if (poster.StartsWith("/"))
-            {
-                poster = BaseUrl + poster;
-            }
-        }
+        var poster = NormalizePosterUrl(document.QuerySelector("meta[property='og:image']")?.GetAttribute("content")
+                                        ?? document.QuerySelector(".v3-anime-detail-cover img")?.GetAttribute("src")
+                                        ?? document.QuerySelector(
+                                                       ".infoPoster img, .posterImg img, .anizm_boxPoster img, img[src*='pcovers']")
+                                                   ?.GetAttribute("src"));
 
         var summaryRaw = document.QuerySelector("#v3-anime-summary-content")?.TextContent
                          ?? document.QuerySelector(".v3-anime-summary p")?.TextContent
@@ -333,15 +329,9 @@ public partial class AnizmProvider : IAnimeProvider
                 var titleAttr = element.GetAttribute("data-episode-title") ?? "";
                 var epText    = Regex.Replace(element.TextContent.Trim(), @"\s+", " ").Trim();
 
-                double num = 0;
-                if (!double.TryParse(numAttr.Replace(',', '.'),
-                                     NumberStyles.Any,
-                                     CultureInfo.InvariantCulture,
-                                     out num))
-                {
-                    var parsed = ParseEpisodeNumbers(string.IsNullOrWhiteSpace(titleAttr) ? epText : titleAttr);
-                    num = parsed.Count > 0 ? parsed[0] : 0;
-                }
+                var num = ResolveV3EpisodeNumber(numAttr,
+                                                 string.IsNullOrWhiteSpace(titleAttr) ? epText : titleAttr,
+                                                 href);
 
                 var epTitle = !string.IsNullOrWhiteSpace(titleAttr) ? titleAttr.Trim() : epText;
                 if (string.IsNullOrWhiteSpace(epTitle))
@@ -354,6 +344,7 @@ public partial class AnizmProvider : IAnimeProvider
                                    : num == 0
                                        ? 1
                                        : (int) num;
+
                 if (!details.Episodes.Any(e => e.Number == finalNum))
                 {
                     details.Episodes.Add(new Episode
@@ -509,7 +500,7 @@ public partial class AnizmProvider : IAnimeProvider
 
             var csrfToken = document.QuerySelector("meta[name='csrf-token']")?.GetAttribute("content");
 
-            var translatorMap     = new Dictionary<string, string?>();
+            var translatorInfos   = new List<V3TranslatorInfo>();
             var translatorButtons = document.QuerySelectorAll("button[data-v3-translator]");
             foreach (var btn in translatorButtons)
             {
@@ -519,13 +510,42 @@ public partial class AnizmProvider : IAnimeProvider
                     continue;
                 }
 
-                sourcesUrl = NormalizeUrl(sourcesUrl);
-                var name = NormalizeFansubName(
-                    btn.GetAttribute("title") ?? btn.TextContent);
+                translatorInfos.Add(new V3TranslatorInfo(
+                                        NormalizeUrl(sourcesUrl),
+                                        NormalizeFansubName(btn.GetAttribute("title") ?? btn.TextContent),
+                                        btn.GetAttribute("aria-pressed")
+                                           ?.Equals("true", StringComparison.OrdinalIgnoreCase)
+                                        == true));
+            }
 
-                if (string.IsNullOrEmpty(group) || name.Equals(group, StringComparison.OrdinalIgnoreCase))
+            var preResolved = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
+            var activeInfo  = translatorInfos.FirstOrDefault(t => t.IsActive);
+            if (activeInfo is not null)
+            {
+                var activeBolum = BolumIdRegex().Match(activeInfo.SourcesUrl) is { Success: true } ab
+                                      ? ab.Groups[1].Value
+                                      : null;
+
+                preResolved[activeInfo.SourcesUrl] = document.QuerySelectorAll("button[data-video][data-url]")
+                                                             .Select(b => NormalizeUrl(
+                                                                         b.GetAttribute("data-url") ?? ""))
+                                                             .Where(u => !string.IsNullOrEmpty(u)
+                                                                         && BelongsToBolum(u, activeBolum))
+                                                             .Distinct(StringComparer.OrdinalIgnoreCase)
+                                                             .ToList();
+
+                if (preResolved[activeInfo.SourcesUrl].Count == 0)
                 {
-                    translatorMap[sourcesUrl] = name;
+                    preResolved.Remove(activeInfo.SourcesUrl);
+                }
+            }
+
+            var translatorMap = new Dictionary<string, string?>();
+            foreach (var info in translatorInfos)
+            {
+                if (string.IsNullOrEmpty(group) || info.Name.Equals(group, StringComparison.OrdinalIgnoreCase))
+                {
+                    translatorMap[info.SourcesUrl] = info.Name;
                 }
             }
 
@@ -533,6 +553,7 @@ public partial class AnizmProvider : IAnimeProvider
             {
                 return await ResolveV3TranslatorsAsync(
                            translatorMap,
+                           preResolved,
                            watchUrl,
                            csrfToken,
                            cancellationToken);
@@ -632,6 +653,18 @@ public partial class AnizmProvider : IAnimeProvider
             await Task.WhenAll(batchTasks);
 
             return sources.GroupBy(x => x.Url).Select(x => x.First()).ToList();
+
+            bool BelongsToBolum(string url, string? bolumId)
+            {
+                if (bolumId is null)
+                {
+                    return true;
+                }
+
+                var m = BolumIdRegex().Match(url);
+
+                return m.Success && m.Groups[1].Value == bolumId;
+            }
         }
         catch (Exception ex)
         {
@@ -642,10 +675,11 @@ public partial class AnizmProvider : IAnimeProvider
     }
 
     private async Task<List<VideoSource>> ResolveV3TranslatorsAsync(
-        Dictionary<string, string?> translatorMap,
-        string                      watchUrl,
-        string?                     csrfToken,
-        CancellationToken           cancellationToken)
+        Dictionary<string, string?>       translatorMap,
+        Dictionary<string, List<string>>? preResolvedVideoUrls,
+        string                            watchUrl,
+        string?                           csrfToken,
+        CancellationToken                 cancellationToken)
     {
         var sources = new List<VideoSource>();
 
@@ -656,50 +690,23 @@ public partial class AnizmProvider : IAnimeProvider
 
             try
             {
-                var response = await SendV3JsonAsync(sourcesUrl, watchUrl, csrfToken, cancellationToken);
-                if (response == null || !response.IsSuccessStatusCode)
+                List<string> videoUrls;
+                if (preResolvedVideoUrls is not null
+                    && preResolvedVideoUrls.TryGetValue(sourcesUrl, out var embedded)
+                    && embedded.Count > 0)
                 {
-                    return;
+                    _logger.LogDebug("reusing {Count} embedded video urls for group {Group}",
+                                     embedded.Count,
+                                     groupName);
+
+                    videoUrls = embedded;
                 }
-
-                var body = await response.Content.ReadAsStringAsync(cancellationToken);
-                if (string.IsNullOrEmpty(body))
+                else
                 {
-                    return;
-                }
-
-                using var doc = JsonDocument.Parse(body);
-                if (!doc.RootElement.TryGetProperty("videos", out var videos))
-                {
-                    return;
-                }
-
-                var videoUrls = new List<string>();
-                foreach (var v in videos.EnumerateArray())
-                {
-                    string? vid = null;
-                    if (v.TryGetProperty("id", out var idProp))
-                    {
-                        vid = idProp.ValueKind switch
-                        {
-                            JsonValueKind.Number => idProp.GetInt64().ToString(CultureInfo.InvariantCulture),
-                            JsonValueKind.String => idProp.GetString(),
-                            _                    => null
-                        };
-                    }
-
-                    if (string.IsNullOrWhiteSpace(vid))
-                    {
-                        continue;
-                    }
-
-                    var videoUrl = CevirmenSuffixRegex().Replace(sourcesUrl, $"/video/{vid}");
-                    if (videoUrl == sourcesUrl)
-                    {
-                        videoUrl = sourcesUrl.TrimEnd('/') + $"/video/{vid}";
-                    }
-
-                    videoUrls.Add(videoUrl);
+                    videoUrls = await FetchTranslatorVideoUrlsAsync(sourcesUrl,
+                                                                    watchUrl,
+                                                                    csrfToken,
+                                                                    cancellationToken);
                 }
 
                 await ResolveDirectVideoUrlsIntoAsync(groupName,
@@ -718,6 +725,62 @@ public partial class AnizmProvider : IAnimeProvider
         await Task.WhenAll(batchTasks);
 
         return sources.GroupBy(x => x.Url).Select(x => x.First()).ToList();
+    }
+
+    private async Task<List<string>> FetchTranslatorVideoUrlsAsync(
+        string            sourcesUrl,
+        string            watchUrl,
+        string?           csrfToken,
+        CancellationToken cancellationToken)
+    {
+        var videoUrls = new List<string>();
+
+        var response = await SendV3JsonAsync(sourcesUrl, watchUrl, csrfToken, cancellationToken);
+        if (response == null || !response.IsSuccessStatusCode)
+        {
+            return videoUrls;
+        }
+
+        var body = await response.Content.ReadAsStringAsync(cancellationToken);
+        if (string.IsNullOrEmpty(body))
+        {
+            return videoUrls;
+        }
+
+        using var doc = JsonDocument.Parse(body);
+        if (!doc.RootElement.TryGetProperty("videos", out var videos))
+        {
+            return videoUrls;
+        }
+
+        foreach (var v in videos.EnumerateArray())
+        {
+            string? vid = null;
+            if (v.TryGetProperty("id", out var idProp))
+            {
+                vid = idProp.ValueKind switch
+                {
+                    JsonValueKind.Number => idProp.GetInt64().ToString(CultureInfo.InvariantCulture),
+                    JsonValueKind.String => idProp.GetString(),
+                    _                    => null
+                };
+            }
+
+            if (string.IsNullOrWhiteSpace(vid))
+            {
+                continue;
+            }
+
+            var videoUrl = CevirmenSuffixRegex().Replace(sourcesUrl, $"/video/{vid}");
+            if (videoUrl == sourcesUrl)
+            {
+                videoUrl = sourcesUrl.TrimEnd('/') + $"/video/{vid}";
+            }
+
+            videoUrls.Add(videoUrl);
+        }
+
+        return videoUrls;
     }
 
     private async Task<List<VideoSource>> ResolveDirectVideoUrlsAsync(
@@ -920,6 +983,228 @@ public partial class AnizmProvider : IAnimeProvider
         await Task.WhenAll(playerTasks);
     }
 
+    private bool TryParseV3DetailsFast(string html, string animeId, out AnimeDetails? details)
+    {
+        details = null;
+
+        try
+        {
+            var title = BreadcrumbTitleRegex().Match(html) is { Success: true } bc
+                            ? WebUtility.HtmlDecode(bc.Groups[1].Value).Trim()
+                            : null;
+
+            if (string.IsNullOrWhiteSpace(title))
+            {
+                var h1 = H1Regex().Match(html);
+                if (!h1.Success)
+                {
+                    return false;
+                }
+
+                title = Regex.Replace(WebUtility.HtmlDecode(h1.Groups[1].Value), @"\s+", " ").Trim();
+                title = Regex.Replace(title, @"\s+izle\s*$", "", RegexOptions.IgnoreCase).Trim();
+            }
+
+            if (string.IsNullOrWhiteSpace(title))
+            {
+                return false;
+            }
+
+            string? japaneseTitle = null;
+            string? englishTitle  = null;
+            var     altTitles     = new List<string>();
+
+            if (FactsBlockRegex().Match(html) is { Success: true } facts)
+            {
+                foreach (Match m in FactRowRegex().Matches(facts.Value))
+                {
+                    var label = WebUtility.HtmlDecode(m.Groups[1].Value).Trim();
+                    var value = WebUtility.HtmlDecode(m.Groups[2].Value).Trim();
+
+                    if (string.IsNullOrWhiteSpace(value))
+                    {
+                        continue;
+                    }
+
+                    if (label.Contains("Japonca", StringComparison.OrdinalIgnoreCase))
+                    {
+                        japaneseTitle = value;
+                    }
+                    else if (label.Contains("İngilizce", StringComparison.OrdinalIgnoreCase)
+                             || label.Contains("Ingilizce", StringComparison.OrdinalIgnoreCase))
+                    {
+                        englishTitle = value;
+                    }
+                    else if (label.Contains("Diğer", StringComparison.OrdinalIgnoreCase))
+                    {
+                        altTitles.AddRange(value.Split([',', ';', '|'],
+                                                       StringSplitOptions.RemoveEmptyEntries)
+                                                .Select(x => x.Trim()));
+                    }
+                }
+            }
+
+            var poster = OgImageRegex().Match(html) is { Success: true } og
+                             ? NormalizePosterUrl(og.Groups[1].Value)
+                             : null;
+
+            var summaryRaw = SummaryContentRegex().Match(html) is { Success: true } sum
+                                 ? sum.Groups[1].Value
+                                 : "";
+
+            var result = new AnimeDetails
+            {
+                Title         = title,
+                EnglishTitle  = englishTitle,
+                JapaneseTitle = japaneseTitle,
+                PosterUrl     = poster,
+                AlternativeTitles = altTitles.Where(t => !t.Equals(title, StringComparison.OrdinalIgnoreCase)
+                                                         && (englishTitle == null
+                                                             || !t.Equals(englishTitle,
+                                                                          StringComparison.OrdinalIgnoreCase))
+                                                         && (japaneseTitle == null
+                                                             || !t.Equals(japaneseTitle,
+                                                                          StringComparison.OrdinalIgnoreCase)))
+                                             .Distinct()
+                                             .ToList(),
+                Summary = CleanSummary(summaryRaw)
+            };
+
+            var isMovie = result.Title.Contains("Movie", StringComparison.OrdinalIgnoreCase)
+                          || animeId.Contains("movie", StringComparison.OrdinalIgnoreCase)
+                          || animeId.Contains("film", StringComparison.OrdinalIgnoreCase)
+                          || AnimeDetails.IsMovieTitle(result.Title)
+                          || AnimeDetails.IsMovieTitle(result.EnglishTitle)
+                          || AnimeDetails.IsMovieTitle(result.JapaneseTitle);
+            var isOva     = result.Title.Contains("OVA", StringComparison.OrdinalIgnoreCase);
+            var isSpecial = result.Title.Contains("Special", StringComparison.OrdinalIgnoreCase);
+
+            var seasonNum = isMovie ? 1 : AnimeDetails.ParseSeasonNumber(result.Title);
+
+            result.SeasonMappings.Add(new SeasonMapping
+            {
+                SeasonNumber = isMovie ? 1 : seasonNum
+            });
+
+            var seenIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (Match m in V3EpisodeRegex().Matches(html))
+            {
+                var href = m.Groups[1].Value;
+                if (string.IsNullOrWhiteSpace(href))
+                {
+                    continue;
+                }
+
+                var episodeId = href.Split('/').LastOrDefault()?.Replace("-izle", "") ?? "";
+                if (string.IsNullOrEmpty(episodeId) || !seenIds.Add(episodeId))
+                {
+                    continue;
+                }
+
+                var epTitleAttr = WebUtility.HtmlDecode(m.Groups[3].Value).Trim();
+                var num         = ResolveV3EpisodeNumber(m.Groups[2].Value, epTitleAttr, href);
+
+                var epTitle = string.IsNullOrWhiteSpace(epTitleAttr) ? $"{num}. Bölüm" : epTitleAttr;
+                var finalNum = isMovie
+                                   ? 1
+                                   : num == 0
+                                       ? 1
+                                       : (int) num;
+
+                if (result.Episodes.Any(e => e.Number == finalNum))
+                {
+                    continue;
+                }
+
+                result.Episodes.Add(new Episode
+                {
+                    Id     = episodeId,
+                    Title  = isMovie ? "Film" : epTitle,
+                    Number = finalNum,
+                    Season = isMovie ? 1 : seasonNum
+                });
+            }
+
+            if (result.Episodes.Count == 0)
+            {
+                return false;
+            }
+
+            if (!isMovie && result.Episodes.Count == 1)
+            {
+                var singleEp = result.Episodes[0];
+                if (singleEp.Id.EndsWith("-movie", StringComparison.OrdinalIgnoreCase)
+                    || singleEp.Id.EndsWith("-film", StringComparison.OrdinalIgnoreCase)
+                    || singleEp.Title.Equals("Movie", StringComparison.OrdinalIgnoreCase)
+                    || singleEp.Title.Equals("Film", StringComparison.OrdinalIgnoreCase)
+                    || AnimeDetails.IsMovieSummary(result.Summary))
+                {
+                    isMovie         = true;
+                    singleEp.Title  = "Film";
+                    singleEp.Number = 1;
+                    singleEp.Season = 1;
+                }
+            }
+
+            result.Format = isMovie
+                                ? ContentFormat.Movie
+                                : isOva
+                                    ? ContentFormat.Ova
+                                    : isSpecial
+                                        ? ContentFormat.Special
+                                        : ContentFormat.Tv;
+            result.Episodes = result.Episodes.OrderBy(e => e.Number).ToList();
+            result.Normalize();
+
+            details = result;
+
+            return true;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "v3 fast details parse failed, falling back to DOM");
+
+            return false;
+        }
+    }
+
+    private static double ResolveV3EpisodeNumber(string numAttr, string title, string href)
+    {
+        if (double.TryParse(numAttr.Replace(',', '.'),
+                            NumberStyles.Any,
+                            CultureInfo.InvariantCulture,
+                            out var num)
+            && num is > 0 and < 10000)
+        {
+            return num;
+        }
+
+        if (!string.IsNullOrWhiteSpace(title))
+        {
+            var fromTitle = ParseEpisodeNumbers(title);
+            if (fromTitle.Count > 0 && fromTitle[0] != 0)
+            {
+                return fromTitle[0];
+            }
+        }
+
+        var fromHref = ParseEpisodeNumbers(href);
+        for (var i = fromHref.Count - 1; i >= 0; i--)
+        {
+            if (fromHref[i] != 0)
+            {
+                return fromHref[i];
+            }
+        }
+
+        return 0;
+    }
+
+    private string? NormalizePosterUrl(string? url)
+    {
+        return string.IsNullOrWhiteSpace(url) ? url : NormalizeUrl(url);
+    }
+
     private static string NormalizeFansubName(string? raw)
     {
         if (string.IsNullOrWhiteSpace(raw))
@@ -959,6 +1244,33 @@ public partial class AnizmProvider : IAnimeProvider
 
     [GeneratedRegex(@"/cevirmen/\d+$")]
     private static partial Regex CevirmenSuffixRegex();
+
+    [GeneratedRegex(@"/bolum/(\d+)", RegexOptions.IgnoreCase)]
+    private static partial Regex BolumIdRegex();
+
+    [GeneratedRegex(@"<nav[^>]*v3-breadcrumb[\s\S]*?<span aria-current=""page"">([^<]+)</span>",
+                    RegexOptions.IgnoreCase)]
+    private static partial Regex BreadcrumbTitleRegex();
+
+    [GeneratedRegex(@"<h1>([^<]+)</h1>", RegexOptions.IgnoreCase)]
+    private static partial Regex H1Regex();
+
+    [GeneratedRegex(@"<div class=""v3-anime-facts""[\s\S]*?</div>\s*</div>", RegexOptions.IgnoreCase)]
+    private static partial Regex FactsBlockRegex();
+
+    [GeneratedRegex(@"<span>([^<]+)</span>\s*<strong[^>]*>([^<]+)</strong>", RegexOptions.IgnoreCase)]
+    private static partial Regex FactRowRegex();
+
+    [GeneratedRegex(@"<meta property=""og:image"" content=""([^""]+)""", RegexOptions.IgnoreCase)]
+    private static partial Regex OgImageRegex();
+
+    [GeneratedRegex(@"<p id=""v3-anime-summary-content"">([\s\S]*?)</p>", RegexOptions.IgnoreCase)]
+    private static partial Regex SummaryContentRegex();
+
+    [GeneratedRegex(
+        @"<a[^>]+href=""([^""]+)""[^>]*data-episode-number=""([^""]+)""[^>]*data-episode-title=""([^""]*)""",
+        RegexOptions.IgnoreCase)]
+    private static partial Regex V3EpisodeRegex();
 
     private string NormalizeUrl(string url)
     {
