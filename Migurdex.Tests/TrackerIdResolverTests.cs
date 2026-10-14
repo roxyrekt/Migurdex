@@ -680,7 +680,7 @@ public sealed class TrackerIdResolverTests
             store,
             NullLogger<TrackerIdResolver>.Instance);
 
-        var result = await resolver.ResolveFromProviderAsync("Deokwave",
+        var result = await resolver.ResolveFromProviderAsync("AnimPow",
                                                              "frieren",
                                                              ["Sousou no Frieren", "zzzqqq"],
                                                              cancellationToken: TestContext.Current.CancellationToken);
