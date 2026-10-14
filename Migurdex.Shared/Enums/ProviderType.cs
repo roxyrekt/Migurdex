@@ -9,5 +9,6 @@ public enum ProviderType
     Anime   = 1 << 0,
     Manga   = 1 << 1,
     MovieTv = 1 << 2,
-    Other   = 1 << 3
+    Other   = 1 << 3,
+    Cartoon = 1 << 4
 }
