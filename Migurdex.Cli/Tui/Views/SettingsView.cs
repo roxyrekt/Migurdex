@@ -9,6 +9,11 @@ namespace Migurdex.Cli.Tui.Views;
 
 public class SettingsView : BaseView
 {
+    /// <summary>
+    /// Fixed rows outside the table: header and blank line (2), table spacing (2), and help (1).
+    /// </summary>
+    internal const int ChromeRows = 5;
+
     private static readonly string[]              _rpcTitleModes = ["Migurdex", "Sağlayıcı", "İçerik"];
     private readonly        AniListOAuthClient    _aniListOAuth;
     private readonly        IApiClientService     _apiClient;
@@ -222,13 +227,20 @@ public class SettingsView : BaseView
         cursorIndex = NextSelectable(items, cursorIndex, 1);
         var baseline = SnapshotConfig();
 
-        Grid BuildTable(CliConfig config)
+        // Draw only the portion that fits; otherwise a short terminal scrolls and leaves stale rows.
+        (int Start, int End) VisibleWindow()
+        {
+            var budget = ListWindow.Budget(TuiConsole.WindowHeight, ChromeRows, items.Count);
+            return ListWindow.Compute(items.Count, cursorIndex, budget, i => items[i].IsSection);
+        }
+
+        Grid BuildTable(CliConfig config, int winStart, int winEnd)
         {
             var table = new Table().NoBorder().HideHeaders();
             table.AddColumn("Label", c => c.Width(25));
             table.AddColumn("Value");
 
-            for (var i = 0; i < items.Count; i++)
+            for (var i = winStart; i < winEnd; i++)
             {
                 var item = items[i];
                 if (item.IsSection)
@@ -270,7 +282,10 @@ public class SettingsView : BaseView
             grid.AddColumn();
             grid.AddRow(table);
             grid.AddRow(new Text(string.Empty));
-            grid.AddRow(new Markup("[grey]↑↓ gez • Enter değiştir • Esc geri[/]"));
+            var hint = winEnd - winStart < items.Count
+                           ? $"[grey]↑↓ gez • Enter değiştir • Esc geri • satır {winStart + 1}-{winEnd}/{items.Count}[/]"
+                           : "[grey]↑↓ gez • Enter değiştir • Esc geri[/]";
+            grid.AddRow(new Markup(hint));
             return grid;
         }
 
@@ -283,7 +298,9 @@ public class SettingsView : BaseView
             SettingItem? pendingSelection = null;
             var          pendingEscape    = false;
 
-            await AnsiConsole.Live(BuildTable(_configService.Config))
+            var firstWindow = VisibleWindow();
+
+            await AnsiConsole.Live(BuildTable(_configService.Config, firstWindow.Start, firstWindow.End))
                              .StartAsync(async ctx =>
                              {
                                  var last = string.Empty;
@@ -293,7 +310,8 @@ public class SettingsView : BaseView
                                      var fp     = cursorIndex + "|" + SnapshotConfig();
                                      if (!fp.Equals(last, StringComparison.Ordinal))
                                      {
-                                         ctx.UpdateTarget(BuildTable(config));
+                                         var window = VisibleWindow();
+                                         ctx.UpdateTarget(BuildTable(config, window.Start, window.End));
                                          last = fp;
                                      }
 
