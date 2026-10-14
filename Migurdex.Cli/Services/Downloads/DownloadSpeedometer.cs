@@ -37,8 +37,12 @@ internal static class DownloadStageLabel
 
 internal sealed class DownloadSpeedometer
 {
+    /// <summary>Bu süreden uzun sessizlikten sonra ölçüm sıfırdan başlar (eski hız yapışmasın).</summary>
+    private const double IdleResetSeconds = 1.5;
+
     private readonly double _alpha;
     private DateTimeOffset? _lastTime;
+    private DateTimeOffset? _lastFlowTime;
     private long _lastBytes;
     private double _bytesPerSecond;
     private bool _hasEstimate;
@@ -52,27 +56,53 @@ internal sealed class DownloadSpeedometer
     {
         if (_lastTime is null)
         {
-            _lastTime  = now;
-            _lastBytes = bytes;
+            _lastTime     = now;
+            _lastFlowTime = now;
+            _lastBytes    = bytes;
             return;
         }
 
+        // Payda: son örnekten bu yana geçen süre. İndirme döngüsü bayt akmadığında hiç örnek
+        // göndermez; bu yüzden uzun boşluk ancak dosya durakladığında oluşur ve orada ekran
+        // uydurma hız yerine "duraklı" yazar (bkz. BatchDownloadView.DescribeProgress).
         var elapsed = (now - _lastTime.Value).TotalSeconds;
         _lastTime = now;
+        if (bytes <= _lastBytes)
+        {
+            // Bayt akmadı: geçen süre hız değildir. Ölçüm düşürülmez, yoksa birleştirme ya da
+            // duraklama aralarında ekran KB/s gösterir ve indirme bitmiş gibi görünür.
+            return;
+        }
+
+        var delta = bytes - _lastBytes;
+        _lastBytes    = bytes;
+        _lastFlowTime = now;
         if (elapsed <= 0)
         {
             return;
         }
 
-        var instant = Math.Max(0, (bytes - _lastBytes) / elapsed);
-        _lastBytes  = bytes;
-        _bytesPerSecond = _hasEstimate
-                              ? _alpha * instant + (1 - _alpha) * _bytesPerSecond
-                              : instant;
+        var instant = delta / elapsed;
+        if (!_hasEstimate || elapsed >= IdleResetSeconds)
+        {
+            // Boşluktan sonraki ilk veri: yeni akış kendi hızını kursun, eski tahmin taşınmasın.
+            _bytesPerSecond = instant;
+        }
+        else
+        {
+            _bytesPerSecond = _alpha * instant + (1 - _alpha) * _bytesPerSecond;
+        }
+
         _hasEstimate = true;
     }
 
     public double BytesPerSecond => _hasEstimate ? _bytesPerSecond : 0;
+
+    /// <summary>Son bayt hareketinden bu yana geçen süre; henüz hiç bayt gelmediyse null.</summary>
+    public TimeSpan? IdleFor(DateTimeOffset now)
+    {
+        return _lastFlowTime is null ? null : now - _lastFlowTime.Value;
+    }
 
     public TimeSpan? EstimateRemaining(long downloaded, long? total, double? speedOverride = null)
     {

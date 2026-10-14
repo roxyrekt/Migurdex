@@ -7,6 +7,8 @@ namespace Migurdex.Cli.Tui.Views;
 
 public class AnimeDetailsView : BaseView
 {
+    private const string BatchDownloadAction = "Toplu İndir...";
+
     private readonly IApiClientService _apiClient;
     private readonly IHistoryService   _historyService;
     private readonly IServiceProvider  _serviceProvider;
@@ -299,6 +301,17 @@ public class AnimeDetailsView : BaseView
                 });
             }
 
+            if (details.Episodes.Count > 1)
+            {
+                choices.Add(new FuzzyChoice
+                {
+                    Display       = "[cyan]⤓ Toplu indir...[/]",
+                    DisplayActive = "[bold white on grey23] ⤓ Toplu indir... [/]",
+                    Searchable    = BatchDownloadAction,
+                    IsAction      = true
+                });
+            }
+
             if (currentSeasonGroup != null)
             {
                 var isMovie    = details.Format == ContentFormat.Movie;
@@ -384,6 +397,19 @@ public class AnimeDetailsView : BaseView
                 AnimeTitle   = details.Title,
                 ProviderName = _provider
             });
+            return;
+        }
+
+        if (choice.Searchable == BatchDownloadAction)
+        {
+            var batchView = (BatchDownloadView) _serviceProvider.GetService(typeof(BatchDownloadView))!;
+            // Çok sezonlu anlamelerde kullanıcı bir sezon seçtiyse toplu liste de o sezonla sınırlı kalır.
+            batchView.SetTarget(_provider!,
+                                _animeId!,
+                                details.Title,
+                                details.Episodes,
+                                isMultiSeason ? activeSeason : null);
+            navigator.Push(batchView);
             return;
         }
 
