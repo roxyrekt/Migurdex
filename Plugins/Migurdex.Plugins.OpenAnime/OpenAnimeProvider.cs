@@ -14,10 +14,9 @@ namespace Migurdex.Plugins.OpenAnime;
 
 public class OpenAnimeProvider : IAnimeProvider
 {
-    private const string SecretKey = "pvxFURPt1O76RX9yoPPE4R2AHgkh";
-    private const string ApiUrl    = "https://api.openani.me";
-
-    private static readonly byte[] _invTable = BuildInvTable();
+    private const string SecretKey   = "pvxFURPt1O76RX9yoPPE4R2AHgkh";
+    private const string ApiUrl      = "https://api.openani.me";
+    private const string KyubiApiUrl = "https://kyubi-san.vercel.app/api/decode";
 
     private readonly Dictionary<string, string> _defaultHeaders = new()
     {
@@ -242,14 +241,14 @@ public class OpenAnimeProvider : IAnimeProvider
                                               apiUrl,
                                               cancellationToken: cancellationToken);
                                       var subtitleTask =
-                                          SendRequestAsync<OpenAnimeSubtitleResponse>(
+                                          SendRequestAsync<byte[]>(
                                               subUrl,
                                               cancellationToken: cancellationToken);
 
                                       await Task.WhenAll(episodeTask, subtitleTask);
 
                                       var response = await episodeTask;
-                                      var subObj   = await subtitleTask;
+                                      var rawSub   = await subtitleTask;
 
                                       if (response?.EpisodeData?.Files == null)
                                       {
@@ -264,15 +263,14 @@ public class OpenAnimeProvider : IAnimeProvider
                                       }
 
                                       List<Subtitle>? subtitles = null;
-                                      if (subObj != null
-                                          && !string.IsNullOrEmpty(subObj.X)
-                                          && !string.IsNullOrEmpty(subObj.Q))
+                                      if (rawSub is { Length: >= 8 }
+                                          && Encoding.ASCII.GetString(rawSub, 0, 8) == "KYUBI2\r\n")
                                       {
-                                          var decryptedAss = DecryptSubtitle(subObj.X, subObj.Q);
+                                          var decryptedAss = await DecodeKyubiSubtitleAsync(rawSub, cancellationToken);
                                           if (!string.IsNullOrEmpty(decryptedAss))
                                           {
-                                              subtitles = new List<Subtitle>
-                                              {
+                                              subtitles =
+                                              [
                                                   new()
                                                   {
                                                       Url =
@@ -281,7 +279,7 @@ public class OpenAnimeProvider : IAnimeProvider
                                                       Label    = $"{fs.Name} (Softsub)",
                                                       Format   = "ass"
                                                   }
-                                              };
+                                              ];
                                           }
                                       }
 
@@ -461,6 +459,11 @@ public class OpenAnimeProvider : IAnimeProvider
             if (!response.IsSuccessStatusCode)
             {
                 return default;
+            }
+
+            if (typeof(T) == typeof(byte[]))
+            {
+                return (T) (object) await response.Content.ReadAsByteArrayAsync(cancellationToken);
             }
 
             if (typeof(T) == typeof(string))
@@ -764,95 +767,59 @@ public class OpenAnimeProvider : IAnimeProvider
         };
     }
 
-    private static byte[] BuildInvTable()
-    {
-        var table = new byte[256];
-        for (var i = 0; i < 256; i++)
-        {
-            table[i] = (byte) i;
-        }
-
-        var sboxSeed = 412906018u;
-        for (var i = 255; i > 0; i--)
-        {
-            unchecked
-            {
-                sboxSeed = (sboxSeed * 1664525u) + 1013904223u;
-            }
-
-            var j = (int) (sboxSeed % (uint) (i + 1));
-            (table[i], table[j]) = (table[j], table[i]);
-        }
-
-        var invTable = new byte[256];
-        for (var i = 0; i < 256; i++)
-        {
-            invTable[table[i]] = (byte) i;
-        }
-
-        return invTable;
-    }
-
-    private string? DecryptSubtitle(string hexX, string base64Q)
+    private async Task<string?> DecodeKyubiSubtitleAsync(byte[] packageBytes,
+        CancellationToken                                       cancellationToken = default)
     {
         try
         {
-            var keyBytes = Convert.FromHexString(hexX.Trim());
-            var rawQ     = Convert.FromBase64String(base64Q.Trim());
-
-            if (rawQ.Length < 16)
+            var payload = new KyubiDecodePayload
             {
+                EncodedData = Convert.ToBase64String(packageBytes)
+            };
+
+            var request = new HttpRequestMessage(HttpMethod.Post, KyubiApiUrl)
+            {
+                Content = JsonContent.Create(payload)
+            };
+
+            var response = await _httpClient.SendAsync(request, cancellationToken);
+            if (!response.IsSuccessStatusCode)
+            {
+                _logger.LogWarning("kyubi decoder returned status {StatusCode}", response.StatusCode);
                 return null;
             }
 
-            var step3   = new byte[rawQ.Length];
-            var lcgSeed = 386190471u;
-
-            for (var i = 0; i < rawQ.Length; i++)
+            var result =
+                await response.Content.ReadFromJsonAsync<KyubiDecodeResponse>(cancellationToken: cancellationToken);
+            if (result == null || !result.Ok || string.IsNullOrEmpty(result.Ass))
             {
-                unchecked
-                {
-                    lcgSeed = (lcgSeed * 1664525u) + 1013904223u;
-                }
-
-                step3[i] = (byte) (rawQ[i] ^ (lcgSeed & 0xFF));
+                _logger.LogWarning("kyubi decoder returned invalid response");
+                return null;
             }
 
-            var ivBytes = step3[..16];
-            var payload = step3[16..];
-
-            using var aes = Aes.Create();
-            aes.Key     = keyBytes;
-            aes.IV      = ivBytes;
-            aes.Mode    = CipherMode.CBC;
-            aes.Padding = PaddingMode.PKCS7;
-
-            using var decryptor        = aes.CreateDecryptor();
-            var       decryptedPayload = decryptor.TransformFinalBlock(payload, 0, payload.Length);
-
-            var plainBytes = new byte[decryptedPayload.Length];
-            for (var i = 0; i < decryptedPayload.Length; i++)
-            {
-                plainBytes[i] = _invTable[decryptedPayload[i]];
-            }
-
-            return Encoding.UTF8.GetString(plainBytes);
+            var assBytes = Convert.FromBase64String(result.Ass);
+            return Encoding.UTF8.GetString(assBytes);
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "failed to decrypt subtitle payload");
-
+            _logger.LogWarning(ex, "failed to decode kyubi subtitle via remote api");
             return null;
         }
     }
 
-    private class OpenAnimeSubtitleResponse
+    private class KyubiDecodePayload
     {
-        [JsonPropertyName("x")]
-        public string? X { get; set; }
+        [JsonPropertyName("encodedData")]
+        public string EncodedData { get; set; } = "";
+    }
 
-        [JsonPropertyName("q")]
-        public string? Q { get; set; }
+    private class KyubiDecodeResponse
+    {
+        [JsonPropertyName("ok")]
+        public bool Ok { get; set; }
+
+        [JsonPropertyName("ass")]
+        public string? Ass { get; set; }
     }
 
     private class SimpleEpisode
