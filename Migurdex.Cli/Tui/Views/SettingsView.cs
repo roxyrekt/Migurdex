@@ -191,6 +191,17 @@ public class SettingsView : BaseView
             new()
             {
                 IsSection = true,
+                Label     = "Sağlayıcılar"
+            },
+            new()
+            {
+                Id          = "OpenAnimeKey",
+                Label       = "OpenAnime Anahtarı",
+                ValueGetter = c => string.IsNullOrWhiteSpace(c.OpenAnimeApiKey) ? "Tanımsız" : "Tanımlı (***)"
+            },
+            new()
+            {
+                IsSection = true,
                 Label     = "Liste"
             },
             new()
@@ -745,6 +756,11 @@ public class SettingsView : BaseView
                 break;
             case "MyAnimeList":
                 await RunMalLoginAsync();
+                break;
+            case "OpenAnimeKey":
+                var newKey = Theme.Ask("OpenAnime Altyazı Anahtarı (boş = kaldır):", config.OpenAnimeApiKey ?? string.Empty)?.Trim();
+                config.OpenAnimeApiKey = string.IsNullOrWhiteSpace(newKey) ? null : newKey;
+                Toast.Show(config.OpenAnimeApiKey is null ? "[yellow]OpenAnime anahtarı kaldırıldı.[/]" : "[green]OpenAnime anahtarı güncellendi.[/]");
                 break;
             case "Providers":
                 await ConfigureProvidersAsync(config);

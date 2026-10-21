@@ -530,6 +530,31 @@ public class EpisodeSourcesView : BaseView
         string                                                            animeTitle,
         Episode                                                           episode)
     {
+        if (selectedSource.Subtitles != null)
+        {
+            var lockedSub = selectedSource.Subtitles.FirstOrDefault(s => s.Url.StartsWith("migurdex://openanime_sub_"));
+            if (lockedSub != null)
+            {
+                if (lockedSub.Url == "migurdex://openanime_sub_locked")
+                {
+                    Toast.Show("[yellow]! OpenAnime altyazısı kilitli: Discord anahtarı gerekli (Ayarlar'dan ekleyin).[/]", 3500);
+                }
+                else
+                {
+                    Toast.Show("[red]! OpenAnime altyazı anahtarı geçersiz veya yetkisiz.[/]", 3500);
+                }
+
+                // Oynatıcıya sahte şema göndermemek için listeden temizle
+                selectedSource.Subtitles = selectedSource.Subtitles
+                    .Where(s => !s.Url.StartsWith("migurdex://openanime_sub_"))
+                    .ToList();
+                if (selectedSource.Subtitles.Count == 0)
+                {
+                    selectedSource.Subtitles = null;
+                }
+            }
+        }
+
         var historyEntry = _playback.BuildEntry(provider, animeId, animeTitle, episode, _posterUrl);
         AnsiConsole.MarkupLine("[green]✓[/] Oynatıcı başlatıldı.");
         var syncOutcome = await _playback.PlayAndNotifyAsync(selectedSource, historyEntry, false);

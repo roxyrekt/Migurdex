@@ -7,6 +7,7 @@
 <p align="center">
   <a href="https://github.com/roxyrekt/Migurdex/actions"><img src="https://github.com/roxyrekt/Migurdex/actions/workflows/build-release.yml/badge.svg" alt="Build"/></a>
   <a href="https://github.com/roxyrekt/Migurdex/releases"><img src="https://img.shields.io/github/v/release/roxyrekt/Migurdex" alt="Release"/></a>
+  <a href="https://discord.gg/7eh3Qd7MJt"><img src="https://img.shields.io/discord/1561825988298670172?color=5865F2&logo=discord&logoColor=white&label=Discord" alt="Discord"/></a>
   <a href="LICENSE"><img src="https://img.shields.io/github/license/roxyrekt/Migurdex" alt="License"/></a>
   <img src="https://img.shields.io/badge/.NET-10-512BD4" alt=".NET 10"/>
   <img src="https://img.shields.io/badge/Rust-native-dea584" alt="Rust"/>
@@ -256,6 +257,16 @@ Release paketlerini CI, [Kurulum → manuel kurulum](#kurulum) tablosundaki dosy
 - [x] MAL ve AniList senkronu
 - [ ] Yeni bölüm atlama
 - [ ] Intro skip
+
+## Topluluk
+
+Soru sormak, öneride bulunmak, OpenAnime altyazı anahtarı talep etmek veya sohbet etmek için Discord sunucumuza katılabilirsiniz:
+
+<p align="center">
+  <a href="https://discord.gg/7eh3Qd7MJt">
+    <img src="https://invidget.switchblade.xyz/7eh3Qd7MJt" alt="Migurdex Discord"/>
+  </a>
+</p>
 
 ---
 

@@ -34,6 +34,8 @@ public class CliConfig
     public bool   AutoDownloadBestSource           { get; set; } = false;
     public double DownloadAutoSelectTimeoutSeconds { get; set; } = 5;
 
+    public string? OpenAnimeApiKey { get; set; }
+
     public bool    UpdateCheckEnabled { get; set; } = true;
     public string  UpdateChannel      { get; set; } = "stable";
     public string? SkippedVersion     { get; set; }

@@ -281,7 +281,26 @@ public class OpenAnimeProvider : IAnimeProvider
                                                   }
                                               ];
                                           }
+                                          else
+                                          {
+                                              var apiKey = GetConfiguredApiKey();
+                                              var isMissing = string.IsNullOrEmpty(apiKey);
+
+                                              subtitles =
+                                              [
+                                                  new()
+                                                  {
+                                                      Url = isMissing ? "migurdex://openanime_sub_locked" : "migurdex://openanime_sub_invalid",
+                                                      Language = "tr",
+                                                      Label = isMissing ? $"{fs.Name} [Kilitli: Discord anahtarı girilmedi]" : $"{fs.Name} [Kilitli: Anahtar geçersiz/yetkisiz]",
+                                                      Format = "ass"
+                                                  }
+                                              ];
+                                          }
                                       }
+
+                                      var isLocked = subtitles?.Any(s => s.Url.StartsWith("migurdex://openanime_sub_")) == true;
+                                      var groupLabel = isLocked ? $"🔒 {fs.Name}" : fs.Name;
 
                                       foreach (var file in response.EpisodeData.Files)
                                       {
@@ -296,7 +315,7 @@ public class OpenAnimeProvider : IAnimeProvider
                                               Quality   = file.Resolution > 0 ? $"{file.Resolution}p" : "Auto",
                                               Type      = VideoType.Mp4,
                                               Hoster    = "OpenAnime",
-                                              Group     = fs.Name,
+                                              Group     = groupLabel,
                                               Headers   = new Dictionary<string, string>(_defaultHeaders),
                                               Subtitles = subtitles != null ? new List<Subtitle>(subtitles) : null
                                           };
@@ -767,11 +786,55 @@ public class OpenAnimeProvider : IAnimeProvider
         };
     }
 
+    private static string? GetConfiguredApiKey()
+    {
+        var envKey = Environment.GetEnvironmentVariable("OPENANIME_API_KEY");
+        if (!string.IsNullOrWhiteSpace(envKey))
+        {
+            return envKey.Trim();
+        }
+
+        try
+        {
+            var configPath = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+                ".config",
+                "migurdex",
+                "config.json");
+
+            if (File.Exists(configPath))
+            {
+                using var doc = JsonDocument.Parse(File.ReadAllText(configPath));
+                if (doc.RootElement.TryGetProperty("OpenAnimeApiKey", out var prop))
+                {
+                    var val = prop.GetString();
+                    if (!string.IsNullOrWhiteSpace(val))
+                    {
+                        return val.Trim();
+                    }
+                }
+            }
+        }
+        catch
+        {
+            // ignored
+        }
+
+        return null;
+    }
+
     private async Task<string?> DecodeKyubiSubtitleAsync(byte[] packageBytes,
         CancellationToken                                       cancellationToken = default)
     {
         try
         {
+            var apiKey = GetConfiguredApiKey();
+            if (string.IsNullOrEmpty(apiKey))
+            {
+                _logger.LogWarning("OpenAnime altyazı anahtarı tanımlı değil. Discord üzerinden alıp Ayarlar menüsünden girebilirsiniz.");
+                return null;
+            }
+
             var payload = new KyubiDecodePayload
             {
                 EncodedData = Convert.ToBase64String(packageBytes)
@@ -781,11 +844,19 @@ public class OpenAnimeProvider : IAnimeProvider
             {
                 Content = JsonContent.Create(payload)
             };
+            request.Headers.Add("x-api-key", apiKey);
 
             var response = await _httpClient.SendAsync(request, cancellationToken);
             if (!response.IsSuccessStatusCode)
             {
-                _logger.LogWarning("kyubi decoder returned status {StatusCode}", response.StatusCode);
+                if (response.StatusCode == HttpStatusCode.Unauthorized || response.StatusCode == HttpStatusCode.Forbidden)
+                {
+                    _logger.LogWarning("OpenAnime altyazı anahtarı geçersiz veya yetkisiz. Discord sunucusundan yeni bir anahtar alabilirsiniz.");
+                }
+                else
+                {
+                    _logger.LogWarning("kyubi decoder returned status {StatusCode}", response.StatusCode);
+                }
                 return null;
             }
 
