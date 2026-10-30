@@ -12,6 +12,7 @@ using Migurdex.Core.Services.Turnstile;
 using Migurdex.Shared.Models;
 using Migurdex.Shared.Update;
 using Spectre.Console;
+using System.Text;
 
 namespace Migurdex.Cli;
 
@@ -21,7 +22,7 @@ public static class Program
     {
         try
         {
-            Console.OutputEncoding = System.Text.Encoding.UTF8;
+            Console.OutputEncoding = Encoding.UTF8;
         }
         catch
         {
@@ -30,7 +31,7 @@ public static class Program
 
         try
         {
-            Console.InputEncoding = System.Text.Encoding.UTF8;
+            Console.InputEncoding = Encoding.UTF8;
         }
         catch
         {
@@ -334,20 +335,21 @@ public static class Program
             var config = configService.Config;
 
             using var cts = CancellationTokenSource.CreateLinkedTokenSource(
-                                TuiApplicationCancellation.Token);
+                TuiApplicationCancellation.Token);
             cts.CancelAfter(TimeSpan.FromSeconds(8));
 
             IReadOnlyList<DependencyUpdate> updates;
             try
             {
-                updates = await checker.CheckAsync(force: false,
-                                                    progress: null,
-                                                    cancellationToken: cts.Token);
+                updates = await checker.CheckAsync(false,
+                                                   progress: null,
+                                                   cancellationToken: cts.Token);
             }
             catch (OperationCanceledException) when (!TuiApplicationCancellation.Token.IsCancellationRequested)
             {
                 return;
             }
+
             if (updates.Count == 0)
             {
                 return;
@@ -423,6 +425,7 @@ public static class Program
         }
         catch
         {
+            // ignored
         }
     }
 

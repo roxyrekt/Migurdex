@@ -2,6 +2,8 @@ namespace Migurdex.Cli.Services;
 
 internal static class InstallLayout
 {
+    private static readonly Lazy<byte[]> _launcherScript = new(LoadLauncherScript);
+
     public static string ResolveInstallRoot()
     {
         var baseDir = TrimSeparator(AppContext.BaseDirectory);
@@ -33,17 +35,19 @@ internal static class InstallLayout
         return Path.Combine(installRoot, "api");
     }
 
-    private const string LauncherScript =
-        """
-        #!/bin/sh
+    private static byte[] LoadLauncherScript()
+    {
+        var asm = typeof(InstallLayout).Assembly;
 
-        self=$0
-        if command -v readlink >/dev/null 2>&1; then
-            resolved=$(readlink -f "$0" 2>/dev/null) && [ -n "$resolved" ] && self=$resolved
-        fi
-        dir=$(CDPATH= cd -- "$(dirname -- "$self")" && pwd)
-        exec "$dir/cli/migurdex" "$@"
-        """;
+        using var stream = asm.GetManifestResourceStream("Migurdex.Cli.migurdex-launcher.sh")
+                           ?? throw new InvalidOperationException(
+                               "gömülü kaynak bulunamadı: Migurdex.Cli.migurdex-launcher.sh");
+
+        using var buffer = new MemoryStream();
+        stream.CopyTo(buffer);
+
+        return buffer.ToArray();
+    }
 
     public static void EnsureRootLauncher(string installRoot)
     {
@@ -74,7 +78,7 @@ internal static class InstallLayout
             {
                 info.Delete();
             }
-            else if (info.Exists && info.Length == LauncherScript.Length)
+            else if (info.Exists && IsCurrentLauncher(info.FullName))
             {
                 return;
             }
@@ -83,7 +87,7 @@ internal static class InstallLayout
                 info.Delete();
             }
 
-            File.WriteAllText(link, LauncherScript);
+            File.WriteAllBytes(link, _launcherScript.Value);
             File.SetUnixFileMode(link,
                                  UnixFileMode.UserRead
                                  | UnixFileMode.UserWrite
@@ -96,6 +100,21 @@ internal static class InstallLayout
         catch
         {
             // ignored
+        }
+    }
+
+    private static bool IsCurrentLauncher(string path)
+    {
+        try
+        {
+            var onDisk   = File.ReadAllBytes(path);
+            var expected = _launcherScript.Value;
+
+            return onDisk.AsSpan().SequenceEqual(expected);
+        }
+        catch
+        {
+            return false;
         }
     }
 

@@ -39,6 +39,11 @@ internal static class HardLink
 
             File.Move(tmp, newPath, true);
 
+            // hedef zaten aynı inode'a bağlıysa posix rename() no-op olur ve
+            // geçici dosya diskte kalır (link count 3'e çıkar, her dedupe da
+            // bir .hltmp birikir) koşulsuz temizle
+            TryDelete(tmp);
+
             return true;
         }
         catch
@@ -135,7 +140,7 @@ internal static class HardLinkDeduplicator
     }
 
     /// <summary>
-    /// Düz yerleşim: CLI kökte, API <c>api/</c> altında, <c>cli/</c> yok (Windows).
+    ///     Düz yerleşim: CLI kökte, API <c>api/</c> altında, <c>cli/</c> yok (Windows).
     /// </summary>
     private static bool IsFlatLayout(string cliDir, string apiDir)
     {

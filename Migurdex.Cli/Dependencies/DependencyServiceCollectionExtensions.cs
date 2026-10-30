@@ -88,9 +88,11 @@ public static class DependencyServiceCollectionExtensions
             }
             catch (IOException)
             {
+                // ignored
             }
             catch (UnauthorizedAccessException)
             {
+                // ignored
             }
         }
 

@@ -150,8 +150,6 @@ public static class DependencyDownload
         return chunks;
     }
 
-    private sealed record ProbeResult(bool SupportsRanges, long Length);
-
     private static async Task<ProbeResult> ProbeAsync(
         HttpClient        httpClient,
         string            url,
@@ -518,6 +516,7 @@ public static class DependencyDownload
         }
         catch
         {
+            // ignored
         }
     }
 
@@ -532,6 +531,9 @@ public static class DependencyDownload
         }
         catch
         {
+            // ignored
         }
     }
+
+    private sealed record ProbeResult(bool SupportsRanges, long Length);
 }

@@ -71,6 +71,7 @@ public static class DependencyReleaseCatalog
             }
             catch (HttpRequestException)
             {
+                // ignored
             }
         }
 

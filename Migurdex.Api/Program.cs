@@ -134,6 +134,7 @@ app.Use(async (context, next) =>
         }
         catch
         {
+            // ignored
         }
     }
 });

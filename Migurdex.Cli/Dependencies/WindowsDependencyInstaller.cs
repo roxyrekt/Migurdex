@@ -255,6 +255,7 @@ public sealed class WindowsDependencyInstaller : IDependencyInstaller
             }
             catch (HttpRequestException)
             {
+                // ignored
             }
 
             await DependencyDownload.DownloadFileAsync(_httpClient,
@@ -507,9 +508,11 @@ public sealed class WindowsDependencyInstaller : IDependencyInstaller
                 }
                 catch (IOException)
                 {
+                    // ignored
                 }
                 catch (UnauthorizedAccessException)
                 {
+                    // ignored
                 }
             }
         }
@@ -537,6 +540,7 @@ public sealed class WindowsDependencyInstaller : IDependencyInstaller
             }
             catch (ArgumentException)
             {
+                // ignored
             }
         }
 
@@ -585,6 +589,7 @@ public sealed class WindowsDependencyInstaller : IDependencyInstaller
                 }
                 catch
                 {
+                    // ignored
                 }
             }
 
@@ -653,6 +658,7 @@ public sealed class WindowsDependencyInstaller : IDependencyInstaller
         }
         catch
         {
+            // ignored
         }
     }
 
@@ -667,6 +673,7 @@ public sealed class WindowsDependencyInstaller : IDependencyInstaller
         }
         catch
         {
+            // ignored
         }
     }
 }

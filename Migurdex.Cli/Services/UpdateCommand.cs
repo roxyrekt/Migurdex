@@ -1,4 +1,5 @@
 using Microsoft.Extensions.DependencyInjection;
+using SharpCompress.Compressors.Xz;
 using Spectre.Console;
 using System.Diagnostics;
 using System.Formats.Tar;
@@ -141,6 +142,7 @@ public static class UpdateCommand
             }
             catch
             {
+                // ignored
             }
         }
 
@@ -203,77 +205,18 @@ public static class UpdateCommand
         {
             StopApiDaemon();
 
-            var archivePath = Path.Combine(tmpDir, result.AssetName!);
-            AnsiConsole.MarkupLine($"[cyan]İndiriliyor:[/] {result.AssetName}"
-                                   + (result.AssetSize is > 0
-                                          ? $" ({result.AssetSize / 1024 / 1024} MB)"
-                                          : ""));
-
-            if (!await DownloadFileAsync(result.AssetUrl!, archivePath))
+            if (result.Delta is { } delta)
             {
-                AnsiConsole.MarkupLine("[red]Paket indirilemedi.[/]");
-                return 1;
-            }
-
-            if (!await VerifyChecksumAsync(result, archivePath))
-            {
-                return 1;
-            }
-
-            var extractDir = Path.Combine(tmpDir, "extracted");
-            Directory.CreateDirectory(extractDir);
-
-            AnsiConsole.MarkupLine("[cyan]Paket açılıyor...[/]");
-            try
-            {
-                ExtractArchive(archivePath, extractDir);
-            }
-            catch (Exception ex)
-            {
-                AnsiConsole.MarkupLine($"[red]Paket açılamadı: {Markup.Escape(ex.Message)}[/]");
-                return 1;
-            }
-
-            var (copied, deferred, backedUp) = CopyTree(FindPayloadRoot(extractDir), installRoot);
-            AnsiConsole.MarkupLine($"[green]Güncellendi:[/] {copied} dosya yazıldı.");
-
-            // Paylaşılan .NET runtime dosyalarını tekrar hardlink'e çevir; aksi halde
-            // her güncellemede disk iki katına çıkar.
-            if (InstallLayout.CanShareRuntime(installRoot))
-            {
-                var cliDir = InstallLayout.ResolveCliDir(installRoot);
-                var apiDir = InstallLayout.ResolveApiDir(installRoot);
-                var (linked, saved) = HardLinkDeduplicator.Run(cliDir, apiDir);
-                if (linked > 0)
+                var deltaStatus = await TryApplyDeltaAsync(result, delta, installRoot, tmpDir);
+                if (deltaStatus == 0)
                 {
-                    AnsiConsole.MarkupLine($"[grey]{linked} paylaşılan dosya hardlink'lendi "
-                                           + $"({saved / 1024 / 1024} MB tasarruf).[/]");
+                    return 0;
                 }
 
-                InstallLayout.EnsureRootLauncher(installRoot);
+                AnsiConsole.MarkupLine("[yellow]Delta uygulanamadi, tam pakete geçiliyor...[/]");
             }
 
-            if (backedUp.Count > 0)
-            {
-                AnsiConsole.MarkupLine("[grey]Önceki sürüm yedeği:[/]");
-                foreach (var f in backedUp)
-                {
-                    AnsiConsole.WriteLine($"  {f}");
-                }
-            }
-
-            if (deferred.Count > 0)
-            {
-                AnsiConsole.MarkupLine("[yellow]Kilitli olduğu için yazılamayan dosya:[/]");
-                foreach (var f in deferred)
-                {
-                    AnsiConsole.WriteLine($"  {f} (.new uzantısıyla yazıldı, manuel olarak yeniden adlandırın)");
-                }
-
-                return 2;
-            }
-
-            return 0;
+            return await ApplyFullArchiveAsync(result, installRoot, tmpDir);
         }
         finally
         {
@@ -286,6 +229,162 @@ public static class UpdateCommand
                 // ignored
             }
         }
+    }
+
+    private static async Task<int> TryApplyDeltaAsync(UpdateCheckResult result,
+        BlobDelta                                                       delta,
+        string                                                          installRoot,
+        string                                                          tmpDir)
+    {
+        try
+        {
+            var manifestPath = Path.Combine(tmpDir, delta.ManifestName);
+
+            AnsiConsole.MarkupLine($"[cyan]Manifest indiriliyor:[/] {delta.ManifestName}"
+                                   + $" ({delta.ManifestSize / 1024} KB)");
+
+            if (!await DownloadFileAsync(delta.ManifestUrl, manifestPath))
+            {
+                AnsiConsole.MarkupLine("[yellow]Manifest indirilemedi.[/]");
+
+                return 1;
+            }
+
+            BlobManifest manifest;
+            await using (var fs = File.OpenRead(manifestPath))
+            {
+                manifest = await BlobManifest.LoadGzipAsync(fs);
+            }
+
+            if (manifest.Runtime.Length > 0
+                && !manifest.Runtime.Equals(RuntimeId(), StringComparison.OrdinalIgnoreCase))
+            {
+                AnsiConsole.MarkupLine($"[yellow]Manifest runtime uyuşmuyor ({manifest.Runtime}).[/]");
+
+                return 1;
+            }
+
+            AnsiConsole.MarkupLine($"[cyan]Delta uygulanıyor:[/] {manifest.Paths.Count} dosya, "
+                                   + $"{manifest.Blobs.Count} benzersiz blob");
+
+            var blobResult = await BlobStoreUpdater.ApplyAsync(delta.StoreUrl,
+                                                               installRoot,
+                                                               manifest,
+                                                               tmpDir);
+
+            AnsiConsole.MarkupLine($"[green]Güncellendi:[/] {blobResult.Written} dosya yazıldı, "
+                                   + $"{blobResult.Reused} dosya zaten günceldi"
+                                   + (blobResult.Deleted > 0 ? $", {blobResult.Deleted} eski dosya silindi" : "")
+                                   + $". ({blobResult.BytesDownloaded / 1024} KB indirildi)");
+
+            RefreshSharedRuntime(installRoot);
+
+            if (blobResult.Deferred.Count > 0)
+            {
+                AnsiConsole.MarkupLine("[yellow]Kilitli olduğu için yazılamayan dosya:[/]");
+                foreach (var f in blobResult.Deferred)
+                {
+                    AnsiConsole.WriteLine($"  {f} (.new uzantısıyla yazıldı, manuel olarak yeniden adlandırın)");
+                }
+
+                return 2;
+            }
+
+            return 0;
+        }
+        catch (Exception ex)
+        {
+            AnsiConsole.MarkupLine($"[yellow]Delta hatası: {Markup.Escape(ex.Message)}[/]");
+
+            return 1;
+        }
+    }
+
+    private static async Task<int> ApplyFullArchiveAsync(UpdateCheckResult result, string installRoot, string tmpDir)
+    {
+        var archivePath = Path.Combine(tmpDir, result.AssetName!);
+        AnsiConsole.MarkupLine($"[cyan]İndiriliyor:[/] {result.AssetName}"
+                               + (result.AssetSize is > 0
+                                      ? $" ({result.AssetSize / 1024 / 1024} MB)"
+                                      : ""));
+
+        if (!await DownloadFileAsync(result.AssetUrl!, archivePath))
+        {
+            AnsiConsole.MarkupLine("[red]Paket indirilemedi.[/]");
+
+            return 1;
+        }
+
+        if (!await VerifyChecksumAsync(result, archivePath))
+        {
+            return 1;
+        }
+
+        var extractDir = Path.Combine(tmpDir, "extracted");
+        Directory.CreateDirectory(extractDir);
+
+        AnsiConsole.MarkupLine("[cyan]Paket açılıyor...[/]");
+        try
+        {
+            ExtractArchive(archivePath, extractDir);
+        }
+        catch (Exception ex)
+        {
+            AnsiConsole.MarkupLine($"[red]Paket açılamadı: {Markup.Escape(ex.Message)}[/]");
+
+            return 1;
+        }
+
+        var (copied, deferred, backedUp) = CopyTree(FindPayloadRoot(extractDir), installRoot);
+        AnsiConsole.MarkupLine($"[green]Güncellendi:[/] {copied} dosya yazıldı.");
+
+        RefreshSharedRuntime(installRoot);
+
+        if (backedUp.Count > 0)
+        {
+            AnsiConsole.MarkupLine("[grey]Önceki sürüm yedeği:[/]");
+            foreach (var f in backedUp)
+            {
+                AnsiConsole.WriteLine($"  {f}");
+            }
+        }
+
+        if (deferred.Count > 0)
+        {
+            AnsiConsole.MarkupLine("[yellow]Kilitli olduğu için yazılamayan dosya:[/]");
+            foreach (var f in deferred)
+            {
+                AnsiConsole.WriteLine($"  {f} (.new uzantısıyla yazıldı, manuel olarak yeniden adlandırın)");
+            }
+
+            return 2;
+        }
+
+        return 0;
+    }
+
+    private static void RefreshSharedRuntime(string installRoot)
+    {
+        if (!InstallLayout.CanShareRuntime(installRoot))
+        {
+            return;
+        }
+
+        var cliDir = InstallLayout.ResolveCliDir(installRoot);
+        var apiDir = InstallLayout.ResolveApiDir(installRoot);
+        var (linked, saved) = HardLinkDeduplicator.Run(cliDir, apiDir);
+        if (linked > 0)
+        {
+            AnsiConsole.MarkupLine($"[grey]{linked} paylaşılan dosya hardlink'lendi "
+                                   + $"({saved / 1024 / 1024} MB tasarruf).[/]");
+        }
+
+        InstallLayout.EnsureRootLauncher(installRoot);
+    }
+
+    private static string RuntimeId()
+    {
+        return OperatingSystem.IsWindows() ? "win-x64" : "linux-x64";
     }
 
     private static void StopApiDaemon()
@@ -363,7 +462,7 @@ public static class UpdateCommand
             string? expected = null;
             foreach (var line in text.Split('\n'))
             {
-                var parts = line.Split((char[])[' ', '\t', '*'], StringSplitOptions.RemoveEmptyEntries);
+                var parts = line.Split((char[]) [' ', '\t', '*'], StringSplitOptions.RemoveEmptyEntries);
                 if (parts.Length >= 2
                     && parts[^1].Trim().Equals(result.AssetName, StringComparison.OrdinalIgnoreCase))
                 {
@@ -411,7 +510,7 @@ public static class UpdateCommand
             // bu yuzden Windows'ta da calisir. TarFile hardlink ve symlink
             // girdilerini kurar (ExtractAsHardLink).
             using var xzFs = File.OpenRead(archivePath);
-            using var xz   = new SharpCompress.Compressors.Xz.XZStream(xzFs);
+            using var xz   = new XZStream(xzFs);
             TarFile.ExtractToDirectory(xz, destDir, true);
             return;
         }
@@ -613,7 +712,7 @@ public static class UpdateCommand
             }
             catch
             {
-                // fallback to Process.Start
+                // ignored
             }
         }
 
