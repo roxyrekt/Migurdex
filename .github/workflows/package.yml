@@ -128,7 +128,8 @@ jobs:
                       [ "$(sha256sum "$f" | cut -d' ' -f1)" = "$(sha256sum "$dst" | cut -d' ' -f1)" ] || continue
                       size=$(stat -c %s "$f")
                       if ln "$dst" "$f.hltmp" 2>/dev/null; then
-                        mv -f "$f.hltmp" "$f" 2>/dev/null || rm -f "$f.hltmp"
+                        mv -f "$f.hltmp" "$f" 2>/dev/null
+                        rm -f "$f.hltmp" 2>/dev/null
                         linked=$((linked+1)); saved=$((saved+size))
                       else
                         rm -f "$f.hltmp"
@@ -168,9 +169,25 @@ jobs:
                     echo "hardlink: $(tar -tvJf migurdex-${{ matrix.runtime }}.tar.xz | grep -c '^h')"
 
                     if [ "${{ matrix.os }}" = "windows-latest" ]; then
-                      (cd dist && 7z a -tzip "../migurdex-${{ matrix.runtime }}.zip" * >/dev/null)
+                      (cd dist && 7z a -tzip "../migurdex-${{ matrix.runtime }}.zip" \
+                        -x'!*.tar.xz' -x'!*.tar.gz' -x'!*.blobs.tar' -x'!*.manifest.json.gz' \
+                        * >/dev/null)
                       echo "zip (eski istemciler): $(du -h migurdex-${{ matrix.runtime }}.zip | cut -f1)"
                     fi
+
+            -   name: Build delta blob store
+                shell: bash
+                run: |
+                    python3 assets/packaging/build-blobs.py \
+                      --input dist \
+                      --output-dir . \
+                      --runtime ${{ matrix.runtime }} \
+                      --exclude '*.tar.xz' \
+                      --exclude '*.tar.gz' \
+                      --exclude '*.zip' \
+                      --exclude '*.blobs.tar' \
+                      --exclude '*.manifest.json.gz'
+                    ls -lh migurdex-${{ matrix.runtime }}.blobs.tar migurdex-${{ matrix.runtime }}.manifest.json.gz
 
             -   name: Download appimagetool
                 if: matrix.os != 'windows-latest'
@@ -204,9 +221,9 @@ jobs:
                 shell: bash
                 run: |
                     if [ "${{ matrix.os }}" != "windows-latest" ]; then
-                      (cd "$GITHUB_WORKSPACE" && sha256sum migurdex-${{ matrix.runtime }}.tar.xz migurdex-${{ matrix.runtime }}.tar.gz > sha256sums-${{ matrix.runtime }}.txt)
+                      (cd "$GITHUB_WORKSPACE" && sha256sum migurdex-${{ matrix.runtime }}.tar.xz migurdex-${{ matrix.runtime }}.tar.gz migurdex-${{ matrix.runtime }}.blobs.tar migurdex-${{ matrix.runtime }}.manifest.json.gz > sha256sums-${{ matrix.runtime }}.txt)
                     else
-                      (cd "$GITHUB_WORKSPACE" && sha256sum migurdex-${{ matrix.runtime }}.tar.xz migurdex-${{ matrix.runtime }}.tar.gz migurdex-${{ matrix.runtime }}.zip > sha256sums-${{ matrix.runtime }}.txt)
+                      (cd "$GITHUB_WORKSPACE" && sha256sum migurdex-${{ matrix.runtime }}.tar.xz migurdex-${{ matrix.runtime }}.tar.gz migurdex-${{ matrix.runtime }}.zip migurdex-${{ matrix.runtime }}.blobs.tar migurdex-${{ matrix.runtime }}.manifest.json.gz > sha256sums-${{ matrix.runtime }}.txt)
                     fi
 
             -   name: Upload AppImage Artifact
@@ -225,6 +242,8 @@ jobs:
                     path: |
                         migurdex-${{ matrix.runtime }}.tar.xz
                         migurdex-${{ matrix.runtime }}.tar.gz
+                        migurdex-${{ matrix.runtime }}.blobs.tar
+                        migurdex-${{ matrix.runtime }}.manifest.json.gz
                         migurdex-${{ matrix.runtime }}.zip
                         sha256sums-${{ matrix.runtime }}.txt
                     retention-days: 1

@@ -9,35 +9,34 @@ public sealed class DependencyResolver
 {
     private static readonly TimeSpan VersionTimeout = TimeSpan.FromSeconds(3);
 
-    private readonly Func<DependencyKind, string?>        _configuredPath;
-    private readonly IReadOnlyList<string>                _extraSearchDirectories;
-    private readonly object                               _gate = new();
-    private readonly IDependencyInstaller                 _installer;
-    private readonly Func<string?>                        _pathEnvironment;
-    private readonly IExternalProcessRunner               _processRunner;
-    private readonly Dictionary<DependencyKind, string?>  _resolved = new();
-    private readonly string                               _toolsDirectory;
+    private readonly Func<DependencyKind, string?>       _configuredPath;
+    private readonly IReadOnlyList<string>               _extraSearchDirectories;
+    private readonly object                              _gate = new();
+    private readonly Func<string?>                       _pathEnvironment;
+    private readonly IExternalProcessRunner              _processRunner;
+    private readonly Dictionary<DependencyKind, string?> _resolved = new();
 
     public DependencyResolver(
         IDependencyInstaller          installer,
         Func<DependencyKind, string?> configuredPath,
         string                        toolsDirectory,
-        Func<string?>?                pathEnvironment       = null,
-        IExternalProcessRunner?       processRunner         = null,
+        Func<string?>?                pathEnvironment        = null,
+        IExternalProcessRunner?       processRunner          = null,
         IEnumerable<string>?          extraSearchDirectories = null)
     {
-        _installer              = installer ?? throw new ArgumentNullException(nameof(installer));
+        Installer               = installer ?? throw new ArgumentNullException(nameof(installer));
         _configuredPath         = configuredPath ?? throw new ArgumentNullException(nameof(configuredPath));
-        _toolsDirectory         = toolsDirectory ?? throw new ArgumentNullException(nameof(toolsDirectory));
+        ToolsDirectory          = toolsDirectory ?? throw new ArgumentNullException(nameof(toolsDirectory));
         _pathEnvironment        = pathEnvironment ?? (() => Environment.GetEnvironmentVariable("PATH"));
         _processRunner          = processRunner ?? new ExternalProcessRunner();
         _extraSearchDirectories = (extraSearchDirectories ?? []).Where(d => !string.IsNullOrWhiteSpace(d)).ToList();
     }
 
-    public IDependencyInstaller Installer      => _installer;
-    public string               PlatformName   => _installer.PlatformName;
-    public bool                 CanAutoInstall => _installer.CanAutoInstall;
-    public string               ToolsDirectory => _toolsDirectory;
+    public IDependencyInstaller Installer { get; }
+
+    public string PlatformName   => Installer.PlatformName;
+    public bool   CanAutoInstall => Installer.CanAutoInstall;
+    public string ToolsDirectory { get; }
 
     public void InvalidateCache()
     {
@@ -92,7 +91,7 @@ public sealed class DependencyResolver
             return File.Exists(configured) ? Path.GetFullPath(configured) : null;
         }
 
-        var inToolsDirectory = FindInDirectory(_toolsDirectory, kind);
+        var inToolsDirectory = FindInDirectory(ToolsDirectory, kind);
         if (inToolsDirectory is not null)
         {
             return inToolsDirectory;
@@ -164,6 +163,7 @@ public sealed class DependencyResolver
             }
             catch (ArgumentException)
             {
+                // ignored
             }
         }
 
@@ -183,7 +183,10 @@ public sealed class DependencyResolver
             return null;
         }
 
-        var candidates = new List<string> { commandName };
+        var candidates = new List<string>
+        {
+            commandName
+        };
         foreach (var candidate in Candidates(kind))
         {
             if (!candidates.Contains(candidate, StringComparer.OrdinalIgnoreCase))
@@ -211,6 +214,7 @@ public sealed class DependencyResolver
                 }
                 catch (ArgumentException)
                 {
+                    // ignored
                 }
             }
         }
@@ -220,7 +224,10 @@ public sealed class DependencyResolver
 
     private static IEnumerable<string> Candidates(DependencyKind kind)
     {
-        var candidates = new List<string> { DependencyCatalog.FileName(kind) };
+        var candidates = new List<string>
+        {
+            DependencyCatalog.FileName(kind)
+        };
         foreach (var candidate in DependencyCatalog.ExecutableCandidates(kind))
         {
             if (!candidates.Contains(candidate, StringComparer.OrdinalIgnoreCase))
@@ -233,9 +240,9 @@ public sealed class DependencyResolver
     }
 
     private async Task<string?> TryGetVersionAsync(
-        DependencyKind     kind,
-        string             path,
-        CancellationToken  cancellationToken)
+        DependencyKind    kind,
+        string            path,
+        CancellationToken cancellationToken)
     {
         var startInfo = new ProcessStartInfo
         {
@@ -258,8 +265,8 @@ public sealed class DependencyResolver
             }
 
             var firstLine = (result.StandardOutput + "\n" + result.StandardError)
-                           .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-                           .FirstOrDefault();
+                            .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                            .FirstOrDefault();
 
             return Truncate(firstLine);
         }

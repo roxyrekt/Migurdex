@@ -7,10 +7,14 @@ namespace Migurdex.Core.Services;
 
 public sealed class BlameCollector : IBlameCollector
 {
-    private readonly Lock _gate = new();
+    private readonly Lock                             _gate       = new();
     private readonly Dictionary<string, OperationAcc> _operations = new(StringComparer.OrdinalIgnoreCase);
-    private readonly Dictionary<string, ProviderAcc> _providers = new(StringComparer.OrdinalIgnoreCase);
-    private readonly DateTime _since = DateTime.UtcNow;
+    private readonly Dictionary<string, ProviderAcc>  _providers  = new(StringComparer.OrdinalIgnoreCase);
+    private readonly DateTime                         _since      = DateTime.UtcNow;
+
+    private DateTime _lastSave = DateTime.MinValue;
+
+    public string? PersistPath { get; set; }
 
     public void RecordOperation(string operation, long elapsedMs, bool failed, bool clientError = false)
     {
@@ -18,13 +22,13 @@ public sealed class BlameCollector : IBlameCollector
         {
             if (!_operations.TryGetValue(operation, out var acc))
             {
-                acc = new OperationAcc();
+                acc                    = new OperationAcc();
                 _operations[operation] = acc;
             }
 
             acc.Calls++;
             acc.TotalMs += elapsedMs;
-            acc.MaxMs = Math.Max(acc.MaxMs, elapsedMs);
+            acc.MaxMs   =  Math.Max(acc.MaxMs, elapsedMs);
             if (failed)
             {
                 acc.Errors++;
@@ -45,13 +49,17 @@ public sealed class BlameCollector : IBlameCollector
             var key = $"{operation}|{provider}";
             if (!_providers.TryGetValue(key, out var acc))
             {
-                acc = new ProviderAcc { Provider = provider, Operation = operation };
+                acc = new ProviderAcc
+                {
+                    Provider  = provider,
+                    Operation = operation
+                };
                 _providers[key] = acc;
             }
 
             acc.Calls++;
             acc.TotalMs += elapsedMs;
-            acc.MaxMs = Math.Max(acc.MaxMs, elapsedMs);
+            acc.MaxMs   =  Math.Max(acc.MaxMs, elapsedMs);
             switch (outcome)
             {
                 case BlameOutcome.Timeout:
@@ -83,39 +91,71 @@ public sealed class BlameCollector : IBlameCollector
             {
                 Since = _since,
                 Operations = _operations
-                    .Select(kv => new OperationBlame
-                    {
-                        Operation    = kv.Key,
-                        Calls        = kv.Value.Calls,
-                        AvgMs        = kv.Value.Calls > 0 ? (double) kv.Value.TotalMs / kv.Value.Calls : 0,
-                        MaxMs        = kv.Value.MaxMs,
-                        Errors       = kv.Value.Errors,
-                        ClientErrors = kv.Value.ClientErrors,
-                        LastAt       = kv.Value.LastAt
-                    })
-                    .OrderByDescending(o => o.AvgMs)
-                    .ToList(),
+                             .Select(kv => new OperationBlame
+                             {
+                                 Operation    = kv.Key,
+                                 Calls        = kv.Value.Calls,
+                                 AvgMs        = kv.Value.Calls > 0 ? (double) kv.Value.TotalMs / kv.Value.Calls : 0,
+                                 MaxMs        = kv.Value.MaxMs,
+                                 Errors       = kv.Value.Errors,
+                                 ClientErrors = kv.Value.ClientErrors,
+                                 LastAt       = kv.Value.LastAt
+                             })
+                             .OrderByDescending(o => o.AvgMs)
+                             .ToList(),
                 Providers = _providers.Values
-                    .Select(a => new ProviderBlame
-                    {
-                        Operation  = a.Operation,
-                        Provider   = a.Provider,
-                        Calls      = a.Calls,
-                        AvgMs      = a.Calls > 0 ? (double) a.TotalMs / a.Calls : 0,
-                        MaxMs      = a.MaxMs,
-                        Timeouts   = a.Timeouts,
-                        Mismatches = a.Mismatches,
-                        Matched    = a.Matched,
-                        Empties    = a.Empties,
-                        Errors     = a.Errors
-                    })
-                    .OrderByDescending(p => p.AvgMs)
-                    .ToList()
+                                      .Select(a => new ProviderBlame
+                                      {
+                                          Operation  = a.Operation,
+                                          Provider   = a.Provider,
+                                          Calls      = a.Calls,
+                                          AvgMs      = a.Calls > 0 ? (double) a.TotalMs / a.Calls : 0,
+                                          MaxMs      = a.MaxMs,
+                                          Timeouts   = a.Timeouts,
+                                          Mismatches = a.Mismatches,
+                                          Matched    = a.Matched,
+                                          Empties    = a.Empties,
+                                          Errors     = a.Errors
+                                      })
+                                      .OrderByDescending(p => p.AvgMs)
+                                      .ToList()
             };
         }
     }
 
-    public string? PersistPath { get; set; }
+    public void SaveIfStale(TimeSpan? maxAge = null)
+    {
+        var path = PersistPath;
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            return;
+        }
+
+        lock (_gate)
+        {
+            if (DateTime.UtcNow - _lastSave < (maxAge ?? TimeSpan.FromMinutes(1)))
+            {
+                return;
+            }
+
+            _lastSave = DateTime.UtcNow;
+        }
+
+        try
+        {
+            var dir = Path.GetDirectoryName(path);
+            if (!string.IsNullOrEmpty(dir))
+            {
+                Directory.CreateDirectory(dir);
+            }
+
+            File.WriteAllText(path, ToJson());
+        }
+        catch
+        {
+            // ignored
+        }
+    }
 
     public string ToJson()
     {
@@ -137,7 +177,10 @@ public sealed class BlameCollector : IBlameCollector
                 return null;
             }
 
-            var collector = new BlameCollector { PersistPath = path };
+            var collector = new BlameCollector
+            {
+                PersistPath = path
+            };
             foreach (var o in report.Operations)
             {
                 collector._operations[o.Operation] = new OperationAcc
@@ -176,63 +219,28 @@ public sealed class BlameCollector : IBlameCollector
         }
     }
 
-    public void SaveIfStale(TimeSpan? maxAge = null)
-    {
-        var path = PersistPath;
-        if (string.IsNullOrWhiteSpace(path))
-        {
-            return;
-        }
-
-        lock (_gate)
-        {
-            if (DateTime.UtcNow - _lastSave < (maxAge ?? TimeSpan.FromMinutes(1)))
-            {
-                return;
-            }
-
-            _lastSave = DateTime.UtcNow;
-        }
-
-        try
-        {
-            var dir = Path.GetDirectoryName(path);
-            if (!string.IsNullOrEmpty(dir))
-            {
-                Directory.CreateDirectory(dir);
-            }
-
-            File.WriteAllText(path, ToJson());
-        }
-        catch
-        {
-        }
-    }
-
-    private DateTime _lastSave = DateTime.MinValue;
-
     private sealed class OperationAcc
     {
         public int      Calls;
-        public long     TotalMs;
-        public long     MaxMs;
-        public int      Errors;
         public int      ClientErrors;
+        public int      Errors;
         public DateTime LastAt;
+        public long     MaxMs;
+        public long     TotalMs;
     }
 
     private sealed class ProviderAcc
     {
-        public string   Provider = string.Empty;
-        public string   Operation = string.Empty;
         public int      Calls;
-        public long     TotalMs;
-        public long     MaxMs;
-        public int      Timeouts;
-        public int      Mismatches;
-        public int      Matched;
         public int      Empties;
         public int      Errors;
         public DateTime LastAt;
+        public int      Matched;
+        public long     MaxMs;
+        public int      Mismatches;
+        public string   Operation = string.Empty;
+        public string   Provider  = string.Empty;
+        public int      Timeouts;
+        public long     TotalMs;
     }
 }

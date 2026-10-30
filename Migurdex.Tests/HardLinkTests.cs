@@ -1,4 +1,5 @@
 using Migurdex.Cli.Services;
+using System.Diagnostics;
 using Xunit;
 
 namespace Migurdex.Tests;
@@ -116,6 +117,44 @@ public sealed class HardLinkTests : IDisposable
         Assert.Equal(payload, File.ReadAllBytes(cliFile));
         Assert.Equal(payload, File.ReadAllBytes(apiFile));
         Assert.True(second.Linked is 0 or 1);
+
+        // geçici .hltmp kalmamalı posix rename() aynı inode'a denk
+        // geldiginde no-op olur, temizlenmezse her dedupe da birikir
+        // ve link count 2 yerine 3 olur
+        Assert.Empty(Directory.GetFiles(cliDir, "*.hltmp", SearchOption.AllDirectories));
+        Assert.Empty(Directory.GetFiles(apiDir, "*.hltmp", SearchOption.AllDirectories));
+    }
+
+    [Fact]
+    public void TryCreate_WhenAlreadyLinked_LeavesNoTempFile()
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        var target = Path.Combine(_root, "cli", "a.dll");
+        var link   = Path.Combine(_root, "api", "a.dll");
+        File.WriteAllBytes(target, [1, 2, 3, 4]);
+
+        Assert.True(HardLink.TryCreate(target, link));
+        Assert.True(HardLink.TryCreate(target, link));
+        Assert.True(HardLink.TryCreate(target, link));
+
+        Assert.Empty(Directory.GetFiles(_root, "*.hltmp", SearchOption.AllDirectories));
+
+        if (!OperatingSystem.IsWindows())
+        {
+            var psi = new ProcessStartInfo("stat", $"-c %h \"{link}\"")
+            {
+                RedirectStandardOutput = true,
+                UseShellExecute        = false
+            };
+            using var p     = Process.Start(psi)!;
+            var       count = p.StandardOutput.ReadToEnd().Trim();
+            p.WaitForExit();
+            Assert.Equal("2", count);
+        }
     }
 
     [Fact]

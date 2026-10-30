@@ -162,4 +162,25 @@ public sealed class InstallLayoutTests : IDisposable
 
         Assert.Equal(first, second);
     }
+
+    [Fact]
+    public void EmbeddedLauncher_MatchesAssetFile()
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        Directory.CreateDirectory(Path.Combine(_root, "cli"));
+        Directory.CreateDirectory(Path.Combine(_root, "api"));
+        File.WriteAllText(Path.Combine(_root, "cli", "migurdex"), "cli-binary");
+
+        InstallLayout.EnsureRootLauncher(_root);
+
+        var written = File.ReadAllBytes(Path.Combine(_root, "migurdex"));
+        var asset   = File.ReadAllBytes(Path.Combine(AppContext.BaseDirectory, "migurdex-launcher.sh"));
+
+        Assert.Equal(asset.Length, written.Length);
+        Assert.Equal(asset, written);
+    }
 }

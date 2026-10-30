@@ -23,6 +23,7 @@
     <ItemGroup>
         <None Include="TestData\extractor-smoke-cases.json" Link="extractor-smoke-cases.json" CopyToOutputDirectory="PreserveNewest"/>
         <None Include="TestData\sevenzip-fixture.7z" Link="sevenzip-fixture.7z" CopyToOutputDirectory="PreserveNewest"/>
+        <None Include="..\assets\packaging\migurdex-launcher.sh" Link="migurdex-launcher.sh" CopyToOutputDirectory="PreserveNewest"/>
     </ItemGroup>
 
 </Project>

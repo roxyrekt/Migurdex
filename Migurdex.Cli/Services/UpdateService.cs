@@ -78,7 +78,8 @@ public class UpdateService : IUpdateService
                 ResolveAsset(release, out var assetUrl, out var assetSize),
                 assetUrl,
                 assetSize,
-                ResolveChecksumUrl(release));
+                ResolveChecksumUrl(release),
+                ResolveDelta(release));
         }
         catch
         {
@@ -219,7 +220,8 @@ public class UpdateService : IUpdateService
             ResolveAsset(nightly, out var assetUrl, out var assetSize),
             assetUrl,
             assetSize,
-            ResolveChecksumUrl(nightly));
+            ResolveChecksumUrl(nightly),
+            ResolveDelta(nightly));
     }
 
     private async Task<GitHubRelease?> GetNightlyAsync(CancellationToken cancellationToken)
@@ -316,7 +318,8 @@ public class UpdateService : IUpdateService
         var asset = candidates
                     .Select(name =>
                                 release.Assets.FirstOrDefault(a => a.Name.Equals(
-                                                                  name, StringComparison.OrdinalIgnoreCase)))
+                                                                  name,
+                                                                  StringComparison.OrdinalIgnoreCase)))
                     .FirstOrDefault(a => a is not null);
 
         url  = asset?.BrowserDownloadUrl;
@@ -328,6 +331,31 @@ public class UpdateService : IUpdateService
     private static string RuntimeLabel()
     {
         return OperatingSystem.IsWindows() ? "win" : "linux";
+    }
+
+    private static BlobDelta? ResolveDelta(GitHubRelease release)
+    {
+        var arch    = GetArchLabel();
+        var runtime = RuntimeLabel();
+
+        var storeName    = $"migurdex-{runtime}-{arch}.blobs.tar";
+        var manifestName = $"migurdex-{runtime}-{arch}.manifest.json.gz";
+
+        var store = release.Assets.FirstOrDefault(a => a.Name.Equals(storeName, StringComparison.OrdinalIgnoreCase));
+        var manifest =
+            release.Assets.FirstOrDefault(a => a.Name.Equals(manifestName, StringComparison.OrdinalIgnoreCase));
+
+        if (store is null || manifest is null)
+        {
+            return null;
+        }
+
+        return new BlobDelta(store.Name,
+                             store.BrowserDownloadUrl,
+                             store.Size,
+                             manifest.Name,
+                             manifest.BrowserDownloadUrl,
+                             manifest.Size);
     }
 
     private static string? ResolveChecksumUrl(GitHubRelease release)

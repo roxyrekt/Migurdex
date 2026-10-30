@@ -12,11 +12,11 @@
 
     <Target Name="CopySqliteNativeToApi" AfterTargets="Publish">
         <ItemGroup>
-            <SqliteNative Include="$(PublishDir)libe_sqlite3.so" Condition="Exists('$(PublishDir)libe_sqlite3.so')" />
-            <SqliteNative Include="$(PublishDir)e_sqlite3.dll" Condition="Exists('$(PublishDir)e_sqlite3.dll')" />
-            <SqliteNative Include="$(PublishDir)libe_sqlite3.dylib" Condition="Exists('$(PublishDir)libe_sqlite3.dylib')" />
+            <SqliteNative Include="$(PublishDir)libe_sqlite3.so" Condition="Exists('$(PublishDir)libe_sqlite3.so')"/>
+            <SqliteNative Include="$(PublishDir)e_sqlite3.dll" Condition="Exists('$(PublishDir)e_sqlite3.dll')"/>
+            <SqliteNative Include="$(PublishDir)libe_sqlite3.dylib" Condition="Exists('$(PublishDir)libe_sqlite3.dylib')"/>
         </ItemGroup>
-        <Copy SourceFiles="@(SqliteNative)" DestinationFolder="$(PublishDir)../api" Condition="'@(SqliteNative)' != ''" SkipUnchangedFiles="true" />
+        <Copy SourceFiles="@(SqliteNative)" DestinationFolder="$(PublishDir)../api" Condition="'@(SqliteNative)' != ''" SkipUnchangedFiles="true"/>
     </Target>
 
     <ItemGroup>
@@ -27,6 +27,11 @@
 
     <ItemGroup>
         <InternalsVisibleTo Include="Migurdex.Tests"/>
+    </ItemGroup>
+
+    <ItemGroup>
+        <EmbeddedResource Include="..\assets\packaging\migurdex-launcher.sh"
+                          LogicalName="Migurdex.Cli.migurdex-launcher.sh"/>
     </ItemGroup>
 
     <ItemGroup>

@@ -5,7 +5,7 @@ namespace Migurdex.Core.Infrastructure.Http;
 
 public class ExtractionCaptureHandler : DelegatingHandler
 {
-    private const int MaxBufferBytes = 512 * 1024;
+    private const int MaxBufferBytes       = 512 * 1024;
     private const int MaxSuccessSniffBytes = 64 * 1024;
 
     public ExtractionCaptureHandler(HttpMessageHandler innerHandler) : base(innerHandler)
@@ -24,7 +24,8 @@ public class ExtractionCaptureHandler : DelegatingHandler
 
         if (!response.IsSuccessStatusCode)
         {
-            ExtractionCapture.Record((int) response.StatusCode, await SniffAsync(response, MaxBufferBytes, cancellationToken));
+            ExtractionCapture.Record((int) response.StatusCode,
+                                     await SniffAsync(response, MaxBufferBytes, cancellationToken));
 
             return response;
         }
@@ -41,8 +42,8 @@ public class ExtractionCaptureHandler : DelegatingHandler
     }
 
     private static async Task<string> SniffAsync(HttpResponseMessage response,
-        int                                                           maxBytes,
-        CancellationToken                                             cancellationToken)
+        int                                                          maxBytes,
+        CancellationToken                                            cancellationToken)
     {
         try
         {
@@ -56,6 +57,7 @@ public class ExtractionCaptureHandler : DelegatingHandler
         }
         catch
         {
+            // ignored
         }
 
         return string.Empty;

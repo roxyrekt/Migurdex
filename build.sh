@@ -82,7 +82,8 @@ dedupe_hardlinks() {
 
         size=$(stat -c %s "$src")
         if ln "$dst" "$src.hltmp" 2>/dev/null; then
-            mv -f "$src.hltmp" "$src" 2>/dev/null || rm -f "$src.hltmp"
+            mv -f "$src.hltmp" "$src" 2>/dev/null
+            rm -f "$src.hltmp" 2>/dev/null
             linked=$((linked + 1))
             saved=$((saved + size))
         else
@@ -182,14 +183,34 @@ if [ "$DO_PUBLISH" = true ]; then
     GZ_ARCHIVE="$DIST_DIR/migurdex-$RUNTIME.tar.gz"
     hl_count=$(tar -tvJf "$XZ_ARCHIVE" | grep -c '^h' || true)
 
+    echo -e "${YELLOW}[7/7] Delta blob deposu hazırlanıyor...${NC}"
+    python3 "$ROOT/assets/packaging/build-blobs.py" \
+        --input "$DIST_DIR" \
+        --output-dir "$DIST_DIR" \
+        --runtime "$RUNTIME" \
+        --exclude '*.tar.xz' \
+        --exclude '*.tar.gz' \
+        --exclude '*.zip' \
+        --exclude '*.blobs.tar' \
+        --exclude '*.manifest.json.gz'
+
+    BLOBS_TAR="$DIST_DIR/migurdex-$RUNTIME.blobs.tar"
+    MANIFEST="$DIST_DIR/migurdex-$RUNTIME.manifest.json.gz"
+
     echo -e "${GREEN}Arşivler oluşturuldu:${NC}"
-    printf "  %-34s %6.1f MB  (hardlink: %s)\n" \
+    printf "  %-40s %6.1f MB  (hardlink: %s)\n" \
         "migurdex-$RUNTIME.tar.xz" \
         "$(awk -v s="$(stat -c %s "$XZ_ARCHIVE")" 'BEGIN{print s/1048576}')" \
         "$hl_count"
-    printf "  %-34s %6.1f MB  (eski istemciler)\n" \
+    printf "  %-40s %6.1f MB  (eski istemciler)\n" \
         "migurdex-$RUNTIME.tar.gz" \
         "$(awk -v s="$(stat -c %s "$GZ_ARCHIVE")" 'BEGIN{print s/1048576}')"
+    printf "  %-40s %6.1f MB  (delta)\n" \
+        "migurdex-$RUNTIME.blobs.tar" \
+        "$(awk -v s="$(stat -c %s "$BLOBS_TAR")" 'BEGIN{print s/1048576}')"
+    printf "  %-40s %6.1f KB  (delta manifest)\n" \
+        "migurdex-$RUNTIME.manifest.json.gz" \
+        "$(awk -v s="$(stat -c %s "$MANIFEST")" 'BEGIN{print s/1024}')"
 
     if [ "${hl_count:-0}" -lt 100 ]; then
         echo -e "${YELLOW}[UYARI] Beklenen ~204 hardlink, bulunan: $hl_count${NC}"
