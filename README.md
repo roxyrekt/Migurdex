@@ -95,7 +95,10 @@ AppImage için Linux'ta `libfuse2` gerekir (bkz. [Gereksinimler](#gereksinimler)
   8 MiB üstü MP4'ler sunucu Range destekliyorsa 2-4 paralel parçayla iner, desteklemiyorsa sıralıya düşer.
 - HLS indirme ilerlemesi yt-dlp'nin ürettiği progress satırlarından okunur; Migurdex yt-dlp'ye daima `--progress` verir
   (yt-dlp'de `--print` bayrağı bu çıktıyı kapattığından).
-- Migurdex yt-dlp veya ffmpeg'i otomatik indirmez/kurmaz.
+- **Windows:** MPV, yt-dlp ve ffmpeg eksikse Migurdex açılışta kurmayı önerir. MPV `winget` ile, yt-dlp ve ffmpeg ise
+doğrudan indirilip `~/.config/migurdex/tools/` altına kurulur. Elle de çalıştırabilirsin: `migurdex deps install`.
+- **Linux/macOS:** Otomatik kurulum henüz yok; araçları paket yöneticinizle kurun (`migurdex deps` ile durumu
+  görebilirsiniz).
 - AppImage için Linux'ta `libfuse2`
 - Kaynaktan derlemek için: .NET 10 SDK + Rust / cargo
 
@@ -130,6 +133,9 @@ migurdex download "bleach" -e 1 --format hls --force --no-resume
 migurdex download "bleach" -e 1 --json       # stdout yalnız JSON, ilerleme stderr'de
 migurdex blame                                # kaynak çözümleme süre ve hata dökümü
 migurdex blame --json                         # JSON çıktı
+migurdex deps                                 # araç durumu (MPV, yt-dlp, ffmpeg)
+migurdex deps install                         # eksik araçları kur (Windows)
+migurdex deps install yt-dlp ffmpeg --force   # seçili araçları yeniden kur
 ```
 
 `download` akışı Search -> Details -> Episode -> Group/Source sırasını izler. Yalnız API'nin çözdüğü doğrudan `MP4` ve
@@ -174,6 +180,9 @@ geçmişe dokunmaz.
 Ayarlar menüsünden değiştirilebilenler: otomatik oynat, bekleme süresi, Discord RPC ve başlık modu, gizli mod, oynatıcı
 logları, API adresi (varsayılan `http://127.0.0.1:7045`), AniList / MAL bağlantısı, sağlayıcı açma-kapama, sıralama
 öncelikleri ve otomatik seçim kuralları (Otomatik / Asla / Sadece).
+
+**Araçlar** bölümünde MPV / yt-dlp / ffmpeg durumunu görebilir, yol ve sürüm detayına bakabilir ve Windows'ta eksik
+araçları tek tuşla kurabilirsin (`Eksik Araçları Kur...`).
 
 Kaydetmeden çıkarsan (`Esc` / İptal) değişiklikler uygulanmaz.
 

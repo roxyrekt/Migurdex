@@ -1,5 +1,6 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using Migurdex.Cli.Dependencies;
 using Migurdex.Cli.Services;
 using Migurdex.Cli.Services.Downloads;
 using Migurdex.Cli.Tui;
@@ -74,6 +75,41 @@ public static class Program
                                               authProvider.GetRequiredService<OAuthTokenStore>(),
                                               authProvider.GetRequiredService<AniListOAuthClient>(),
                                               authProvider.GetRequiredService<MalOAuthClient>());
+        }
+
+        if (args.Length > 0 && args[0].Equals("deps", StringComparison.OrdinalIgnoreCase))
+        {
+            var depsServices = new ServiceCollection();
+            ConfigureServices(depsServices);
+            using var depsProvider = depsServices.BuildServiceProvider();
+
+            using var depsCts           = new CancellationTokenSource();
+            var       cancelRequested = 0;
+
+            ConsoleCancelEventHandler depsCancelHandler = (_, eventArgs) =>
+            {
+                if (Interlocked.Exchange(ref cancelRequested, 1) == 0)
+                {
+                    eventArgs.Cancel = true;
+                    depsCts.Cancel();
+                }
+            };
+
+            Console.CancelKeyPress += depsCancelHandler;
+            try
+            {
+                return await DepsCommand.RunAsync(args[1..], depsProvider, depsCts.Token);
+            }
+            catch (OperationCanceledException) when (depsCts.IsCancellationRequested)
+            {
+                await Console.Error.WriteLineAsync("İptal edildi.");
+
+                return 130;
+            }
+            finally
+            {
+                Console.CancelKeyPress -= depsCancelHandler;
+            }
         }
 
         if (args.Length > 0 && NonInteractiveCommand.IsCommand(args[0]))
@@ -168,6 +204,8 @@ public static class Program
             _ = Task.Run(() => serviceProvider.GetRequiredService<WatchSyncService>().FlushQueueAsync());
 
             var noUpdateCheck = args.Any(a => a.Equals("--no-update-check", StringComparison.OrdinalIgnoreCase));
+            await MaybePromptForDependenciesAsync(serviceProvider);
+            tuiToken.ThrowIfCancellationRequested();
             await MaybePromptForUpdateAsync(serviceProvider, noUpdateCheck);
             tuiToken.ThrowIfCancellationRequested();
 
@@ -185,6 +223,89 @@ public static class Program
             Console.CancelKeyPress -= tuiCancelHandler;
             RestoreCursor();
             TuiApplicationCancellation.Reset();
+        }
+    }
+
+    private static async Task MaybePromptForDependenciesAsync(IServiceProvider services)
+    {
+        if (Console.IsInputRedirected)
+        {
+            return;
+        }
+
+        try
+        {
+            var resolver      = services.GetService<DependencyResolver>();
+            var configService = services.GetRequiredService<IConfigurationService>();
+
+            if (resolver is null || !resolver.CanAutoInstall)
+            {
+                return;
+            }
+
+            // Kullanıcı bir kez "Hayır" dediyse açılışta tekrar sormayalım.
+            if (configService.Config.DependencyPromptDismissed)
+            {
+                return;
+            }
+
+            var missing = DependencySetupRunner.FindMissing(resolver);
+            if (missing.Count == 0)
+            {
+                return;
+            }
+
+            var names = string.Join(", ", missing.Select(DependencyCatalog.DisplayName));
+            AnsiConsole.WriteLine();
+            AnsiConsole.MarkupLine($"[yellow][[!]][/] Eksik araçlar: [white]{Markup.Escape(names)}[/]");
+            AnsiConsole.MarkupLine("[grey]Bunlar olmadan oynatma veya HLS indirme çalışmayabilir.[/]");
+
+            var choice = AnsiConsole.Prompt(
+                new SelectionPrompt<string>()
+                    .HighlightStyle(new Style(Color.Cyan1, decoration: Decoration.Bold))
+                    .AddChoices("Şimdi kur", "Daha sonra", "Bir daha sorma"));
+
+            switch (choice)
+            {
+                case "Şimdi kur":
+                    IReadOnlyList<DependencyInstallResult> results = [];
+                    await AnsiConsole.Status()
+                                     .Spinner(Spinner.Known.Dots)
+                                     .StartAsync("Araçlar kuruluyor...",
+                                                 async ctx =>
+                                                 {
+                                                     var progress =
+                                                         new Progress<string>(line => ctx.Status(Markup.Escape(line)));
+                                                     results = await DependencySetupRunner.InstallAsync(resolver,
+                                                                                                        missing,
+                                                                                                        progress,
+                                                                                                            TuiApplicationCancellation
+                                                                                                            .Token);
+                                                 });
+
+                    foreach (var result in results)
+                    {
+                        var name = DependencyCatalog.DisplayName(result.Kind);
+                        AnsiConsole.MarkupLine(result.Success
+                                                   ? $"[green]✓[/] {Markup.Escape(name)} kuruldu."
+                                                   : $"[red]✗[/] {Markup.Escape(name)}: {Markup.Escape(result.Message)}");
+                    }
+
+                    break;
+                case "Bir daha sorma":
+                    configService.Config.DependencyPromptDismissed = true;
+                    try { configService.Save(); }
+                    catch
+                    {
+                        // ignored
+                    }
+
+                    break;
+            }
+        }
+        catch
+        {
+            // Araç istemi asla uygulamayı engellememeli.
         }
     }
 
@@ -283,6 +404,7 @@ public static class Program
         services.AddLogging(builder => builder.AddProvider(stderrProvider));
         services.AddSingleton(stderrProvider);
         services.AddSingleton<IConfigurationService, ConfigurationService>();
+        services.AddDependencyServices();
         services.AddSingleton<MigurdexDatabase>(sp =>
                                                     new MigurdexDatabase(
                                                         sp.GetRequiredService<IConfigurationService>()
@@ -296,10 +418,12 @@ public static class Program
                                                                       sp.GetRequiredService<MigurdexDatabase>()));
         services.AddDownloadServices(provider =>
         {
-            var config = provider.GetRequiredService<IConfigurationService>().Config;
+            var config     = provider.GetRequiredService<IConfigurationService>().Config;
+            var dependency = provider.GetService<DependencyResolver>();
             return new HlsDownloadOptions
             {
-                Executable  = config.YtDlpPath,
+                Executable  = dependency?.Resolve(DependencyKind.YtDlp) ?? config.YtDlpPath,
+                FfmpegPath  = dependency?.Resolve(DependencyKind.Ffmpeg),
                 MaxAttempts = 3,
                 RetryDelay  = TimeSpan.FromSeconds(1)
             };

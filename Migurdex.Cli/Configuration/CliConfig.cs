@@ -4,6 +4,7 @@ public class CliConfig
 {
     private string _downloadDirectory = DefaultDownloadDirectory;
     private string _ytDlpPath         = "yt-dlp";
+    private string _ffmpegPath        = "ffmpeg";
 
     public string       ApiBaseUrl               { get; set; } = "http://127.0.0.1:7045";
     public string       PreferredPlayer          { get; set; } = "mpv";
@@ -27,6 +28,19 @@ public class CliConfig
         set => _ytDlpPath = string.IsNullOrWhiteSpace(value) ? "yt-dlp" : value.Trim();
     }
 
+    public string FfmpegPath
+    {
+        get => string.IsNullOrWhiteSpace(_ffmpegPath) ? "ffmpeg" : _ffmpegPath;
+        set => _ffmpegPath = string.IsNullOrWhiteSpace(value) ? "ffmpeg" : value.Trim();
+    }
+
+    public static string DefaultToolsDirectory =>
+        Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+            ".config",
+            "migurdex",
+            "tools");
+
     public bool DownloadSubtitles { get; set; } = true;
     public bool DownloadResume    { get; set; } = true;
     public bool DownloadOverwrite { get; set; } = false;
@@ -35,6 +49,8 @@ public class CliConfig
     public double DownloadAutoSelectTimeoutSeconds { get; set; } = 5;
 
     public string? OpenAnimeApiKey { get; set; }
+
+    public bool    DependencyPromptDismissed { get; set; } = false;
 
     public bool    UpdateCheckEnabled { get; set; } = true;
     public string  UpdateChannel      { get; set; } = "stable";

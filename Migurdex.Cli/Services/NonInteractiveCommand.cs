@@ -676,6 +676,7 @@ public static class NonInteractiveCommand
         writer.WriteLine("  migurdex update [--check] [--channel stable|prerelease] [-y] [--no-restart]");
         writer.WriteLine("  migurdex auth <login|logout|status>");
         writer.WriteLine("  migurdex blame [--json]");
+        writer.WriteLine("  migurdex deps [install] [--force] [--json]");
         writer.WriteLine(
             "  migurdex solve <sayfa-url> [--manual <cf_clearance>] [--yes] [--no-download] [--force-download] [--timeout <sn>] [--json] [--verbose] [--visible] [--no-autoclick]");
         writer.WriteLine("  migurdex --version");

@@ -283,6 +283,12 @@ public sealed class YtDlpHlsDownloader : IHlsDownloader
         startInfo.ArgumentList.Add(Math.Clamp(_options.ConcurrentFragments, 1, 16)
                                       .ToString(CultureInfo.InvariantCulture));
 
+        if (!string.IsNullOrWhiteSpace(_options.FfmpegPath))
+        {
+            startInfo.ArgumentList.Add("--ffmpeg-location");
+            startInfo.ArgumentList.Add(_options.FfmpegPath);
+        }
+
         // yt-dlp'ye global --add-header yalnız güvenli allowlist ile verilir.
         // Cookie/Authorization/API-key benzeri başlıklar dış sürece hiç taşınmaz.
         foreach (var (name, value) in DownloadHttp.CopyExternalProcessHeaders(source.Headers))

@@ -12,7 +12,8 @@ public static class HelpCommand
         "continue",
         "download",
         "blame",
-        "solve"
+        "solve",
+        "deps"
     ];
 
     public static bool IsHelpToken(string arg)
