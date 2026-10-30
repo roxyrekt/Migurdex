@@ -169,7 +169,9 @@ jobs:
                     echo "hardlink: $(tar -tvJf migurdex-${{ matrix.runtime }}.tar.xz | grep -c '^h')"
 
                     if [ "${{ matrix.os }}" = "windows-latest" ]; then
-                      (cd dist && 7z a -tzip "../migurdex-${{ matrix.runtime }}.zip" * >/dev/null)
+                      (cd dist && 7z a -tzip "../migurdex-${{ matrix.runtime }}.zip" \
+                        -x'!*.tar.xz' -x'!*.tar.gz' -x'!*.blobs.tar' -x'!*.manifest.json.gz' \
+                        * >/dev/null)
                       echo "zip (eski istemciler): $(du -h migurdex-${{ matrix.runtime }}.zip | cut -f1)"
                     fi
 
