@@ -29,19 +29,44 @@ public static class LoopbackCodeReceiver
     {
         logger ??= NullLogger.Instance;
 
-        using var listener = new HttpListener();
-        listener.Prefixes.Add($"http://127.0.0.1:{port}{path}/");
-        listener.Prefixes.Add($"http://localhost:{port}{path}/");
+        var listener = new HttpListener();
 
         try
         {
-            listener.Start();
+            listener.Prefixes.Add($"http://127.0.0.1:{port}{path}/");
+            listener.Prefixes.Add($"http://localhost:{port}{path}/");
+
+            try
+            {
+                listener.Start();
+            }
+            catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
+            {
+                logger.LogWarning(ex, "Loopback dinleyici {Port} portunda açılamadı", port);
+
+                return null;
+            }
+
+            return await WaitCoreAsync(listener, logger, timeout, cancellationToken).ConfigureAwait(false);
         }
-        catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
+        finally
         {
-            logger.LogWarning(ex, "Loopback dinleyici {Port} portunda açılamadı", port);
-            return null;
+            try
+            {
+                listener.Close();
+            }
+            catch
+            {
+                // ignored
+            }
         }
+    }
+
+    private static async Task<string?> WaitCoreAsync(HttpListener      listener,
+        ILogger                                                   logger,
+        TimeSpan                                                  timeout,
+        CancellationToken                                         cancellationToken)
+    {
 
         using var timeoutCts = new CancellationTokenSource(timeout);
         using var linkedCts  = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeoutCts.Token);
@@ -92,10 +117,6 @@ public static class LoopbackCodeReceiver
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
             return null;
-        }
-        finally
-        {
-            listener.Stop();
         }
     }
 }

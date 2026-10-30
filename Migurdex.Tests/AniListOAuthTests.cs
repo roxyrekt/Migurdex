@@ -135,7 +135,7 @@ public sealed class AniListOAuthTests
     public async Task Loopback_Receives_Code_From_Callback()
     {
         var       ct   = TestContext.Current.CancellationToken;
-        const int port = 46499;
+        const int port = 18499;
 
         var waitTask =
             LoopbackCodeReceiver.WaitForCodeAsync(port, "/callback", TimeSpan.FromSeconds(10), cancellationToken: ct);
@@ -156,7 +156,7 @@ public sealed class AniListOAuthTests
     public async Task Loopback_Error_Param_Returns_Null()
     {
         var       ct   = TestContext.Current.CancellationToken;
-        const int port = 46498;
+        const int port = 18498;
 
         var waitTask =
             LoopbackCodeReceiver.WaitForCodeAsync(port, "/callback", TimeSpan.FromSeconds(10), cancellationToken: ct);
@@ -171,7 +171,7 @@ public sealed class AniListOAuthTests
     public async Task Loopback_Timeout_Returns_Null()
     {
         var ct = TestContext.Current.CancellationToken;
-        var code = await LoopbackCodeReceiver.WaitForCodeAsync(46497,
+        var code = await LoopbackCodeReceiver.WaitForCodeAsync(18497,
                                                                "/callback",
                                                                TimeSpan.FromMilliseconds(200),
                                                                cancellationToken: ct);
