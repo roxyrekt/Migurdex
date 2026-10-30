@@ -21,3 +21,9 @@ jobs:
     test:
         name: Test
         uses: ./.github/workflows/test.yml
+
+    package:
+        name: Package
+        if: github.event_name == 'workflow_dispatch'
+        needs: [ rust, test ]
+        uses: ./.github/workflows/package.yml

@@ -67,12 +67,12 @@ if ($Uninstall -or $Purge) {
 }
 
 Write-Host @"
-    __  ____                        __          
-   /  |/  (_)___ ___  ___________  / /__  _  __ 
-  / /|_/ / / __ `/ / / / ___/ __ \/ _ \ |/ /  
- / /  / / / /_/ / /_/ / /  / /_/ /  __/>  <   
-/_/  /_/_/\__, /\__,_/_/  /_____/\___/_/|_|   
-         /____/                                
+    __  ____                        __
+   /  |/  (_)___ ___  ___________  / /__  _  __
+  / /|_/ / / __ `/ / / / ___/ __ \/ _ \ |/ /
+ / /  / / / /_/ / /_/ / /  / /_/ /  __/>  <
+/_/  /_/_/\__, /\__,_/_/  /_____/\___/_/|_|
+         /____/
 "@ -ForegroundColor Cyan
 
 Write-Host "`n--- Migurdex Windows Kurulumu Başlatılıyor ---`n" -ForegroundColor Cyan
@@ -83,15 +83,31 @@ if (-not [Environment]::Is64BitOperatingSystem) {
 }
 
 Write-Host "[1/4] Son sürüm kontrol ediliyor..." -ForegroundColor Yellow
+
+$TarExe = Join-Path $env:SystemRoot "System32\tar.exe"
+if (-not (Test-Path $TarExe)) {
+    $TarExe = (Get-Command tar.exe -ErrorAction SilentlyContinue).Source
+}
+if (-not $TarExe) {
+    Write-Host "Hata: tar.exe bulunamadi. Windows 10 1803 veya uzeri gerekli." -ForegroundColor Red
+    return
+}
+
 $DownloadUrl = $null
 $LatestTag = $null
+
+if (-not $env:PROCESSOR_ARCHITECTURE -or $env:PROCESSOR_ARCHITECTURE -eq "AMD64") {
+    $AssetRuntime = "win-x64"
+} else {
+    $AssetRuntime = "win-x64"   # su an sadece x64
+}
 
 try {
     [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12 -bor [Net.SecurityProtocolType]::Tls13
     $releaseInfo = Invoke-RestMethod -Uri "https://api.github.com/repos/$Repo/releases/latest" -Headers @{ "Accept" = "application/vnd.github.v3+json" } -TimeoutSec 10
     if ($releaseInfo -and $releaseInfo.tag_name) {
         $LatestTag = $releaseInfo.tag_name
-        $DownloadUrl = "https://github.com/$Repo/releases/download/$LatestTag/migurdex-win-x64.zip"
+        $DownloadUrl = "https://github.com/$Repo/releases/download/$LatestTag/migurdex-$AssetRuntime.tar.xz"
         Write-Host "Bulunan son sürüm: $LatestTag" -ForegroundColor Green
     }
 }
@@ -100,43 +116,61 @@ catch {
 }
 
 if (-not $DownloadUrl) {
-    $DownloadUrl = "https://github.com/$Repo/releases/latest/download/migurdex-win-x64.zip"
+    $DownloadUrl = "https://github.com/$Repo/releases/latest/download/migurdex-$AssetRuntime.tar.xz"
 }
 
-$TempZip = Join-Path $env:TEMP "migurdex-win-x64.zip"
-$TempExtractDir = Join-Path $env:TEMP "migurdex-extract-$([Guid]::NewGuid().ToString('n'))"
+$TempArchive = Join-Path $env:TEMP "migurdex-$AssetRuntime.tar.xz"
+
 
 try {
     Write-Host "[2/4] Migurdex paketi indiriliyor..." -ForegroundColor Yellow
-    if (Test-Path $TempZip) { Remove-Item -Force $TempZip }
-    
-    Invoke-WebRequest -Uri $DownloadUrl -OutFile $TempZip -UseBasicParsing
-    
+    if (Test-Path $TempArchive) { Remove-Item -Force $TempArchive }
+
+    try {
+        Invoke-WebRequest -Uri $DownloadUrl -OutFile $TempArchive -UseBasicParsing
+    }
+    catch {
+        # .tar.gz fallback
+        $FallbackUrl = $DownloadUrl -replace '\.tar\.xz$', '.tar.gz'
+        $TempArchive = Join-Path $env:TEMP "migurdex-$AssetRuntime.tar.gz"
+        Write-Host ".tar.xz bulunamadi, .tar.gz deneniyor..." -ForegroundColor Yellow
+        Invoke-WebRequest -Uri $FallbackUrl -OutFile $TempArchive -UseBasicParsing
+    }
+
     Write-Host "[3/4] Dosyalar kuruluyor ($InstallDir)..." -ForegroundColor Yellow
     Stop-MigurdexProcesses
 
-    if (Test-Path $TempExtractDir) { Remove-Item -Recurse -Force $TempExtractDir }
-    Expand-Archive -Path $TempZip -DestinationPath $TempExtractDir -Force
+    $BackupDir = "${InstallDir}.old"
+    if (Test-Path $BackupDir) { Remove-Item -Recurse -Force $BackupDir -ErrorAction SilentlyContinue }
+    if (Test-Path $InstallDir) { Move-Item -Path $InstallDir -Destination $BackupDir -Force }
+    New-Item -ItemType Directory -Path $InstallDir -Force | Out-Null
 
-    if (-not (Test-Path $InstallDir)) {
-        New-Item -ItemType Directory -Path $InstallDir -Force | Out-Null
+    try {
+        & $TarExe -xf $TempArchive -C $InstallDir
+        if ($LASTEXITCODE -ne 0) {
+            throw "Arşiv açılamadı (tar exit $LASTEXITCODE)"
+        }
+        if (-not (Test-Path (Join-Path $InstallDir "migurdex.exe"))) {
+            throw "Arşivde migurdex.exe bulunamadı"
+        }
+    }
+    catch {
+        Remove-Item -Recurse -Force $InstallDir -ErrorAction SilentlyContinue
+        if (Test-Path $BackupDir) { Move-Item -Path $BackupDir -Destination $InstallDir -Force }
+        throw
     }
 
-    if (Test-Path (Join-Path $InstallDir "migurdex.exe")) { Remove-Item -Force (Join-Path $InstallDir "migurdex.exe") }
-    if (Test-Path (Join-Path $InstallDir "api")) { Remove-Item -Recurse -Force (Join-Path $InstallDir "api") }
-
-    Copy-Item -Path (Join-Path $TempExtractDir "*") -Destination $InstallDir -Recurse -Force
+    if (Test-Path $BackupDir) { Remove-Item -Recurse -Force $BackupDir -ErrorAction SilentlyContinue }
 }
 finally {
-    if (Test-Path $TempZip) { Remove-Item -Force $TempZip -ErrorAction SilentlyContinue }
-    if (Test-Path $TempExtractDir) { Remove-Item -Recurse -Force $TempExtractDir -ErrorAction SilentlyContinue }
+    if (Test-Path $TempArchive) { Remove-Item -Force $TempArchive -ErrorAction SilentlyContinue }
 }
 
 Write-Host "[4/4] Ortam değişkenleri ve sistem kontrolleri yapılıyor..." -ForegroundColor Yellow
 try {
     $userPath = [Environment]::GetEnvironmentVariable("Path", "User")
     if ($null -eq $userPath) { $userPath = "" }
-    
+
     $pathParts = $userPath -split ";" | Where-Object { $_ }
     if ($pathParts -notcontains $InstallDir) {
         $newUserPath = if ([string]::IsNullOrWhiteSpace($userPath)) { $InstallDir } else { "$userPath;$InstallDir" }
@@ -160,7 +194,7 @@ $mpvInstalled = $null -ne (Get-Command "mpv" -ErrorAction SilentlyContinue)
 if (-not $mpvInstalled) {
     Write-Host "`n⚠ UYARI: Sisteminizde 'mpv' video oynatıcısı bulunamadı!" -ForegroundColor Yellow
     Write-Host "Migurdex videoları oynatmak için MPV oynatıcısına ihtiyaç duyar." -ForegroundColor Yellow
-    
+
     $wingetAvailable = $null -ne (Get-Command "winget" -ErrorAction SilentlyContinue)
     if ($wingetAvailable) {
         Write-Host "MPV'yi otomatik yüklemek için komut satırına şunu yazabilirsiniz:" -ForegroundColor Cyan

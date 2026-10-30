@@ -195,7 +195,7 @@ public static class UpdateCommand
 
     private static async Task<int> ApplyUpdateAsync(UpdateCheckResult result)
     {
-        var installRoot = AppContext.BaseDirectory;
+        var installRoot = InstallLayout.ResolveInstallRoot();
         var tmpDir      = Path.Combine(Path.GetTempPath(), $"migurdex-update-{Guid.NewGuid():N}");
         Directory.CreateDirectory(tmpDir);
 
@@ -237,6 +237,22 @@ public static class UpdateCommand
             var (copied, deferred, backedUp) = CopyTree(FindPayloadRoot(extractDir), installRoot);
             AnsiConsole.MarkupLine($"[green]Güncellendi:[/] {copied} dosya yazıldı.");
 
+            // Paylaşılan .NET runtime dosyalarını tekrar hardlink'e çevir; aksi halde
+            // her güncellemede disk iki katına çıkar.
+            if (InstallLayout.CanShareRuntime(installRoot))
+            {
+                var cliDir = InstallLayout.ResolveCliDir(installRoot);
+                var apiDir = InstallLayout.ResolveApiDir(installRoot);
+                var (linked, saved) = HardLinkDeduplicator.Run(cliDir, apiDir);
+                if (linked > 0)
+                {
+                    AnsiConsole.MarkupLine($"[grey]{linked} paylaşılan dosya hardlink'lendi "
+                                           + $"({saved / 1024 / 1024} MB tasarruf).[/]");
+                }
+
+                InstallLayout.EnsureRootLauncher(installRoot);
+            }
+
             if (backedUp.Count > 0)
             {
                 AnsiConsole.MarkupLine("[grey]Önceki sürüm yedeği:[/]");
@@ -261,7 +277,10 @@ public static class UpdateCommand
         }
         finally
         {
-            try { Directory.Delete(tmpDir, true); }
+            try
+            {
+                Directory.Delete(tmpDir, true);
+            }
             catch
             {
                 // ignored
@@ -344,7 +363,7 @@ public static class UpdateCommand
             string? expected = null;
             foreach (var line in text.Split('\n'))
             {
-                var parts = line.Split((char[]) [' ', '\t', '*'], StringSplitOptions.RemoveEmptyEntries);
+                var parts = line.Split((char[])[' ', '\t', '*'], StringSplitOptions.RemoveEmptyEntries);
                 if (parts.Length >= 2
                     && parts[^1].Trim().Equals(result.AssetName, StringComparison.OrdinalIgnoreCase))
                 {
@@ -378,11 +397,22 @@ public static class UpdateCommand
         }
     }
 
-    private static void ExtractArchive(string archivePath, string destDir)
+    internal static void ExtractArchive(string archivePath, string destDir)
     {
         if (archivePath.EndsWith(".zip", StringComparison.OrdinalIgnoreCase))
         {
             ZipFile.ExtractToDirectory(archivePath, destDir, true);
+            return;
+        }
+
+        if (archivePath.EndsWith(".tar.xz", StringComparison.OrdinalIgnoreCase))
+        {
+            // SharpCompress'in XZStream'i tamamen managed (native liblzma gerekmez),
+            // bu yuzden Windows'ta da calisir. TarFile hardlink ve symlink
+            // girdilerini kurar (ExtractAsHardLink).
+            using var xzFs = File.OpenRead(archivePath);
+            using var xz   = new SharpCompress.Compressors.Xz.XZStream(xzFs);
+            TarFile.ExtractToDirectory(xz, destDir, true);
             return;
         }
 
@@ -455,8 +485,9 @@ public static class UpdateCommand
             }
         }
 
-        MakeExecutable(dst, "migurdex");
-        MakeExecutable(Path.Combine(dst, "api"), OperatingSystem.IsWindows() ? "Migurdex.Api.exe" : "Migurdex.Api");
+        MakeExecutable(InstallLayout.ResolveCliDir(dst), "migurdex");
+        MakeExecutable(InstallLayout.ResolveApiDir(dst),
+                       OperatingSystem.IsWindows() ? "Migurdex.Api.exe" : "Migurdex.Api");
 
         return (copied, deferred, backedUp);
     }
@@ -616,7 +647,8 @@ public static class UpdateCommand
 
     private static void Help()
     {
-        AnsiConsole.WriteLine("Kullanım: migurdex update [--check] [--channel stable|prerelease|nightly] [-y] [--no-restart]");
+        AnsiConsole.WriteLine(
+            "Kullanım: migurdex update [--check] [--channel stable|prerelease|nightly] [-y] [--no-restart]");
         AnsiConsole.WriteLine("  (bayraksız)    Yeni sürüm varsa indirip kurar ve yeniden başlatır (onaylı).");
         AnsiConsole.WriteLine("  --check        Sadece kontrol eder, kurmaz.");
         AnsiConsole.WriteLine("  --channel      Bu seferlik kanal seçer, ayarı değiştirmez.");

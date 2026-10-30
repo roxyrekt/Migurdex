@@ -75,7 +75,7 @@ jobs:
                       -c Release \
                       -r ${{ matrix.runtime }} \
                       --self-contained true \
-                      -p:PublishSingleFile=true \
+                      -p:PublishSingleFile=false \
                       -p:PublishTrimmed=false \
                       -p:Version="$VERSION" \
                       -o dist/api
@@ -88,20 +88,52 @@ jobs:
             -   name: Publish CLI
                 shell: bash
                 run: |
+                    if [ "${{ matrix.os }}" = "windows-latest" ]; then
+                      OUT=dist
+                    else
+                      OUT=dist/cli
+                    fi
                     dotnet publish Migurdex.Cli/Migurdex.Cli.csproj \
                       -c Release \
                       -r ${{ matrix.runtime }} \
                       --self-contained true \
-                      -p:PublishSingleFile=true \
-                      -p:PublishTrimmed=true \
+                      -p:PublishSingleFile=false \
+                      -p:PublishTrimmed=false \
                       -p:Version="$VERSION" \
-                      -o dist/cli-temp
+                      -o "$OUT"
 
-            -   name: Organize Dist
+            -   name: Dedupe Shared Runtime
                 shell: bash
                 run: |
-                    mv dist/cli-temp/${{ matrix.cli_exe }} dist/
-                    rm -rf dist/cli-temp
+                    if [ "${{ matrix.os }}" = "windows-latest" ]; then
+                      SRC=dist
+                      DEPTH="-maxdepth 1"
+                    else
+                      SRC=dist/cli
+                      DEPTH=""
+                    fi
+
+                    linked=0; saved=0
+                    while IFS= read -r -d '' f; do
+                      rel="${f#$SRC/}"
+                      dst="dist/api/$rel"
+                      [ -f "$dst" ] || continue
+                      [ "$(stat -c %s "$f")" = "$(stat -c %s "$dst")" ] || continue
+                      [ "$(sha256sum "$f" | cut -d' ' -f1)" = "$(sha256sum "$dst" | cut -d' ' -f1)" ] || continue
+                      size=$(stat -c %s "$f")
+                      if ln "$dst" "$f.hltmp" 2>/dev/null; then
+                        mv -f "$f.hltmp" "$f" 2>/dev/null || rm -f "$f.hltmp"
+                        linked=$((linked+1)); saved=$((saved+size))
+                      else
+                        rm -f "$f.hltmp"
+                      fi
+                    done < <(find "$SRC" $DEPTH -type f -print0)
+
+                    if [ "${{ matrix.os }}" != "windows-latest" ]; then
+                      ln -sf cli/migurdex dist/migurdex
+                    fi
+                    echo "hardlink: $linked dosya, $((saved/1024/1024)) MB tasarruf"
+                    echo "payload: $(du -sh --apparent-size dist | cut -f1) gorunur, $(du -sh dist | cut -f1) diskte"
 
             -   name: Publish Plugins
                 shell: bash
@@ -110,7 +142,6 @@ jobs:
                     for d in Plugins/Migurdex.Plugins.*/; do
                       plugin=$(basename "$d")
                       [ -f "$d$plugin.csproj" ] || continue
-                      echo "Publishing $plugin..."
                       dotnet publish "Plugins/$plugin/$plugin.csproj" \
                         -c Release \
                         -p:Version="$VERSION" \
@@ -121,12 +152,12 @@ jobs:
             -   name: Create Archive
                 shell: bash
                 run: |
-                    cd dist
-                    if [ "${{ matrix.os }}" != "windows-latest" ]; then
-                      tar -czf ../migurdex-${{ matrix.runtime }}.tar.gz migurdex api
-                    else
-                      7z a -tzip ../migurdex-${{ matrix.runtime }}.zip migurdex.exe api
-                    fi
+                    EXCLUDES='--exclude=migurdex-${{ matrix.runtime }}.tar.xz --exclude=migurdex-${{ matrix.runtime }}.tar.gz'
+                    tar -cf - -C dist $EXCLUDES . | xz -9 -T0 > "migurdex-${{ matrix.runtime }}.tar.xz"
+                    tar -czf "migurdex-${{ matrix.runtime }}.tar.gz" -C dist $EXCLUDES .
+                    echo "xz: $(du -h migurdex-${{ matrix.runtime }}.tar.xz | cut -f1)"
+                    echo "gz: $(du -h migurdex-${{ matrix.runtime }}.tar.gz | cut -f1)"
+                    echo "hardlink: $(tar -tvJf migurdex-${{ matrix.runtime }}.tar.xz | grep -c '^h')"
 
             -   name: Download appimagetool
                 if: matrix.os != 'windows-latest'
@@ -140,14 +171,14 @@ jobs:
                 if: matrix.os != 'windows-latest'
                 run: |
                     mkdir -p Migurdex.AppDir
-                    cp dist/migurdex Migurdex.AppDir/
-                    cp -r dist/api Migurdex.AppDir/
-                    cp assets/packaging/migurdex.desktop assets/packaging/migurdex.png Migurdex.AppDir/
+                    cp -a dist/cli dist/api Migurdex.AppDir/
+                    cp -a assets/packaging/migurdex.desktop assets/packaging/migurdex.png Migurdex.AppDir/
                     cp assets/packaging/migurdex.png Migurdex.AppDir/.DirIcon
                     cp assets/packaging/AppRun Migurdex.AppDir/AppRun
+                    ln -sf cli/migurdex Migurdex.AppDir/migurdex
                     chmod -R a+rX Migurdex.AppDir
                     chmod a+rx Migurdex.AppDir/AppRun
-                    chmod +x Migurdex.AppDir/migurdex Migurdex.AppDir/api/Migurdex.Api
+                    chmod +x Migurdex.AppDir/cli/migurdex Migurdex.AppDir/api/Migurdex.Api
                     ARCH=${{ matrix.arch }} ./appimagetool.AppImage --appimage-extract-and-run -u "gh-releases-zsync|roxyrekt|Migurdex|latest|migurdex-${{ matrix.arch }}.AppImage.zsync" Migurdex.AppDir migurdex-${{ matrix.arch }}.AppImage
 
             -   name: Verify AppImage update info
@@ -159,9 +190,9 @@ jobs:
                 shell: bash
                 run: |
                     if [ "${{ matrix.os }}" != "windows-latest" ]; then
-                      (cd "$GITHUB_WORKSPACE" && sha256sum migurdex-${{ matrix.runtime }}.tar.gz > sha256sums-${{ matrix.runtime }}.txt)
+                      (cd "$GITHUB_WORKSPACE" && sha256sum migurdex-${{ matrix.runtime }}.tar.xz migurdex-${{ matrix.runtime }}.tar.gz > sha256sums-${{ matrix.runtime }}.txt)
                     else
-                      (cd "$GITHUB_WORKSPACE" && sha256sum migurdex-${{ matrix.runtime }}.zip > sha256sums-${{ matrix.runtime }}.txt)
+                      (cd "$GITHUB_WORKSPACE" && sha256sum migurdex-${{ matrix.runtime }}.tar.xz migurdex-${{ matrix.runtime }}.tar.gz > sha256sums-${{ matrix.runtime }}.txt)
                     fi
 
             -   name: Upload AppImage Artifact
@@ -178,8 +209,8 @@ jobs:
                 with:
                     name: migurdex-${{ matrix.runtime }}
                     path: |
+                        migurdex-${{ matrix.runtime }}.tar.xz
                         migurdex-${{ matrix.runtime }}.tar.gz
-                        migurdex-${{ matrix.runtime }}.zip
                         sha256sums-${{ matrix.runtime }}.txt
                     retention-days: 1
                     if-no-files-found: error

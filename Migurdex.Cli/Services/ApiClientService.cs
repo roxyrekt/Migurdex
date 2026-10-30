@@ -72,8 +72,13 @@ public class ApiClientService : IApiClientService
         var isWindows         = OperatingSystem.IsWindows();
         var apiExecutableName = isWindows ? "Migurdex.Api.exe" : "Migurdex.Api";
 
+        var installRoot = InstallLayout.ResolveInstallRoot();
+        var apiRootDir  = InstallLayout.ResolveApiDir(installRoot);
+
         var possiblePaths = new[]
         {
+            Path.Combine(apiRootDir, apiExecutableName),
+            Path.Combine(apiRootDir, "Migurdex.Api.dll"),
             Path.Combine(cliDir, "api", apiExecutableName),
             Path.Combine(cliDir, "api", "Migurdex.Api.dll"),
             Path.Combine(cliDir, "Migurdex.Api.dll"),
@@ -134,8 +139,8 @@ public class ApiClientService : IApiClientService
             apiLogPath = null;
         }
 
-        Process? startedProcess = null;
-        var       apiBecameOnline = false;
+        Process? startedProcess  = null;
+        var      apiBecameOnline = false;
         try
         {
             var isDll = apiPath.EndsWith(".dll", StringComparison.OrdinalIgnoreCase);
@@ -600,8 +605,8 @@ public class ApiClientService : IApiClientService
         try
         {
             var report = await _httpClient.GetFromJsonAsync<BlameReport>("api/v1/stats",
-                                                                          JsonOpts,
-                                                                          cancellationToken);
+                                                                         JsonOpts,
+                                                                         cancellationToken);
             return report is not null
                        ? ApiResult<BlameReport?>.Ok(report)
                        : ApiResult<BlameReport?>.Fail(null, "İstatistik alınamadı.");
@@ -846,7 +851,7 @@ public class ApiClientService : IApiClientService
             // ignored
         }
 
-        return $"HTTP {(int) response.StatusCode}";
+        return $"HTTP {(int)response.StatusCode}";
     }
 
     private class ExtractorResponse
