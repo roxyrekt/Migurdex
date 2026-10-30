@@ -199,6 +199,8 @@ public static class UpdateCommand
     {
         var installRoot = InstallLayout.ResolveInstallRoot();
         var tmpDir      = Path.Combine(Path.GetTempPath(), $"migurdex-update-{Guid.NewGuid():N}");
+
+        CleanStaleWorkDirs();
         Directory.CreateDirectory(tmpDir);
 
         try
@@ -391,6 +393,33 @@ public static class UpdateCommand
         var arch = RuntimeInformation.OSArchitecture == Architecture.Arm64 ? "arm64" : "x64";
 
         return OperatingSystem.IsWindows() ? $"win-{arch}" : $"linux-{arch}";
+    }
+
+    private static void CleanStaleWorkDirs()
+    {
+        try
+        {
+            var cutoff = DateTime.UtcNow.AddHours(-1);
+
+            foreach (var dir in Directory.EnumerateDirectories(Path.GetTempPath(), "migurdex-update-*"))
+            {
+                try
+                {
+                    if (Directory.GetLastWriteTimeUtc(dir) < cutoff)
+                    {
+                        Directory.Delete(dir, true);
+                    }
+                }
+                catch
+                {
+                    // ignored
+                }
+            }
+        }
+        catch
+        {
+            // ignored
+        }
     }
 
     private static void StopApiDaemon()
