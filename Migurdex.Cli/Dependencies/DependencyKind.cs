@@ -59,6 +59,11 @@ public static class DependencyCatalog
         return OperatingSystem.IsWindows() ? name + ".exe" : name;
     }
 
+    public static string? ToolSubdirectory(DependencyKind kind)
+    {
+        return kind == DependencyKind.Mpv ? "mpv" : null;
+    }
+
     public static string VersionArgument(DependencyKind kind)
     {
         return kind == DependencyKind.Ffmpeg ? "-version" : "--version";

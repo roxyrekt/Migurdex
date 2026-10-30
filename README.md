@@ -95,8 +95,16 @@ AppImage için Linux'ta `libfuse2` gerekir (bkz. [Gereksinimler](#gereksinimler)
   8 MiB üstü MP4'ler sunucu Range destekliyorsa 2-4 paralel parçayla iner, desteklemiyorsa sıralıya düşer.
 - HLS indirme ilerlemesi yt-dlp'nin ürettiği progress satırlarından okunur; Migurdex yt-dlp'ye daima `--progress` verir
   (yt-dlp'de `--print` bayrağı bu çıktıyı kapattığından).
-- **Windows:** MPV, yt-dlp ve ffmpeg eksikse Migurdex açılışta kurmayı önerir. MPV `winget` ile, yt-dlp ve ffmpeg ise
-doğrudan indirilip `~/.config/migurdex/tools/` altına kurulur. Elle de çalıştırabilirsin: `migurdex deps install`.
+- **Windows:** MPV, yt-dlp ve ffmpeg eksikse Migurdex açılışta kurmayı önerir; `migurdex deps install` ile elle de
+  çalıştırılabilir. Kurulanlar `~/.config/migurdex/tools/` altına yazılır ve hepsi SHA-256 ile doğrulanır:
+  - **yt-dlp**: resmî `yt-dlp/yt-dlp` GitHub release'i (GitHub asset digest'i, yoksa `SHA2-256SUMS`).
+  - **ffmpeg**: `GyanD/codexffmpeg` GitHub release'leri — `gyan.dev`'in resmî mirror'ı, ffmpeg.org'un indirme
+    sayfasında listelenen build'in birebir aynısı (aynı SHA-256). GitHub'a erişilemezse doğrudan `gyan.dev`
+    `.7z`/`.zip` kaynağına düşülür.
+  - **MPV**: `shinchiro/mpv-winbuild-cmake` GitHub release'leri — mpv.io'nun linklediği Windows build'i, günlük git
+    sürümleri. GitHub'a erişilemezse `winget install shinchiro.mpv` yedeği denenir.
+  - Sunucu HTTP Range destekliyorsa indirme **4 paralel parçaya** bölünür (parça başına en az 1 MiB); desteklemiyorsa
+    tek akışa düşer. Parçalar birleştirildikten sonra SHA-256 doğrulanır.
 - **Linux/macOS:** Otomatik kurulum henüz yok; araçları paket yöneticinizle kurun (`migurdex deps` ile durumu
   görebilirsiniz).
 - AppImage için Linux'ta `libfuse2`

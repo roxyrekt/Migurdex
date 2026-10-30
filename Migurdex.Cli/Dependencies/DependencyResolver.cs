@@ -128,6 +128,30 @@ public sealed class DependencyResolver
             return null;
         }
 
+        var found = FindDirectlyIn(directory, kind);
+        if (found is not null)
+        {
+            return found;
+        }
+
+        var subdirectory = DependencyCatalog.ToolSubdirectory(kind);
+        if (subdirectory is null)
+        {
+            return null;
+        }
+
+        try
+        {
+            return FindDirectlyIn(Path.Combine(directory, subdirectory), kind);
+        }
+        catch (ArgumentException)
+        {
+            return null;
+        }
+    }
+
+    private static string? FindDirectlyIn(string directory, DependencyKind kind)
+    {
         foreach (var candidate in Candidates(kind))
         {
             try

@@ -1,38 +1,44 @@
 using Migurdex.Cli.Services.Downloads;
 using System.Diagnostics;
-using System.IO.Compression;
-using System.Net.Http;
+using System.Text.RegularExpressions;
 
 namespace Migurdex.Cli.Dependencies;
 
 public sealed class WindowsDependencyInstaller : IDependencyInstaller
 {
-    private const string YtDlpUrl =
-        "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe";
+    private const string YtDlpRepo      = "yt-dlp/yt-dlp";
+    private const string YtDlpAssetName = "yt-dlp.exe";
+    private const string YtDlpSumsUrl   = "https://github.com/yt-dlp/yt-dlp/releases/latest/download/SHA2-256SUMS";
+    private const string MpvRepo        = "shinchiro/mpv-winbuild-cmake";
+    private const string MpvWingetId    = "shinchiro.mpv";
 
-    private const string FfmpegUrl =
-        "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip";
+    private const string GyanFfmpegRepo  = "GyanD/codexffmpeg";
+    private const string GyanFfmpegAsset = "essentials_build.7z";
 
-    private const string MpvWingetId = "shinchiro.mpv";
+    private const string FfmpegBase   = "https://www.gyan.dev/ffmpeg/builds/";
+    private const string Ffmpeg7z     = FfmpegBase + "ffmpeg-release-essentials.7z";
+    private const string Ffmpeg7zSha  = FfmpegBase + "ffmpeg-release-essentials.7z.sha256";
+    private const string FfmpegZip    = FfmpegBase + "ffmpeg-release-essentials.zip";
+    private const string FfmpegZipSha = FfmpegBase + "ffmpeg-release-essentials.zip.sha256";
 
     private const long MinimumExecutableBytes = 256 * 1024;
 
-    private static readonly HttpClient _httpClient = new(new SocketsHttpHandler
-    {
-        AutomaticDecompression = System.Net.DecompressionMethods.All,
-        ConnectTimeout        = TimeSpan.FromSeconds(15)
-    })
-    {
-        Timeout = TimeSpan.FromMinutes(10)
-    };
+    private static readonly Regex MpvAssetRegex = new(
+        @"^mpv-x86_64-(?<date>\d{8})-git-[0-9a-f]+\.7z$",
+        RegexOptions.Compiled | RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
 
+    private readonly HttpClient             _httpClient;
     private readonly IExternalProcessRunner _processRunner;
     private readonly string                 _toolsDirectory;
 
-    public WindowsDependencyInstaller(string toolsDirectory, IExternalProcessRunner? processRunner = null)
+    public WindowsDependencyInstaller(
+        string                  toolsDirectory,
+        IExternalProcessRunner? processRunner = null,
+        HttpClient?             httpClient    = null)
     {
         _toolsDirectory = toolsDirectory ?? throw new ArgumentNullException(nameof(toolsDirectory));
         _processRunner  = processRunner ?? new ExternalProcessRunner();
+        _httpClient     = httpClient ?? DependencyDownload.CreateHttpClient();
     }
 
     public string PlatformName => "Windows";
@@ -47,11 +53,14 @@ public sealed class WindowsDependencyInstaller : IDependencyInstaller
         return kind switch
         {
             DependencyKind.Mpv =>
-                "MPV kurulu değil. 'winget install shinchiro.mpv' çalıştırın veya https://mpv.io adresinden indirip PATH'e ekleyin.",
+                "MPV kurulu değil. 'migurdex deps install mpv' çalıştırın; alternatif olarak "
+                + "'winget install shinchiro.mpv' veya https://mpv.io/installation adresini kullanın.",
             DependencyKind.YtDlp =>
-                "yt-dlp kurulu değil. 'winget install yt-dlp.yt-dlp' çalıştırın veya https://github.com/yt-dlp/yt-dlp/releases adresinden indirin.",
+                "yt-dlp kurulu değil. 'migurdex deps install yt-dlp' çalıştırın veya "
+                + "https://github.com/yt-dlp/yt-dlp/releases adresinden indirin.",
             DependencyKind.Ffmpeg =>
-                "ffmpeg kurulu değil. 'winget install Gyan.FFmpeg' çalıştırın veya https://ffmpeg.org/download.html adresinden indirip PATH'e ekleyin.",
+                "ffmpeg kurulu değil. 'migurdex deps install ffmpeg' çalıştırın veya "
+                + "https://www.gyan.dev/ffmpeg/builds/ adresinden indirin.",
             _ => $"{DependencyCatalog.DisplayName(kind)} kurulu değil."
         };
     }
@@ -78,47 +87,154 @@ public sealed class WindowsDependencyInstaller : IDependencyInstaller
     {
         var target = Path.Combine(_toolsDirectory, DependencyCatalog.FileName(DependencyKind.YtDlp));
 
-        await DownloadFileAsync(YtDlpUrl, target, progress, cancellationToken).ConfigureAwait(false);
-
-        if (!await IsUsableExecutableAsync(target, cancellationToken).ConfigureAwait(false))
+        try
         {
-            TryDelete(target);
+            progress?.Report("yt-dlp sürüm bilgisi alınıyor...");
 
-            return DependencyInstallResult.Failed(DependencyKind.YtDlp,
-                                                  "İndirilen yt-dlp dosyası geçerli bir çalıştırılabilir dosya değil.");
+            var release = await DependencyDownload.GetLatestGitHubReleaseAsync(_httpClient,
+                                                                               YtDlpRepo,
+                                                                               cancellationToken)
+                                                  .ConfigureAwait(false);
+
+            var asset = release?.Assets.FirstOrDefault(a =>
+                                                           a.Name.Equals(YtDlpAssetName,
+                                                                         StringComparison.OrdinalIgnoreCase));
+
+            var sha256 = asset?.Sha256;
+
+            if (sha256 is null)
+            {
+                var manifest = await DependencyDownload.GetStringAsync(_httpClient,
+                                                                       YtDlpSumsUrl,
+                                                                       cancellationToken)
+                                                       .ConfigureAwait(false);
+                sha256 = DependencyDownload.ParseSha256Manifest(manifest, YtDlpAssetName);
+            }
+
+            var url = asset?.DownloadUrl
+                      ?? $"https://github.com/{YtDlpRepo}/releases/latest/download/{YtDlpAssetName}";
+
+            await DependencyDownload.DownloadFileAsync(_httpClient,
+                                                       url,
+                                                       target,
+                                                       sha256,
+                                                       progress,
+                                                       cancellationToken)
+                                    .ConfigureAwait(false);
+
+            if (!await IsUsableExecutableAsync(target, cancellationToken).ConfigureAwait(false))
+            {
+                TryDelete(target);
+
+                return DependencyInstallResult.Failed(DependencyKind.YtDlp,
+                                                      "İndirilen yt-dlp geçerli bir çalıştırılabilir dosya değil.");
+            }
+
+            var version = release?.Tag;
+
+            return DependencyInstallResult.Succeeded(DependencyKind.YtDlp,
+                                                     target,
+                                                     version is null
+                                                         ? "yt-dlp indirildi ve doğrulandı."
+                                                         : $"yt-dlp {version} indirildi ve doğrulandı.");
         }
-
-        return DependencyInstallResult.Succeeded(DependencyKind.YtDlp,
-                                                 target,
-                                                 "yt-dlp indirildi.");
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex) when (ex is HttpRequestException or IOException or InvalidDataException)
+        {
+            return DependencyInstallResult.Failed(DependencyKind.YtDlp, $"yt-dlp kurulamadı: {ex.Message}");
+        }
     }
 
     private async Task<DependencyInstallResult> InstallFfmpegAsync(
         IProgress<string>? progress,
         CancellationToken  cancellationToken)
     {
-        var target = Path.Combine(_toolsDirectory, DependencyCatalog.FileName(DependencyKind.Ffmpeg));
-        var zipPath = Path.Combine(_toolsDirectory, ".ffmpeg-" + Guid.NewGuid().ToString("N") + ".zip");
-        var extractDir = Path.Combine(_toolsDirectory, ".ffmpeg-" + Guid.NewGuid().ToString("N"));
+        var fromGitHub = await TryInstallFfmpegFromGitHubAsync(progress, cancellationToken)
+                             .ConfigureAwait(false);
+
+        if (fromGitHub is not null)
+        {
+            return fromGitHub;
+        }
+
+        progress?.Report("GitHub mirror'ı kullanılamadı; gyan.dev deneniyor...");
+
+        var attempt7z = await TryInstallFfmpegFromArchiveAsync(Ffmpeg7z,
+                                                               Ffmpeg7zSha,
+                                                               ".7z",
+                                                               progress,
+                                                               cancellationToken)
+                            .ConfigureAwait(false);
+
+        if (attempt7z is not null)
+        {
+            return attempt7z;
+        }
+
+        progress?.Report("7z indirilemedi; zip arşivi deneniyor...");
+
+        var attemptZip = await TryInstallFfmpegFromArchiveAsync(FfmpegZip,
+                                                                FfmpegZipSha,
+                                                                ".zip",
+                                                                progress,
+                                                                cancellationToken)
+                             .ConfigureAwait(false);
+
+        return attemptZip
+               ?? DependencyInstallResult.Failed(DependencyKind.Ffmpeg,
+                                                 "ffmpeg indirilemedi (7z ve zip kaynakları başarısız).");
+    }
+
+    private async Task<DependencyInstallResult?> TryInstallFfmpegFromGitHubAsync(
+        IProgress<string>? progress,
+        CancellationToken  cancellationToken)
+    {
+        var target      = Path.Combine(_toolsDirectory, DependencyCatalog.FileName(DependencyKind.Ffmpeg));
+        var archivePath = Path.Combine(_toolsDirectory, ".ffmpeg-gh-" + Guid.NewGuid().ToString("N") + ".7z");
 
         try
         {
-            await DownloadFileAsync(FfmpegUrl, zipPath, progress, cancellationToken).ConfigureAwait(false);
+            progress?.Report("ffmpeg sürümü sorgulanıyor (GitHub mirror)...");
 
-            Directory.CreateDirectory(extractDir);
+            var release = await DependencyDownload.GetLatestGitHubReleaseAsync(_httpClient,
+                                                                               GyanFfmpegRepo,
+                                                                               cancellationToken)
+                                                  .ConfigureAwait(false);
+            if (release is null)
+            {
+                return null;
+            }
+
+            var asset = release.Assets.FirstOrDefault(a =>
+                                                          a.Name.EndsWith(GyanFfmpegAsset,
+                                                                          StringComparison.OrdinalIgnoreCase));
+            if (asset is null)
+            {
+                return null;
+            }
+
+            await DependencyDownload.DownloadFileAsync(_httpClient,
+                                                       asset.DownloadUrl,
+                                                       archivePath,
+                                                       asset.Sha256,
+                                                       progress,
+                                                       cancellationToken)
+                                    .ConfigureAwait(false);
+
             progress?.Report("ffmpeg arşivi açılıyor...");
-            await Task.Run(() => ZipFile.ExtractToDirectory(zipPath, extractDir, true), cancellationToken)
-                      .ConfigureAwait(false);
 
-            var ffmpeg = Directory.EnumerateFiles(extractDir, "ffmpeg.exe", SearchOption.AllDirectories)
-                                  .FirstOrDefault();
-            if (ffmpeg is null)
+            if (!DependencyArchive.TryExtractFile(archivePath,
+                                                  "ffmpeg.exe",
+                                                  target,
+                                                  progress,
+                                                  cancellationToken))
             {
                 return DependencyInstallResult.Failed(DependencyKind.Ffmpeg,
                                                       "ffmpeg arşivinde ffmpeg.exe bulunamadı.");
             }
-
-            File.Copy(ffmpeg, target, true);
 
             if (!await IsUsableExecutableAsync(target, cancellationToken).ConfigureAwait(false))
             {
@@ -130,20 +246,107 @@ public sealed class WindowsDependencyInstaller : IDependencyInstaller
 
             return DependencyInstallResult.Succeeded(DependencyKind.Ffmpeg,
                                                      target,
-                                                     "ffmpeg indirildi.");
+                                                     $"ffmpeg {release.Tag} indirildi ve doğrulandı.");
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
             throw;
         }
-        catch (Exception ex) when (ex is InvalidDataException or IOException or HttpRequestException)
+        catch (Exception ex) when (ex is HttpRequestException or IOException or InvalidDataException)
         {
-            return DependencyInstallResult.Failed(DependencyKind.Ffmpeg, $"ffmpeg kurulamadı: {ex.Message}");
+            return null;
         }
         finally
         {
-            TryDelete(zipPath);
-            TryDeleteDirectory(extractDir);
+            TryDelete(archivePath);
+        }
+    }
+
+    private async Task<DependencyInstallResult?> TryInstallFfmpegFromArchiveAsync(
+        string             archiveUrl,
+        string             shaUrl,
+        string             extension,
+        IProgress<string>? progress,
+        CancellationToken  cancellationToken)
+    {
+        var target      = Path.Combine(_toolsDirectory, DependencyCatalog.FileName(DependencyKind.Ffmpeg));
+        var archivePath = Path.Combine(_toolsDirectory, ".ffmpeg-" + Guid.NewGuid().ToString("N") + extension);
+
+        try
+        {
+            progress?.Report($"ffmpeg özeti alınıyor ({extension})...");
+
+            string? sha256 = null;
+            try
+            {
+                var shaText = await DependencyDownload.GetStringAsync(_httpClient, shaUrl, cancellationToken)
+                                                      .ConfigureAwait(false);
+                sha256 = DependencyDownload.ExtractSha256(shaText);
+            }
+            catch (HttpRequestException)
+            {
+            }
+
+            await DependencyDownload.DownloadFileAsync(_httpClient,
+                                                       archiveUrl,
+                                                       archivePath,
+                                                       sha256,
+                                                       progress,
+                                                       cancellationToken)
+                                    .ConfigureAwait(false);
+
+            progress?.Report("ffmpeg arşivi açılıyor...");
+
+            string? extracted;
+            try
+            {
+                extracted = DependencyArchive.TryExtractFile(archivePath,
+                                                             "ffmpeg.exe",
+                                                             target,
+                                                             progress,
+                                                             cancellationToken)
+                                ? target
+                                : null;
+            }
+            catch (InvalidDataException ex)
+            {
+                return DependencyInstallResult.Failed(DependencyKind.Ffmpeg,
+                                                      $"ffmpeg arşivi okunamadı: {ex.Message}");
+            }
+
+            if (extracted is null)
+            {
+                return DependencyInstallResult.Failed(DependencyKind.Ffmpeg,
+                                                      "ffmpeg arşivinde ffmpeg.exe bulunamadı.");
+            }
+
+            if (!await IsUsableExecutableAsync(target, cancellationToken).ConfigureAwait(false))
+            {
+                TryDelete(target);
+
+                return DependencyInstallResult.Failed(DependencyKind.Ffmpeg,
+                                                      "Çıkarılan ffmpeg geçerli bir çalıştırılabilir dosya değil.");
+            }
+
+            return DependencyInstallResult.Succeeded(DependencyKind.Ffmpeg,
+                                                     target,
+                                                     "ffmpeg indirildi ve doğrulandı.");
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (InvalidDataException)
+        {
+            return null;
+        }
+        catch (Exception ex) when (ex is HttpRequestException or IOException)
+        {
+            return null;
+        }
+        finally
+        {
+            TryDelete(archivePath);
         }
     }
 
@@ -151,11 +354,129 @@ public sealed class WindowsDependencyInstaller : IDependencyInstaller
         IProgress<string>? progress,
         CancellationToken  cancellationToken)
     {
-        var winget = await FindWingetAsync(cancellationToken).ConfigureAwait(false);
-        if (winget is null)
+        string? directError;
+
+        try
+        {
+            var result = await InstallMpvFromGitHubAsync(progress, cancellationToken).ConfigureAwait(false);
+            if (result.Success)
+            {
+                return result;
+            }
+
+            directError = result.Message;
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex) when (ex is HttpRequestException or IOException or InvalidDataException)
+        {
+            directError = ex.Message;
+        }
+
+        progress?.Report("Doğrudan indirme başarısız; winget deneniyor...");
+
+        var wingetResult = await InstallMpvWithWingetAsync(progress, cancellationToken).ConfigureAwait(false);
+        if (wingetResult.Success)
+        {
+            return wingetResult;
+        }
+
+        return DependencyInstallResult.Failed(
+            DependencyKind.Mpv,
+            $"MPV kurulamadı. Doğrudan indirme: {directError}. winget: {wingetResult.Message}. "
+            + GetManualInstructions(DependencyKind.Mpv));
+    }
+
+    private async Task<DependencyInstallResult> InstallMpvFromGitHubAsync(
+        IProgress<string>? progress,
+        CancellationToken  cancellationToken)
+    {
+        progress?.Report("MPV sürümü sorgulanıyor (shinchiro build)...");
+
+        var release = await DependencyDownload.GetLatestGitHubReleaseAsync(_httpClient,
+                                                                           MpvRepo,
+                                                                           cancellationToken)
+                                              .ConfigureAwait(false);
+        if (release is null)
+        {
+            return DependencyInstallResult.Failed(DependencyKind.Mpv, "GitHub release bilgisi alınamadı.");
+        }
+
+        var asset = release.Assets
+                           .Where(a => MpvAssetRegex.IsMatch(a.Name))
+                           .OrderByDescending(a => a.Name, StringComparer.OrdinalIgnoreCase)
+                           .FirstOrDefault();
+
+        if (asset is null)
         {
             return DependencyInstallResult.Failed(DependencyKind.Mpv,
-                                                  "winget bulunamadı. " + GetManualInstructions(DependencyKind.Mpv));
+                                                  $"'{release.Tag}' sürümünde x86_64 MPV arşivi bulunamadı.");
+        }
+
+        var archivePath = Path.Combine(_toolsDirectory, ".mpv-" + Guid.NewGuid().ToString("N") + ".7z");
+        var stagingDir  = Path.Combine(_toolsDirectory, ".mpv-staging-" + Guid.NewGuid().ToString("N"));
+
+        try
+        {
+            await DependencyDownload.DownloadFileAsync(_httpClient,
+                                                       asset.DownloadUrl,
+                                                       archivePath,
+                                                       asset.Sha256,
+                                                       progress,
+                                                       cancellationToken)
+                                    .ConfigureAwait(false);
+
+            progress?.Report("MPV arşivi açılıyor...");
+
+            await Task.Run(() => DependencyArchive.ExtractToDirectory(archivePath,
+                                                                      stagingDir,
+                                                                      progress,
+                                                                      cancellationToken),
+                           cancellationToken)
+                      .ConfigureAwait(false);
+
+            var mpvExe = Directory.EnumerateFiles(stagingDir, "mpv.exe", SearchOption.AllDirectories)
+                                  .FirstOrDefault();
+            if (mpvExe is null)
+            {
+                return DependencyInstallResult.Failed(DependencyKind.Mpv,
+                                                      "MPV arşivinde mpv.exe bulunamadı.");
+            }
+
+            var mpvRoot = Path.GetDirectoryName(mpvExe)!;
+            var targetDir = Path.Combine(_toolsDirectory,
+                                         DependencyCatalog.ToolSubdirectory(DependencyKind.Mpv)!);
+
+            ReplaceDirectory(mpvRoot, targetDir);
+
+            var target = Path.Combine(targetDir, "mpv.exe");
+            if (!await IsUsableExecutableAsync(target, cancellationToken).ConfigureAwait(false))
+            {
+                return DependencyInstallResult.Failed(DependencyKind.Mpv,
+                                                      "Kurulan mpv.exe geçerli bir çalıştırılabilir dosya değil.");
+            }
+
+            return DependencyInstallResult.Succeeded(DependencyKind.Mpv,
+                                                     target,
+                                                     $"MPV {release.Tag} indirildi ve doğrulandı.");
+        }
+        finally
+        {
+            TryDelete(archivePath);
+            TryDeleteDirectory(stagingDir);
+        }
+    }
+
+    private async Task<DependencyInstallResult> InstallMpvWithWingetAsync(
+        IProgress<string>? progress,
+        CancellationToken  cancellationToken)
+    {
+        var winget = FindWinget();
+        if (winget is null)
+        {
+            return DependencyInstallResult.Failed(DependencyKind.Mpv, "winget bulunamadı.");
         }
 
         progress?.Report("MPV winget ile kuruluyor...");
@@ -188,28 +509,23 @@ public sealed class WindowsDependencyInstaller : IDependencyInstaller
         }
 
         var installedPath = FindWingetMpv();
-        if (result.ExitCode == 0 && installedPath is not null)
-        {
-            return DependencyInstallResult.Succeeded(DependencyKind.Mpv,
-                                                     installedPath,
-                                                     "MPV winget ile kuruldu.");
-        }
-
         if (installedPath is not null)
         {
             return DependencyInstallResult.Succeeded(DependencyKind.Mpv,
                                                      installedPath,
-                                                     "MPV zaten kurulu.");
+                                                     result.ExitCode == 0
+                                                         ? "MPV winget ile kuruldu."
+                                                         : "MPV zaten kurulu.");
         }
 
         var detail = string.IsNullOrWhiteSpace(result.StandardError)
                          ? result.StandardOutput
                          : result.StandardError;
 
-        return DependencyInstallResult.Failed(
-            DependencyKind.Mpv,
-            "MPV kurulamadı. " + GetManualInstructions(DependencyKind.Mpv)
-            + (string.IsNullOrWhiteSpace(detail) ? string.Empty : $" (winget: {FirstLine(detail)})"));
+        return DependencyInstallResult.Failed(DependencyKind.Mpv,
+                                              string.IsNullOrWhiteSpace(detail)
+                                                  ? $"winget {result.ExitCode} koduyla çıktı."
+                                                  : FirstLine(detail));
     }
 
     public static string? FindWingetMpv()
@@ -240,7 +556,7 @@ public sealed class WindowsDependencyInstaller : IDependencyInstaller
         return candidates.FirstOrDefault(File.Exists);
     }
 
-    private async Task<string?> FindWingetAsync(CancellationToken cancellationToken)
+    private static string? FindWinget()
     {
         var pathValue = Environment.GetEnvironmentVariable("PATH") ?? string.Empty;
         foreach (var directory in pathValue.Split(Path.PathSeparator))
@@ -267,62 +583,67 @@ public sealed class WindowsDependencyInstaller : IDependencyInstaller
                                  "Microsoft",
                                  "WindowsApps",
                                  "winget.exe");
-        if (File.Exists(alias))
-        {
-            return alias;
-        }
 
-        await Task.CompletedTask.ConfigureAwait(false);
-
-        return null;
+        return File.Exists(alias) ? alias : null;
     }
 
-    private static async Task DownloadFileAsync(
-        string             url,
-        string             destination,
-        IProgress<string>? progress,
-        CancellationToken  cancellationToken)
+    private static void ReplaceDirectory(string sourceDirectory, string targetDirectory)
     {
-        var tempPath = destination + ".download-" + Guid.NewGuid().ToString("N");
+        var parent = Path.GetDirectoryName(targetDirectory)!;
+        Directory.CreateDirectory(parent);
+
+        var backup = targetDirectory + ".old-" + Guid.NewGuid().ToString("N");
+        var moved  = false;
+
+        if (Directory.Exists(targetDirectory))
+        {
+            Directory.Move(targetDirectory, backup);
+            moved = true;
+        }
 
         try
         {
-            progress?.Report($"İndiriliyor: {url}");
-            using var response = await _httpClient.GetAsync(url,
-                                                            HttpCompletionOption.ResponseHeadersRead,
-                                                            cancellationToken)
-                                                  .ConfigureAwait(false);
-            response.EnsureSuccessStatusCode();
-
-            var total = response.Content.Headers.ContentLength ?? -1;
-            await using (var source = await response.Content.ReadAsStreamAsync(cancellationToken)
-                                                 .ConfigureAwait(false))
-            await using (var target = new FileStream(tempPath, FileMode.Create, FileAccess.Write, FileShare.None))
+            try
             {
-                var buffer = new byte[81920];
-                long read  = 0;
-                int  n;
-                while ((n = await source.ReadAsync(buffer, cancellationToken).ConfigureAwait(false)) > 0)
+                Directory.Move(sourceDirectory, targetDirectory);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                CopyDirectory(sourceDirectory, targetDirectory);
+            }
+        }
+        catch
+        {
+            TryDeleteDirectory(targetDirectory);
+
+            if (moved && Directory.Exists(backup))
+            {
+                try
                 {
-                    await target.WriteAsync(buffer.AsMemory(0, n), cancellationToken).ConfigureAwait(false);
-                    read += n;
-                    if (total > 0)
-                    {
-                        progress?.Report($"İndiriliyor: %{(int) (read * 100 / total)}");
-                    }
+                    Directory.Move(backup, targetDirectory);
+                }
+                catch
+                {
                 }
             }
 
-            if (new FileInfo(tempPath).Length == 0)
-            {
-                throw new IOException("İndirilen dosya boş.");
-            }
-
-            File.Move(tempPath, destination, true);
+            throw;
         }
-        finally
+
+        TryDeleteDirectory(backup);
+    }
+
+    private static void CopyDirectory(string sourceDirectory, string targetDirectory)
+    {
+        Directory.CreateDirectory(targetDirectory);
+
+        foreach (var file in Directory.EnumerateFiles(sourceDirectory, "*", SearchOption.AllDirectories))
         {
-            TryDelete(tempPath);
+            var relative    = Path.GetRelativePath(sourceDirectory, file);
+            var destination = Path.Combine(targetDirectory, relative);
+
+            Directory.CreateDirectory(Path.GetDirectoryName(destination)!);
+            File.Copy(file, destination, true);
         }
     }
 
@@ -336,9 +657,9 @@ public sealed class WindowsDependencyInstaller : IDependencyInstaller
                 return false;
             }
 
-            var header = new byte[2];
+            var             header = new byte[2];
             await using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
-            var read = await stream.ReadAsync(header, cancellationToken).ConfigureAwait(false);
+            var             read   = await stream.ReadAsync(header, cancellationToken).ConfigureAwait(false);
 
             return read == 2 && header[0] == (byte) 'M' && header[1] == (byte) 'Z';
         }
@@ -353,7 +674,11 @@ public sealed class WindowsDependencyInstaller : IDependencyInstaller
         var line = value.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
                         .FirstOrDefault();
 
-        return line is null ? string.Empty : line.Length > 200 ? line[..200] : line;
+        return line is null
+                   ? string.Empty
+                   : line.Length > 200
+                       ? line[..200]
+                       : line;
     }
 
     private static void TryDelete(string path)
