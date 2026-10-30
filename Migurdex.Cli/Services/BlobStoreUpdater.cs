@@ -148,7 +148,7 @@ internal static class BlobStoreUpdater
 
                         foreach (var rel in pair.Value)
                         {
-                            if (TryWriteAtomic(FullPath(installRoot, rel), raw, out var lockPath))
+                            if (TryWriteAtomic(FullPath(installRoot, rel), raw, rel, out var lockPath))
                             {
                                 Interlocked.Increment(ref written);
                             }
@@ -274,7 +274,7 @@ internal static class BlobStoreUpdater
     }
 
 
-    private static bool TryWriteAtomic(string dest, byte[] content, out string? deferredPath)
+    private static bool TryWriteAtomic(string dest, byte[] content, string rel, out string? deferredPath)
     {
         deferredPath = null;
 
@@ -284,13 +284,13 @@ internal static class BlobStoreUpdater
 
             var tmp = dest + ".new";
             File.WriteAllBytes(tmp, content);
-            File.Move(tmp, dest, true);
 
-            return true;
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-        {
-            deferredPath = Path.GetRelativePath(Path.GetDirectoryName(dest) ?? dest, dest) + ".new";
+            if (FileSwap.TryReplace(tmp, dest))
+            {
+                return true;
+            }
+
+            deferredPath = rel + ".new";
 
             return false;
         }

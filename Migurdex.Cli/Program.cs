@@ -494,17 +494,10 @@ public static class Program
     {
         try
         {
-            var exe = Environment.ProcessPath;
-            if (string.IsNullOrWhiteSpace(exe))
-            {
-                return;
-            }
+            var root = InstallLayout.ResolveInstallRoot();
 
-            var backup = exe + ".old";
-            if (File.Exists(backup))
-            {
-                File.Delete(backup);
-            }
+            FileSwap.RecoverLeftovers(root);
+            FileSwap.RemoveBackups(root);
         }
         catch
         {

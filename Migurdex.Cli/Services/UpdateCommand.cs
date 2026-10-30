@@ -11,6 +11,8 @@ namespace Migurdex.Cli.Services;
 
 public static class UpdateCommand
 {
+    private readonly record struct UpdateApplyResult(int Status, List<string> Deferred);
+
     [DllImport("libc", EntryPoint = "execvp", SetLastError = true)]
     private static extern int execvp(string file, IntPtr[] argv);
 
@@ -127,10 +129,17 @@ public static class UpdateCommand
             return 0;
         }
 
-        var updateStatus = await ApplyUpdateAsync(result);
-        if (updateStatus != 0)
+        var apply = await ApplyUpdateAsync(result);
+        if (apply.Status == 2
+            && apply.Deferred.Count > 0
+            && TryScheduleDeferredApply(apply.Deferred, !noRestart))
         {
-            return updateStatus;
+            return 0;
+        }
+
+        if (apply.Status != 0)
+        {
+            return apply.Status;
         }
 
         if (result.LatestVersion.StartsWith("nightly@", StringComparison.Ordinal))
@@ -195,10 +204,11 @@ public static class UpdateCommand
         AnsiConsole.WriteLine($"  {result.ReleaseUrl}");
     }
 
-    private static async Task<int> ApplyUpdateAsync(UpdateCheckResult result)
+    private static async Task<UpdateApplyResult> ApplyUpdateAsync(UpdateCheckResult result)
     {
         var installRoot = InstallLayout.ResolveInstallRoot();
         var tmpDir      = Path.Combine(Path.GetTempPath(), $"migurdex-update-{Guid.NewGuid():N}");
+        var deferred    = new List<string>();
 
         CleanStaleWorkDirs();
         Directory.CreateDirectory(tmpDir);
@@ -209,21 +219,23 @@ public static class UpdateCommand
 
             if (result.Delta is { } delta)
             {
-                var deltaStatus = await TryApplyDeltaAsync(result, delta, installRoot, tmpDir);
+                var deltaStatus = await TryApplyDeltaAsync(result, delta, installRoot, tmpDir, deferred);
                 if (deltaStatus == 0)
                 {
-                    return 0;
+                    return new UpdateApplyResult(0, deferred);
                 }
 
                 if (deltaStatus == 2)
                 {
-                    return 2;
+                    return new UpdateApplyResult(2, deferred);
                 }
 
                 AnsiConsole.MarkupLine("[yellow]Delta uygulanamadi, tam pakete geçiliyor...[/]");
             }
 
-            return await ApplyFullArchiveAsync(result, installRoot, tmpDir);
+            var status = await ApplyFullArchiveAsync(result, installRoot, tmpDir, deferred);
+
+            return new UpdateApplyResult(status, deferred);
         }
         finally
         {
@@ -238,10 +250,29 @@ public static class UpdateCommand
         }
     }
 
+    private static bool TryScheduleDeferredApply(List<string> deferred, bool relaunch)
+    {
+        var target  = relaunch ? BuildRelaunchTarget() : null;
+        var exe     = target?.File;
+        var args    = target?.Args ?? [];
+
+        if (!FileSwap.ScheduleDeferredApply(deferred, exe, args))
+        {
+            return false;
+        }
+
+        AnsiConsole.MarkupLine(relaunch
+                                   ? "[cyan]Kilitli dosyalar çıkışta uygulanacak ve yeni sürüm açılacak.[/]"
+                                   : "[cyan]Kilitli dosyalar çıkışta uygulanacak.[/]");
+
+        return true;
+    }
+
     private static async Task<int> TryApplyDeltaAsync(UpdateCheckResult result,
         BlobDelta                                                       delta,
         string                                                          installRoot,
-        string                                                          tmpDir)
+        string                                                          tmpDir,
+        List<string>                                                    deferred)
     {
         try
         {
@@ -290,7 +321,8 @@ public static class UpdateCommand
                 AnsiConsole.MarkupLine("[yellow]Kilitli olduğu için yazılamayan dosya:[/]");
                 foreach (var f in blobResult.Deferred)
                 {
-                    AnsiConsole.WriteLine($"  {f} (.new uzantısıyla yazıldı, manuel olarak yeniden adlandırın)");
+                    AnsiConsole.WriteLine($"  {f}");
+                    deferred.Add(f[..^4]);
                 }
 
                 return 2;
@@ -306,7 +338,10 @@ public static class UpdateCommand
         }
     }
 
-    private static async Task<int> ApplyFullArchiveAsync(UpdateCheckResult result, string installRoot, string tmpDir)
+    private static async Task<int> ApplyFullArchiveAsync(UpdateCheckResult result,
+        string                                                          installRoot,
+        string                                                          tmpDir,
+        List<string>                                                    deferred)
     {
         var archivePath = Path.Combine(tmpDir, result.AssetName!);
         AnsiConsole.MarkupLine($"[cyan]İndiriliyor:[/] {result.AssetName}"
@@ -341,7 +376,7 @@ public static class UpdateCommand
             return 1;
         }
 
-        var (copied, deferred, backedUp) = CopyTree(FindPayloadRoot(extractDir), installRoot);
+        var (copied, locked, backedUp) = CopyTree(FindPayloadRoot(extractDir), installRoot);
         AnsiConsole.MarkupLine($"[green]Güncellendi:[/] {copied} dosya yazıldı.");
 
         RefreshSharedRuntime(installRoot);
@@ -355,12 +390,13 @@ public static class UpdateCommand
             }
         }
 
-        if (deferred.Count > 0)
+        if (locked.Count > 0)
         {
             AnsiConsole.MarkupLine("[yellow]Kilitli olduğu için yazılamayan dosya:[/]");
-            foreach (var f in deferred)
+            foreach (var f in locked)
             {
-                AnsiConsole.WriteLine($"  {f} (.new uzantısıyla yazıldı, manuel olarak yeniden adlandırın)");
+                AnsiConsole.WriteLine($"  {f}");
+                deferred.Add(f);
             }
 
             return 2;
@@ -572,11 +608,9 @@ public static class UpdateCommand
 
     private static (int Copied, List<string> Deferred, List<string> BackedUp) CopyTree(string src, string dst)
     {
-        var deferred    = new List<string>();
-        var backedUp    = new List<string>();
-        var copied      = 0;
-        var currentExe  = Environment.ProcessPath ?? string.Empty;
-        var currentName = Path.GetFileName(currentExe);
+        var deferred = new List<string>();
+        var backedUp = new List<string>();
+        var copied   = 0;
 
         foreach (var file in Directory.GetFiles(src, "*", SearchOption.AllDirectories))
         {
@@ -584,39 +618,26 @@ public static class UpdateCommand
             var dest = Path.Combine(dst, rel);
             Directory.CreateDirectory(Path.GetDirectoryName(dest)!);
 
+            var staged = dest + ".new";
+
             try
             {
-                CopyReplacing(file, dest);
-                copied++;
-            }
-            catch (Exception ex) when ((ex is IOException || ex is UnauthorizedAccessException)
-                                       && !string.IsNullOrEmpty(currentName)
-                                       && Path.GetFileName(dest)
-                                              .Equals(currentName, StringComparison.OrdinalIgnoreCase)
-                                       && TrySwapLockedExe(file, dest))
-            {
-                copied++;
-                backedUp.Add(rel + ".old");
-            }
-            catch (Exception ex) when ((ex is IOException || ex is UnauthorizedAccessException)
-                                       && !string.IsNullOrEmpty(currentName)
-                                       && Path.GetFileName(dest)
-                                              .Equals(currentName, StringComparison.OrdinalIgnoreCase))
-            {
-                try
-                {
-                    File.Copy(file, dest + ".new", true);
-                    deferred.Add(rel);
-                }
-                catch
-                {
-                    // ignored
-                }
+                File.Copy(file, staged, true);
             }
             catch
             {
-                // ignored
+                continue;
             }
+
+            if (FileSwap.TryReplace(staged, dest))
+            {
+                copied++;
+
+                continue;
+            }
+
+            deferred.Add(rel);
+            backedUp.Add(rel + ".new");
         }
 
         MakeExecutable(InstallLayout.ResolveCliDir(dst), "migurdex");
@@ -645,34 +666,6 @@ public static class UpdateCommand
         finally
         {
             try { File.Delete(tmp); } catch { /* ignored */ }
-        }
-    }
-
-    private static bool TrySwapLockedExe(string newFile, string dest)
-    {
-        try
-        {
-            var backup = dest + ".old";
-            try
-            {
-                if (File.Exists(backup))
-                {
-                    File.Delete(backup);
-                }
-            }
-            catch
-            {
-                // ignored
-            }
-
-            File.Move(dest, backup);
-            File.Copy(newFile, dest, true);
-
-            return true;
-        }
-        catch
-        {
-            return false;
         }
     }
 
@@ -706,41 +699,15 @@ public static class UpdateCommand
 
     public static void RestartIntoNewVersion(string[]? extraArgs = null)
     {
-        var exe = Environment.ProcessPath;
-        if (string.IsNullOrWhiteSpace(exe))
+        var target = BuildRelaunchTarget(extraArgs);
+        if (target is null)
         {
             return;
         }
 
+        var (targetFile, targetArgs) = target.Value;
+
         Console.Write("\x1b[?25h");
-
-        var isDotnetHost = Path.GetFileNameWithoutExtension(exe)
-                               .Equals("dotnet", StringComparison.OrdinalIgnoreCase);
-
-        string targetFile;
-        var    targetArgs = new List<string>();
-
-        if (isDotnetHost)
-        {
-            targetFile = exe;
-            var dllPath = Path.Combine(AppContext.BaseDirectory, "migurdex.dll");
-            if (!File.Exists(dllPath))
-            {
-                return;
-            }
-
-            targetArgs.Add(dllPath);
-        }
-        else
-        {
-            targetFile = exe;
-        }
-
-        targetArgs.Add("--no-update-check");
-        if (extraArgs is { Length: > 0 })
-        {
-            targetArgs.AddRange(extraArgs);
-        }
 
         if (!OperatingSystem.IsWindows())
         {
@@ -799,6 +766,45 @@ public static class UpdateCommand
         {
             // ignored
         }
+    }
+
+    private static (string File, string[] Args)? BuildRelaunchTarget(string[]? extraArgs = null)
+    {
+        var exe = Environment.ProcessPath;
+        if (string.IsNullOrWhiteSpace(exe))
+        {
+            return null;
+        }
+
+        var isDotnetHost = Path.GetFileNameWithoutExtension(exe)
+                               .Equals("dotnet", StringComparison.OrdinalIgnoreCase);
+
+        string targetFile;
+        var    targetArgs = new List<string>();
+
+        if (isDotnetHost)
+        {
+            targetFile = exe;
+            var dllPath = Path.Combine(AppContext.BaseDirectory, "migurdex.dll");
+            if (!File.Exists(dllPath))
+            {
+                return null;
+            }
+
+            targetArgs.Add(dllPath);
+        }
+        else
+        {
+            targetFile = exe;
+        }
+
+        targetArgs.Add("--no-update-check");
+        if (extraArgs is { Length: > 0 })
+        {
+            targetArgs.AddRange(extraArgs);
+        }
+
+        return (targetFile, targetArgs.ToArray());
     }
 
     private static void Help()
