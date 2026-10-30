@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom" xmlns:media="http://search.yahoo.com/mrss/" xml:lang="en-US">
+  <id>tag:github.com,2008:https://github.com/roxyrekt/Migurdex/releases</id>
+  <link type="text/html" rel="alternate" href="https://github.com/roxyrekt/Migurdex/releases"/>
+  <link type="application/atom+xml" rel="self" href="https://github.com/roxyrekt/Migurdex/releases.atom"/>
+  <title>Release notes from Migurdex</title>
+  <updated>2026-10-30T03:59:03Z</updated>
+  <entry>
+    <id>tag:github.com,2008:Repository/1345123834/v1.17.0</id>
+    <updated>2026-10-30T04:09:44Z</updated>
+    <link rel="alternate" type="text/html" href="https://github.com/roxyrekt/Migurdex/releases/tag/v1.17.0"/>
+    <title>v1.17.0</title>
+    <content type="html">&lt;h2&gt;What&#39;s Changed&lt;/h2&gt;
+&lt;ul&gt;
+&lt;li&gt;refactor(ci): refactor CI workflows by &lt;a class=&quot;user-mention notranslate&quot; data-hovercard-type=&quot;user&quot; data-hovercard-url=&quot;/users/roxyrekt/hovercard&quot; data-octo-click=&quot;hovercard-link-click&quot; data-octo-dimensions=&quot;link_type:self&quot; href=&quot;https://github.com/roxyrekt&quot;&gt;@roxyrekt&lt;/a&gt; in &lt;a class=&quot;issue-link js-issue-link&quot; data-error-text=&quot;Failed to load title&quot; data-id=&quot;6112468715&quot; data-permission-text=&quot;Title is private&quot; data-url=&quot;https://github.com/roxyrekt/Migurdex/issues/19&quot; data-hovercard-type=&quot;pull_request&quot; data-hovercard-url=&quot;/roxyrekt/Migurdex/pull/19/hovercard&quot; href=&quot;https://github.com/roxyrekt/Migurdex/pull/19&quot;&gt;#19&lt;/a&gt;&lt;/li&gt;
+&lt;li&gt;Bump AngleSharp from 1.8.4 to 1.8.6 by &lt;a class=&quot;user-mention notranslate&quot; data-hovercard-type=&quot;organization&quot; data-hovercard-url=&quot;/orgs/dependabot/hovercard&quot; data-octo-click=&quot;hovercard-link-click&quot; data-octo-dimensions=&quot;link_type:self&quot; href=&quot;https://github.com/dependabot&quot;&gt;@dependabot&lt;/a&gt;[bot] in &lt;a class=&quot;issue-link js-issue-link&quot; data-error-text=&quot;Failed to load title&quot; data-id=&quot;6112788305&quot; data-permission-text=&quot;Title is private&quot; data-url=&quot;https://github.com/roxyrekt/Migurdex/issues/24&quot; data-hovercard-type=&quot;pull_request&quot; data-hovercard-url=&quot;/roxyrekt/Migurdex/pull/24/hovercard&quot; href=&quot;https://github.com/roxyrekt/Migurdex/pull/24&quot;&gt;#24&lt;/a&gt;&lt;/li&gt;
+&lt;li&gt;Bump the test-stack group with 1 update by &lt;a class=&quot;user-mention notranslate&quot; data-hovercard-type=&quot;organization&quot; data-hovercard-url=&quot;/orgs/dependabot/hovercard&quot; data-octo-click=&quot;hovercard-link-click&quot; data-octo-dimensions=&quot;link_type:self&quot; href=&quot;https://github.com/dependabot&quot;&gt;@dependabot&lt;/a&gt;[bot] in &lt;a class=&quot;issue-link js-issue-link&quot; data-error-text=&quot;Failed to load title&quot; data-id=&quot;6112751797&quot; data-permission-text=&quot;Title is private&quot; data-url=&quot;https://github.com/roxyrekt/Migurdex/issues/23&quot; data-hovercard-type=&quot;pull_request&quot; data-hovercard-url=&quot;/roxyrekt/Migurdex/pull/23/hovercard&quot; href=&quot;https://github.com/roxyrekt/Migurdex/pull/23&quot;&gt;#23&lt;/a&gt;&lt;/li&gt;
+&lt;li&gt;Bump the microsoft-extensions group with 2 updates by &lt;a class=&quot;user-mention notranslate&quot; data-hovercard-type=&quot;organization&quot; data-hovercard-url=&quot;/orgs/dependabot/hovercard&quot; data-octo-click=&quot;hovercard-link-click&quot; data-octo-dimensions=&quot;link_type:self&quot; href=&quot;https://github.com/dependabot&quot;&gt;@dependabot&lt;/a&gt;[bot] in &lt;a class=&quot;issue-link js-issue-link&quot; data-error-text=&quot;Failed to load title&quot; data-id=&quot;6112741159&quot; data-permission-text=&quot;Title is private&quot; data-url=&quot;https://github.com/roxyrekt/Migurdex/issues/22&quot; data-hovercard-type=&quot;pull_request&quot; data-hovercard-url=&quot;/roxyrekt/Migurdex/pull/22/hovercard&quot; href=&quot;https://github.com/roxyrekt/Migurdex/pull/22&quot;&gt;#22&lt;/a&gt;&lt;/li&gt;
+&lt;li&gt;chore(deps): bump serde_json from 1.0.152 to 1.0.154 in /Migurdex.Native in the serde-stack group by &lt;a class=&quot;user-mention notranslate&quot; data-hovercard-type=&quot;organization&quot; data-hovercard-url=&quot;/orgs/dependabot/hovercard&quot; data-octo-click=&quot;hovercard-link-click&quot; data-octo-dimensions=&quot;link_type:self&quot; href=&quot;https://github.com/dependabot&quot;&gt;@dependabot&lt;/a&gt;[bot] in &lt;a class=&quot;issue-link js-issue-link&quot; data-error-text=&quot;Failed to load title&quot; data-id=&quot;6112720820&quot; data-permission-text=&quot;Title is private&quot; data-url=&quot;https://github.com/roxyrekt/Migurdex/issues/21&quot; data-hovercard-type=&quot;pull_request&quot; data-hovercard-url=&quot;/roxyrekt/Migurdex/pull/21/hovercard&quot; href=&quot;https://github.com/roxyrekt/Migurdex/pull/21&quot;&gt;#21&lt;/a&gt;&lt;/li&gt;
+&lt;li&gt;chore(deps): bump tokio from 1.53.2 to 1.54.1 in /Migurdex.Native in the tokio-stack group by &lt;a class=&quot;user-mention notranslate&quot; data-hovercard-type=&quot;organization&quot; data-hovercard-url=&quot;/orgs/dependabot/hovercard&quot; data-octo-click=&quot;hovercard-link-click&quot; data-octo-dimensions=&quot;link_type:self&quot; href=&quot;https://github.com/dependabot&quot;&gt;@dependabot&lt;/a&gt;[bot] in &lt;a class=&quot;issue-link js-issue-link&quot; data-error-text=&quot;Failed to load title&quot; data-id=&quot;6112720064&quot; data-permission-text=&quot;Title is private&quot; data-url=&quot;https://github.com/roxyrekt/Migurdex/issues/20&quot; data-hovercard-type=&quot;pull_request&quot; data-hovercard-url=&quot;/roxyrekt/Migurdex/pull/20/hovercard&quot; href=&quot;https://github.com/roxyrekt/Migurdex/pull/20&quot;&gt;#20&lt;/a&gt;&lt;/li&gt;
+&lt;li&gt;feat: add automated tool installation for Windows by &lt;a class=&quot;user-mention notranslate&quot; data-hovercard-type=&quot;user&quot; data-hovercard-url=&quot;/users/roxyrekt/hovercard&quot; data-octo-click=&quot;hovercard-link-click&quot; data-octo-dimensions=&quot;link_type:self&quot; href=&quot;https://github.com/roxyrekt&quot;&gt;@roxyrekt&lt;/a&gt; in &lt;a class=&quot;issue-link js-issue-link&quot; data-error-text=&quot;Failed to load title&quot; data-id=&quot;6112156379&quot; data-permission-text=&quot;Title is private&quot; data-url=&quot;https://github.com/roxyrekt/Migurdex/issues/18&quot; data-hovercard-type=&quot;pull_request&quot; data-hovercard-url=&quot;/roxyrekt/Migurdex/pull/18/hovercard&quot; href=&quot;https://github.com/roxyrekt/Migurdex/pull/18&quot;&gt;#18&lt;/a&gt;&lt;/li&gt;
+&lt;/ul&gt;
+&lt;h2&gt;New Contributors&lt;/h2&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;a class=&quot;user-mention notranslate&quot; data-hovercard-type=&quot;organization&quot; data-hovercard-url=&quot;/orgs/dependabot/hovercard&quot; data-octo-click=&quot;hovercard-link-click&quot; data-octo-dimensions=&quot;link_type:self&quot; href=&quot;https://github.com/dependabot&quot;&gt;@dependabot&lt;/a&gt;[bot] made their first contribution in &lt;a class=&quot;issue-link js-issue-link&quot; data-error-text=&quot;Failed to load title&quot; data-id=&quot;6112788305&quot; data-permission-text=&quot;Title is private&quot; data-url=&quot;https://github.com/roxyrekt/Migurdex/issues/24&quot; data-hovercard-type=&quot;pull_request&quot; data-hovercard-url=&quot;/roxyrekt/Migurdex/pull/24/hovercard&quot; href=&quot;https://github.com/roxyrekt/Migurdex/pull/24&quot;&gt;#24&lt;/a&gt;&lt;/li&gt;
+&lt;/ul&gt;
+&lt;p&gt;&lt;strong&gt;Full Changelog&lt;/strong&gt;: &lt;a class=&quot;commit-link&quot; href=&quot;https://github.com/roxyrekt/Migurdex/compare/v1.16.0...v1.17.0&quot;&gt;&lt;tt&gt;v1.16.0...v1.17.0&lt;/tt&gt;&lt;/a&gt;&lt;/p&gt;</content>
+    <author>
+      <name>github-actions[bot]</name>
+    </author>
+    <media:thumbnail height="30" width="30" url="https://avatars.githubusercontent.com/in/15368?s=60&amp;v=4"/>
+  </entry><entry>
+    <id>tag:github.com,2008:Repository/1345123834/nightly</id>
+    <updated>2026-10-30T16:57:34Z</updated>
+    <link rel="alternate" type="text/html" href="https://github.com/roxyrekt/Migurdex/releases/tag/nightly"/>
+    <title>nightly</title>
+    <content type="html">&lt;p&gt;Etiketsiz son &lt;code&gt;main&lt;/code&gt; derlemesi (&lt;a class=&quot;commit-link&quot; data-hovercard-type=&quot;commit&quot; data-hovercard-url=&quot;https://github.com/roxyrekt/Migurdex/commit/92d6553290ba0bf61e7d1e10092be0e85c0fcbdd/hovercard&quot; href=&quot;https://github.com/roxyrekt/Migurdex/commit/92d6553290ba0bf61e7d1e10092be0e85c0fcbdd&quot;&gt;&lt;tt&gt;92d6553&lt;/tt&gt;&lt;/a&gt;).&lt;br&gt;
+Stabil sürüm için &lt;code&gt;latest&lt;/code&gt;&#39;e bakın.&lt;/p&gt;</content>
+    <author>
+      <name>github-actions[bot]</name>
+    </author>
+    <media:thumbnail height="30" width="30" url="https://avatars.githubusercontent.com/in/15368?s=60&amp;v=4"/>
+  </entry><entry>
+    <id>tag:github.com,2008:Repository/1345123834/v1.16.0</id>
+    <updated>2026-10-21T04:01:53Z</updated>
+    <link rel="alternate" type="text/html" href="https://github.com/roxyrekt/Migurdex/releases/tag/v1.16.0"/>
+    <title>v1.16.0</title>
+    <content type="html">&lt;p&gt;&lt;strong&gt;Full Changelog&lt;/strong&gt;: &lt;a class=&quot;commit-link&quot; href=&quot;https://github.com/roxyrekt/Migurdex/compare/v1.15.5...v1.16.0&quot;&gt;&lt;tt&gt;v1.15.5...v1.16.0&lt;/tt&gt;&lt;/a&gt;&lt;/p&gt;</content>
+    <author>
+      <name>github-actions[bot]</name>
+    </author>
+    <media:thumbnail height="30" width="30" url="https://avatars.githubusercontent.com/in/15368?s=60&amp;v=4"/>
+  </entry>
+</feed>

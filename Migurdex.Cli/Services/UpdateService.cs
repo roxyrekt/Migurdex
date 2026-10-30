@@ -154,6 +154,51 @@ public class UpdateService : IUpdateService
 
     private async Task<GitHubRelease?> GetLatestStableAsync(CancellationToken cancellationToken)
     {
+        return await SelectFromFeedAsync(false, cancellationToken).ConfigureAwait(false)
+               ?? await GetLatestStableFromApiAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    private async Task<GitHubRelease?> SelectFromFeedAsync(bool includePrerelease,
+        CancellationToken                                       cancellationToken)
+    {
+        IReadOnlyList<FeedEntry> entries;
+
+        try
+        {
+            entries = await GitHubReleaseFeed.GetEntriesAsync(_httpClient, Repo, cancellationToken)
+                                             .ConfigureAwait(false);
+        }
+        catch
+        {
+            return null;
+        }
+
+        var best = entries.FirstOrDefault(e => !e.IsNightly
+                                               && (includePrerelease || !e.IsPrerelease)
+                                               && !string.IsNullOrWhiteSpace(AppInfo.NormalizeTag(e.Tag)));
+
+        if (best is null)
+        {
+            return null;
+        }
+
+        IReadOnlyList<GitHubAsset> assets;
+
+        try
+        {
+            assets = await GitHubReleaseFeed.GetAssetsAsync(_httpClient, Repo, best.Tag, cancellationToken)
+                                            .ConfigureAwait(false);
+        }
+        catch
+        {
+            return null;
+        }
+
+        return new GitHubRelease(best.Tag, best.IsPrerelease, false, best.HtmlUrl, best.Notes, assets, best.UpdatedAt);
+    }
+
+    private async Task<GitHubRelease?> GetLatestStableFromApiAsync(CancellationToken cancellationToken)
+    {
         using var request = new HttpRequestMessage(HttpMethod.Get,
                                                    $"https://api.github.com/repos/{Repo}/releases/latest");
         AddGitHubHeaders(request);
@@ -171,6 +216,12 @@ public class UpdateService : IUpdateService
     }
 
     private async Task<GitHubRelease?> GetLatestFromListAsync(CancellationToken cancellationToken)
+    {
+        return await SelectFromFeedAsync(true, cancellationToken).ConfigureAwait(false)
+               ?? await GetLatestFromListFromApiAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    private async Task<GitHubRelease?> GetLatestFromListFromApiAsync(CancellationToken cancellationToken)
     {
         using var request = new HttpRequestMessage(HttpMethod.Get,
                                                    $"https://api.github.com/repos/{Repo}/releases?per_page=10");
@@ -200,7 +251,9 @@ public class UpdateService : IUpdateService
 
     private async Task<UpdateCheckResult?> CheckNightlyAsync(CliConfig config, CancellationToken cancellationToken)
     {
-        var nightly = await GetNightlyAsync(cancellationToken);
+        var nightly = await GetNightlyFromFeedAsync(cancellationToken).ConfigureAwait(false)
+                      ?? await GetNightlyAsync(cancellationToken).ConfigureAwait(false);
+
         if (nightly is null)
         {
             return null;
@@ -222,6 +275,47 @@ public class UpdateService : IUpdateService
             assetSize,
             ResolveChecksumUrl(nightly),
             ResolveDelta(nightly));
+    }
+
+    private async Task<GitHubRelease?> GetNightlyFromFeedAsync(CancellationToken cancellationToken)
+    {
+        IReadOnlyList<FeedEntry> entries;
+
+        try
+        {
+            entries = await GitHubReleaseFeed.GetEntriesAsync(_httpClient, Repo, cancellationToken)
+                                             .ConfigureAwait(false);
+        }
+        catch
+        {
+            return null;
+        }
+
+        var nightly = entries.FirstOrDefault(e => e.IsNightly);
+        if (nightly is null)
+        {
+            return null;
+        }
+
+        IReadOnlyList<GitHubAsset> assets;
+
+        try
+        {
+            assets = await GitHubReleaseFeed.GetAssetsAsync(_httpClient, Repo, nightly.Tag, cancellationToken)
+                                            .ConfigureAwait(false);
+        }
+        catch
+        {
+            return null;
+        }
+
+        return new GitHubRelease(nightly.Tag,
+                                 true,
+                                 false,
+                                 nightly.HtmlUrl,
+                                 nightly.Notes,
+                                 assets,
+                                 nightly.UpdatedAt);
     }
 
     private async Task<GitHubRelease?> GetNightlyAsync(CancellationToken cancellationToken)
