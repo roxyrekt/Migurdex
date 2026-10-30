@@ -161,18 +161,16 @@ jobs:
             -   name: Create Archive
                 shell: bash
                 run: |
-                    EXCLUDES='--exclude=migurdex-${{ matrix.runtime }}.tar.xz --exclude=migurdex-${{ matrix.runtime }}.tar.gz --exclude=migurdex-${{ matrix.runtime }}.zip'
-                    tar -cf - -C dist $EXCLUDES . | xz -9 -T0 > "migurdex-${{ matrix.runtime }}.tar.xz"
+                    EXCLUDES='--exclude=*.tar.gz --exclude=*.blobs.tar --exclude=*.manifest.json.gz --exclude=*.zip'
                     tar -czf "migurdex-${{ matrix.runtime }}.tar.gz" -C dist $EXCLUDES .
-                    echo "xz: $(du -h migurdex-${{ matrix.runtime }}.tar.xz | cut -f1)"
                     echo "gz: $(du -h migurdex-${{ matrix.runtime }}.tar.gz | cut -f1)"
-                    echo "hardlink: $(tar -tvJf migurdex-${{ matrix.runtime }}.tar.xz | grep -c '^h')"
+                    echo "hardlink: $(tar -tvzf migurdex-${{ matrix.runtime }}.tar.gz | grep -c '^h')"
 
                     if [ "${{ matrix.os }}" = "windows-latest" ]; then
                       (cd dist && 7z a -tzip "../migurdex-${{ matrix.runtime }}.zip" \
-                        -x'!*.tar.xz' -x'!*.tar.gz' -x'!*.blobs.tar' -x'!*.manifest.json.gz' \
+                        -x'!*.tar.gz' -x'!*.blobs.tar' -x'!*.manifest.json.gz' -x'!*.zip' \
                         * >/dev/null)
-                      echo "zip (eski istemciler): $(du -h migurdex-${{ matrix.runtime }}.zip | cut -f1)"
+                      echo "zip: $(du -h migurdex-${{ matrix.runtime }}.zip | cut -f1)"
                     fi
 
             -   name: Build delta blob store
@@ -182,11 +180,10 @@ jobs:
                       --input dist \
                       --output-dir . \
                       --runtime ${{ matrix.runtime }} \
-                      --exclude '*.tar.xz' \
                       --exclude '*.tar.gz' \
-                      --exclude '*.zip' \
                       --exclude '*.blobs.tar' \
-                      --exclude '*.manifest.json.gz'
+                      --exclude '*.manifest.json.gz' \
+                      --exclude '*.zip'
                     ls -lh migurdex-${{ matrix.runtime }}.blobs.tar migurdex-${{ matrix.runtime }}.manifest.json.gz
 
             -   name: Download appimagetool
@@ -220,11 +217,7 @@ jobs:
             -   name: Generate checksums
                 shell: bash
                 run: |
-                    if [ "${{ matrix.os }}" != "windows-latest" ]; then
-                      (cd "$GITHUB_WORKSPACE" && sha256sum migurdex-${{ matrix.runtime }}.tar.xz migurdex-${{ matrix.runtime }}.tar.gz migurdex-${{ matrix.runtime }}.blobs.tar migurdex-${{ matrix.runtime }}.manifest.json.gz > sha256sums-${{ matrix.runtime }}.txt)
-                    else
-                      (cd "$GITHUB_WORKSPACE" && sha256sum migurdex-${{ matrix.runtime }}.tar.xz migurdex-${{ matrix.runtime }}.tar.gz migurdex-${{ matrix.runtime }}.zip migurdex-${{ matrix.runtime }}.blobs.tar migurdex-${{ matrix.runtime }}.manifest.json.gz > sha256sums-${{ matrix.runtime }}.txt)
-                    fi
+                    (cd "$GITHUB_WORKSPACE" && sha256sum migurdex-${{ matrix.runtime }}.tar.gz migurdex-${{ matrix.runtime }}.blobs.tar migurdex-${{ matrix.runtime }}.manifest.json.gz > sha256sums-${{ matrix.runtime }}.txt)
 
             -   name: Upload AppImage Artifact
                 if: matrix.os != 'windows-latest'
@@ -240,7 +233,6 @@ jobs:
                 with:
                     name: migurdex-${{ matrix.runtime }}
                     path: |
-                        migurdex-${{ matrix.runtime }}.tar.xz
                         migurdex-${{ matrix.runtime }}.tar.gz
                         migurdex-${{ matrix.runtime }}.blobs.tar
                         migurdex-${{ matrix.runtime }}.manifest.json.gz

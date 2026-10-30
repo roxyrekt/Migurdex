@@ -18,7 +18,7 @@ if ($Help) {
     Write-Host "Kullanim: .\build.ps1 [-Release] [-Publish] [-Help]"
     Write-Host "  (bayraksiz)  Debug dev-loop"
     Write-Host "  -Release     Release dev-loop"
-    Write-Host "  -Publish     Release paket (dist\migurdex-win-x64.zip)"
+    Write-Host "  -Publish     Release paket (dist\migurdex-win-x64.tar.gz)"
     exit 0
 }
 
@@ -125,10 +125,18 @@ if ($Publish) {
     }
 
     Write-Host "[6/6] Paket hazırlanıyor..." -ForegroundColor Yellow
-    $ZipPath = Join-Path $DistDir "migurdex-$Runtime.zip"
-    if (Test-Path $ZipPath) { Remove-Item -Force $ZipPath }
-    Compress-Archive -Path (Join-Path $DistDir "migurdex.exe"), (Join-Path $DistDir "api") -DestinationPath $ZipPath
-    Write-Host "Arşiv oluşturuldu: $ZipPath" -ForegroundColor Green
+    $TgzPath = Join-Path $DistDir "migurdex-$Runtime.tar.gz"
+    if (Test-Path $TgzPath) { Remove-Item -Force $TgzPath }
+
+    $TarExe = Join-Path $env:SystemRoot "System32\tar.exe"
+    if (-not (Test-Path $TarExe)) { $TarExe = (Get-Command tar.exe -ErrorAction Stop).Source }
+    Push-Location $DistDir
+    try {
+        & $TarExe -czf $TgzPath migurdex.exe api
+        if ($LASTEXITCODE -ne 0) { throw "tar exit $LASTEXITCODE" }
+    }
+    finally { Pop-Location }
+    Write-Host "Arşiv oluşturuldu: $TgzPath" -ForegroundColor Green
     Write-Host "Çalıştırmak için: .\dist\migurdex.exe" -ForegroundColor White
     exit 0
 }

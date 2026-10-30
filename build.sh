@@ -167,30 +167,22 @@ if [ "$DO_PUBLISH" = true ]; then
     echo -e "${GREY}  payload: $(du -sh --apparent-size "$DIST_DIR" | cut -f1) gorunur, "\
 "$(du -sh "$DIST_DIR" | cut -f1) diskte${NC}"
 
-    tar -cf - -C "$DIST_DIR" \
-        --exclude="migurdex-$RUNTIME.tar.xz" \
-        --exclude="migurdex-$RUNTIME.tar.gz" \
-        . | xz -9 -T0 > "$ROOT/migurdex-$RUNTIME.tar.xz"
-    mv "$ROOT/migurdex-$RUNTIME.tar.xz" "$DIST_DIR/"
-
     tar -czf "$ROOT/migurdex-$RUNTIME.tar.gz" -C "$DIST_DIR" \
-        --exclude="migurdex-$RUNTIME.tar.xz" \
         --exclude="migurdex-$RUNTIME.tar.gz" \
+        --exclude="migurdex-$RUNTIME.blobs.tar" \
+        --exclude="migurdex-$RUNTIME.manifest.json.gz" \
         .
     mv "$ROOT/migurdex-$RUNTIME.tar.gz" "$DIST_DIR/"
 
-    XZ_ARCHIVE="$DIST_DIR/migurdex-$RUNTIME.tar.xz"
     GZ_ARCHIVE="$DIST_DIR/migurdex-$RUNTIME.tar.gz"
-    hl_count=$(tar -tvJf "$XZ_ARCHIVE" | grep -c '^h' || true)
+    hl_count=$(tar -tvzf "$GZ_ARCHIVE" | grep -c '^h' || true)
 
     echo -e "${YELLOW}[7/7] Delta blob deposu hazırlanıyor...${NC}"
     python3 "$ROOT/assets/packaging/build-blobs.py" \
         --input "$DIST_DIR" \
         --output-dir "$DIST_DIR" \
         --runtime "$RUNTIME" \
-        --exclude '*.tar.xz' \
         --exclude '*.tar.gz' \
-        --exclude '*.zip' \
         --exclude '*.blobs.tar' \
         --exclude '*.manifest.json.gz'
 
@@ -199,12 +191,9 @@ if [ "$DO_PUBLISH" = true ]; then
 
     echo -e "${GREEN}Arşivler oluşturuldu:${NC}"
     printf "  %-40s %6.1f MB  (hardlink: %s)\n" \
-        "migurdex-$RUNTIME.tar.xz" \
-        "$(awk -v s="$(stat -c %s "$XZ_ARCHIVE")" 'BEGIN{print s/1048576}')" \
-        "$hl_count"
-    printf "  %-40s %6.1f MB  (eski istemciler)\n" \
         "migurdex-$RUNTIME.tar.gz" \
-        "$(awk -v s="$(stat -c %s "$GZ_ARCHIVE")" 'BEGIN{print s/1048576}')"
+        "$(awk -v s="$(stat -c %s "$GZ_ARCHIVE")" 'BEGIN{print s/1048576}')" \
+        "$hl_count"
     printf "  %-40s %6.1f MB  (delta)\n" \
         "migurdex-$RUNTIME.blobs.tar" \
         "$(awk -v s="$(stat -c %s "$BLOBS_TAR")" 'BEGIN{print s/1048576}')"

@@ -43,7 +43,9 @@ jobs:
             -   name: Flatten Artifacts
                 run: |
                     mkdir release-files
-                    find artifacts -type f \( -name "*.tar.gz" -o -name "*.tar.xz" -o -name "*.blobs.tar" -o -name "*.manifest.json.gz" -o -name "*.zip" -o -name "*.AppImage" -o -name "*.zsync" -o -name "*.txt" \) -exec cp {} release-files/ \;
+                    find artifacts -type f \( -name "*.tar.gz" -o -name "*.blobs.tar" -o -name "*.manifest.json.gz" -o -name "*.zip" -o -name "*.AppImage" -o -name "*.zsync" -o -name "*.txt" \) -exec cp {} release-files/ \;
+                    cat release-files/sha256sums-*.txt > release-files/sha256sums.txt
+                    rm -f release-files/sha256sums-*.txt
 
             -   name: Create GitHub Release
                 uses: softprops/action-gh-release@v3

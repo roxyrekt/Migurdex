@@ -399,14 +399,12 @@ public class UpdateService : IUpdateService
     {
         var arch = GetArchLabel();
 
+        // Tek format: tar.gz. Windows 10'un bsdtar 3.3.2'si xz bilmiyor,
+        // tar.gz ise her platformda sistem tar'i ile aciliyor.
         var candidates = new[]
         {
-            $"migurdex-{RuntimeLabel()}-{arch}.tar.xz",
             $"migurdex-{RuntimeLabel()}-{arch}.tar.gz",
-            $"migurdex-{RuntimeLabel()}-x64.tar.xz",
-            $"migurdex-{RuntimeLabel()}-x64.tar.gz",
-            $"migurdex-win-{arch}.zip",
-            "migurdex-win-x64.zip"
+            $"migurdex-{RuntimeLabel()}-x64.tar.gz"
         };
 
         var asset = candidates

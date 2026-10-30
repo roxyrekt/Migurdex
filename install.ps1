@@ -107,7 +107,7 @@ try {
     $releaseInfo = Invoke-RestMethod -Uri "https://api.github.com/repos/$Repo/releases/latest" -Headers @{ "Accept" = "application/vnd.github.v3+json" } -TimeoutSec 10
     if ($releaseInfo -and $releaseInfo.tag_name) {
         $LatestTag = $releaseInfo.tag_name
-        $DownloadUrl = "https://github.com/$Repo/releases/download/$LatestTag/migurdex-$AssetRuntime.tar.xz"
+        $DownloadUrl = "https://github.com/$Repo/releases/download/$LatestTag/migurdex-$AssetRuntime.tar.gz"
         Write-Host "Bulunan son sürüm: $LatestTag" -ForegroundColor Green
     }
 }
@@ -116,26 +116,17 @@ catch {
 }
 
 if (-not $DownloadUrl) {
-    $DownloadUrl = "https://github.com/$Repo/releases/latest/download/migurdex-$AssetRuntime.tar.xz"
+    $DownloadUrl = "https://github.com/$Repo/releases/latest/download/migurdex-$AssetRuntime.tar.gz"
 }
 
-$TempArchive = Join-Path $env:TEMP "migurdex-$AssetRuntime.tar.xz"
+$TempArchive = Join-Path $env:TEMP "migurdex-$AssetRuntime.tar.gz"
 
 
 try {
     Write-Host "[2/4] Migurdex paketi indiriliyor..." -ForegroundColor Yellow
     if (Test-Path $TempArchive) { Remove-Item -Force $TempArchive }
 
-    try {
-        Invoke-WebRequest -Uri $DownloadUrl -OutFile $TempArchive -UseBasicParsing
-    }
-    catch {
-        # .tar.gz fallback
-        $FallbackUrl = $DownloadUrl -replace '\.tar\.xz$', '.tar.gz'
-        $TempArchive = Join-Path $env:TEMP "migurdex-$AssetRuntime.tar.gz"
-        Write-Host ".tar.xz bulunamadi, .tar.gz deneniyor..." -ForegroundColor Yellow
-        Invoke-WebRequest -Uri $FallbackUrl -OutFile $TempArchive -UseBasicParsing
-    }
+    Invoke-WebRequest -Uri $DownloadUrl -OutFile $TempArchive -UseBasicParsing
 
     Write-Host "[3/4] Dosyalar kuruluyor ($InstallDir)..." -ForegroundColor Yellow
     Stop-MigurdexProcesses

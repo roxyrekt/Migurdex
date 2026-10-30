@@ -116,12 +116,7 @@ for cmd in curl tar; do
     fi
 done
 
-if ! command -v xz >/dev/null 2>&1; then
-    echo -e "${YELLOW}Uyari: 'xz' bulunamadi, .tar.gz paketine donuluyor.${NC}"
-    ARCHIVE_EXT="tar.gz"
-else
-    ARCHIVE_EXT="tar.xz"
-fi
+ARCHIVE_EXT="tar.gz"
 
 echo -e "${YELLOW}[1/5] Son sürüm kontrol ediliyor...${NC}"
 LATEST_TAG=""
@@ -147,20 +142,8 @@ echo -e "${YELLOW}[2/5] Migurdex paketi indiriliyor...${NC}"
 ARCHIVE_PATH="$TMP_DIR/migurdex.$ARCHIVE_EXT"
 
 if ! curl -fSL --progress-bar "$DOWNLOAD_URL" -o "$ARCHIVE_PATH"; then
-    # .tar.gz fallback
-    if [ "$ARCHIVE_EXT" = "tar.xz" ]; then
-        FALLBACK_URL="${DOWNLOAD_URL%.tar.xz}.tar.gz"
-        echo -e "${YELLOW}.tar.xz bulunamadi, .tar.gz deneniyor...${NC}"
-        ARCHIVE_EXT="tar.gz"
-        ARCHIVE_PATH="$TMP_DIR/migurdex.$ARCHIVE_EXT"
-        if ! curl -fSL --progress-bar "$FALLBACK_URL" -o "$ARCHIVE_PATH"; then
-            echo -e "${RED}Hata: Paket indirilemedi! Lütfen internet bağlantınızı veya GitHub release durumunu kontrol edin.${NC}"
-            exit 1
-        fi
-    else
-        echo -e "${RED}Hata: Paket indirilemedi! Lütfen internet bağlantınızı veya GitHub release durumunu kontrol edin.${NC}"
-        exit 1
-    fi
+    echo -e "${RED}Hata: Paket indirilemedi! Lütfen internet bağlantınızı veya GitHub release durumunu kontrol edin.${NC}"
+    exit 1
 fi
 
 echo -e "${YELLOW}[3/5] Dosyalar kuruluyor (~/.local/share/migurdex)...${NC}"
@@ -204,16 +187,7 @@ tar -xf "$ARCHIVE_PATH" -C "$INSTALL_DIR" || true
 
 if [ ! -f "$INSTALL_DIR/cli/migurdex" ] && [ ! -f "$INSTALL_DIR/migurdex" ]; then
     echo -e "${RED}Hata: Arşiv açılamadı (migurdex bulunamadı).${NC}"
-    echo -e "${YELLOW}Muhtemel sebep: 'xz' kurulu değil. Kurun ve tekrar deneyin:${NC}"
-    if command -v pacman >/dev/null 2>&1; then
-        echo -e "  ${BOLD}sudo pacman -S xz${NC}"
-    elif command -v apt >/dev/null 2>&1; then
-        echo -e "  ${BOLD}sudo apt install xz-utils${NC}"
-    elif command -v dnf >/dev/null 2>&1; then
-        echo -e "  ${BOLD}sudo dnf install xz${NC}"
-    else
-        echo -e "  Paket yöneticinizden 'xz' paketini kurun."
-    fi
+    echo -e "${YELLOW}İndirilen dosya bozuk olabilir; tekrar deneyin.${NC}"
     exit 1
 fi
 
