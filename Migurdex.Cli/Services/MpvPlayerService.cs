@@ -1,3 +1,4 @@
+using Migurdex.Cli.Dependencies;
 using Migurdex.Cli.Utils;
 using Migurdex.Core.Services;
 using Migurdex.Shared.Models;
@@ -14,6 +15,7 @@ namespace Migurdex.Cli.Services;
 public class MpvPlayerService : IMpvPlayerService
 {
     private readonly IConfigurationService _configService;
+    private readonly DependencyResolver?   _dependencyResolver;
     private readonly IHistoryService       _historyService;
     private readonly HttpClient            _httpClient;
     private readonly IDiscordRpcService    _rpcService;
@@ -24,13 +26,15 @@ public class MpvPlayerService : IMpvPlayerService
         IHistoryService       historyService,
         IDiscordRpcService    rpcService,
         WatchSyncService      syncService,
-        HttpClient            httpClient)
+        HttpClient            httpClient,
+        DependencyResolver?   dependencyResolver = null)
     {
-        _configService  = configService;
-        _historyService = historyService;
-        _rpcService     = rpcService;
-        _syncService    = syncService;
-        _httpClient     = httpClient;
+        _configService      = configService;
+        _historyService     = historyService;
+        _rpcService         = rpcService;
+        _syncService        = syncService;
+        _httpClient         = httpClient;
+        _dependencyResolver = dependencyResolver;
     }
 
     public async Task<SyncOutcome> PlayAsync(
@@ -46,9 +50,16 @@ public class MpvPlayerService : IMpvPlayerService
         }
 
         var playerExe = _configService.Config.PreferredPlayer;
-        var playerPath = FindPlayerExecutable(playerExe)
-                         ?? throw new InvalidOperationException(
-                             $"Medya oynatıcı bulunamadı: '{playerExe}'. MPV kurun (https://mpv.io/).");
+        var playerPath = _dependencyResolver?.Resolve(DependencyKind.Mpv)
+                         ?? FindPlayerExecutable(playerExe);
+
+        if (playerPath is null)
+        {
+            var hint = _dependencyResolver?.Installer.GetManualInstructions(DependencyKind.Mpv)
+                       ?? "MPV kurun (https://mpv.io/).";
+
+            throw new InvalidOperationException($"Medya oynatıcı bulunamadı: '{playerExe}'. {hint}");
+        }
 
         var isWindows = OperatingSystem.IsWindows();
         var ipcPath = isWindows

@@ -192,6 +192,9 @@ public sealed class SubtitleDownloadResult
 public sealed class HlsDownloadOptions
 {
     public string Executable   { get; set; } = "yt-dlp";
+
+    public string? FfmpegPath { get; set; }
+
     public int    MaxAttempts { get; set; } = 3;
     public TimeSpan RetryDelay { get; set; } = TimeSpan.FromSeconds(1);
     public int ConcurrentFragments { get; set; } = 5;

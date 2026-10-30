@@ -95,7 +95,22 @@ AppImage için Linux'ta `libfuse2` gerekir (bkz. [Gereksinimler](#gereksinimler)
   8 MiB üstü MP4'ler sunucu Range destekliyorsa 2-4 paralel parçayla iner, desteklemiyorsa sıralıya düşer.
 - HLS indirme ilerlemesi yt-dlp'nin ürettiği progress satırlarından okunur; Migurdex yt-dlp'ye daima `--progress` verir
   (yt-dlp'de `--print` bayrağı bu çıktıyı kapattığından).
-- Migurdex yt-dlp veya ffmpeg'i otomatik indirmez/kurmaz.
+- **Windows:** MPV, yt-dlp ve ffmpeg eksikse Migurdex açılışta kurmayı önerir; `migurdex deps install` ile elle de
+  çalıştırılabilir. Kurulanlar `~/.config/migurdex/tools/` altına yazılır ve hepsi SHA-256 ile doğrulanır:
+  - **yt-dlp**: resmî `yt-dlp/yt-dlp` GitHub release'i (GitHub asset digest'i, yoksa `SHA2-256SUMS`).
+  - **ffmpeg**: `GyanD/codexffmpeg` GitHub release'leri — `gyan.dev`'in resmî mirror'ı, ffmpeg.org'un indirme
+    sayfasında listelenen build'in birebir aynısı (aynı SHA-256). GitHub'a erişilemezse doğrudan `gyan.dev`
+    `.7z`/`.zip` kaynağına düşülür.
+  - **MPV**: `shinchiro/mpv-winbuild-cmake` GitHub release'leri — mpv.io'nun linklediği Windows build'i, günlük git
+    sürümleri. GitHub'a erişilemezse `winget install shinchiro.mpv` yedeği denenir.
+  - Sunucu HTTP Range destekliyorsa indirme **4 paralel parçaya** bölünür (parça başına en az 1 MiB); desteklemiyorsa
+    tek akışa düşer. Parçalar birleştirildikten sonra SHA-256 doğrulanır.
+  - Kurulan sürüm `tools/.migurdex-version-<araç>` (MPV için `tools/mpv/.migurdex-version-mpv`) dosyasına yazılır.
+    Açılışta günde bir (önbellekli) güncelleme kontrol edilir ve varsa sorulur:
+    `Şimdi güncelle / Daha sonra / Bu sürümü atla`. Kontrolü atlamak için `--no-dep-check`
+    (veya `--no-update-check`) kullanın.
+- **Linux/macOS:** Otomatik kurulum henüz yok; araçları paket yöneticinizle kurun (`migurdex deps` ile durumu
+  görebilirsiniz).
 - AppImage için Linux'ta `libfuse2`
 - Kaynaktan derlemek için: .NET 10 SDK + Rust / cargo
 
@@ -130,6 +145,11 @@ migurdex download "bleach" -e 1 --format hls --force --no-resume
 migurdex download "bleach" -e 1 --json       # stdout yalnız JSON, ilerleme stderr'de
 migurdex blame                                # kaynak çözümleme süre ve hata dökümü
 migurdex blame --json                         # JSON çıktı
+migurdex deps                                 # araç durumu (MPV, yt-dlp, ffmpeg)
+migurdex deps install                         # eksik araçları kur (Windows)
+migurdex deps install yt-dlp ffmpeg --force   # seçili araçları yeniden kur
+migurdex deps update --check                  # güncelleme var mı (kurulum yapmaz)
+migurdex deps update                          # güncellemesi olan araçları kur
 ```
 
 `download` akışı Search -> Details -> Episode -> Group/Source sırasını izler. Yalnız API'nin çözdüğü doğrudan `MP4` ve
@@ -174,6 +194,9 @@ geçmişe dokunmaz.
 Ayarlar menüsünden değiştirilebilenler: otomatik oynat, bekleme süresi, Discord RPC ve başlık modu, gizli mod, oynatıcı
 logları, API adresi (varsayılan `http://127.0.0.1:7045`), AniList / MAL bağlantısı, sağlayıcı açma-kapama, sıralama
 öncelikleri ve otomatik seçim kuralları (Otomatik / Asla / Sadece).
+
+**Araçlar** bölümünde MPV / yt-dlp / ffmpeg durumunu görebilir, yol ve sürüm detayına bakabilir ve Windows'ta eksik
+araçları tek tuşla kurabilirsin (`Eksik Araçları Kur...`).
 
 Kaydetmeden çıkarsan (`Esc` / İptal) değişiklikler uygulanmaz.
 

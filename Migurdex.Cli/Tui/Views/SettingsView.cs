@@ -1,4 +1,5 @@
 using Migurdex.Cli.Configuration;
+using Migurdex.Cli.Dependencies;
 using Migurdex.Cli.Services;
 using Migurdex.Core.Services;
 using Migurdex.Shared.Enums;
@@ -15,20 +16,22 @@ public class SettingsView : BaseView
     internal const int ChromeRows = 5;
 
     private static readonly string[]              _rpcTitleModes = ["Migurdex", "Sağlayıcı", "İçerik"];
-    private readonly        AniListOAuthClient    _aniListOAuth;
-    private readonly        IApiClientService     _apiClient;
-    private readonly        IConfigurationService _configService;
-    private readonly        MalOAuthClient        _malOAuth;
-    private readonly        OAuthTokenStore       _tokenStore;
-    private readonly        IUpdateService        _updateService;
-    private                 string?               _lastProviderName;
+    private readonly        AniListOAuthClient      _aniListOAuth;
+    private readonly        IApiClientService       _apiClient;
+    private readonly        IConfigurationService   _configService;
+    private readonly        DependencyResolver?     _dependencies;
+    private readonly        MalOAuthClient          _malOAuth;
+    private readonly        OAuthTokenStore         _tokenStore;
+    private readonly        IUpdateService          _updateService;
+    private                 string?                 _lastProviderName;
 
     public SettingsView(IConfigurationService configService,
-        IApiClientService                     apiClient,
-        OAuthTokenStore                       tokenStore,
-        AniListOAuthClient                    aniListOAuth,
-        MalOAuthClient                        malOAuth,
-        IUpdateService                        updateService)
+        IApiClientService                       apiClient,
+        OAuthTokenStore                         tokenStore,
+        AniListOAuthClient                      aniListOAuth,
+        MalOAuthClient                          malOAuth,
+        IUpdateService                          updateService,
+        DependencyResolver?                     dependencies = null)
     {
         _configService = configService;
         _apiClient     = apiClient;
@@ -36,6 +39,7 @@ public class SettingsView : BaseView
         _aniListOAuth  = aniListOAuth;
         _malOAuth      = malOAuth;
         _updateService = updateService;
+        _dependencies  = dependencies;
     }
 
     public override string GetRpcState()
@@ -215,6 +219,41 @@ public class SettingsView : BaseView
                 Id       = "Sorting",
                 Label    = "Sıralama Öncelikleri...",
                 IsAction = true
+            },
+            new()
+            {
+                IsSection = true,
+                Label     = "Araçlar"
+            },
+            new()
+            {
+                Id          = "ToolMpv",
+                Label       = "MPV",
+                ValueGetter = _ => ToolStatusText(DependencyKind.Mpv)
+            },
+            new()
+            {
+                Id          = "ToolYtDlp",
+                Label       = "yt-dlp",
+                ValueGetter = _ => ToolStatusText(DependencyKind.YtDlp)
+            },
+            new()
+            {
+                Id          = "ToolFfmpeg",
+                Label       = "ffmpeg",
+                ValueGetter = _ => ToolStatusText(DependencyKind.Ffmpeg)
+            },
+            new()
+            {
+                Id       = "ToolInstall",
+                Label    = "Eksik Araçları Kur...",
+                IsAction = true
+            },
+            new()
+            {
+                Id          = "ToolUpdateCheck",
+                Label       = "Güncelleme Kontrolü",
+                ValueGetter = c => c.DependencyUpdateCheckEnabled ? "Açık" : "Kapalı"
             },
             new()
             {
@@ -624,6 +663,134 @@ public class SettingsView : BaseView
         return _rpcTitleModes[(idx + 1) % _rpcTitleModes.Length];
     }
 
+    private string ToolStatusText(DependencyKind kind)
+    {
+        if (_dependencies is null)
+        {
+            return "Bilinmiyor";
+        }
+
+        var path = _dependencies.Resolve(kind);
+
+        return path is null ? "Eksik" : "Kurulu";
+    }
+
+    private void ShowToolDetail(string id)
+    {
+        var kind = id switch
+        {
+            "ToolMpv"    => DependencyKind.Mpv,
+            "ToolYtDlp"  => DependencyKind.YtDlp,
+            "ToolFfmpeg" => DependencyKind.Ffmpeg,
+            _            => DependencyKind.Mpv
+        };
+
+        if (_dependencies is null)
+        {
+            Toast.Show("[red]Bağımlılık çözücü kullanılamıyor.[/]");
+
+            return;
+        }
+
+        var path = _dependencies.Resolve(kind);
+        AnsiConsole.Clear();
+        Theme.WriteHeader($"Araç: {DependencyCatalog.DisplayName(kind)}");
+        AnsiConsole.WriteLine();
+
+        if (path is null)
+        {
+            AnsiConsole.MarkupLine("[red]Kurulu değil.[/]");
+            AnsiConsole.MarkupLine($"[grey]{Markup.Escape(_dependencies.Installer.GetManualInstructions(kind))}[/]");
+        }
+        else
+        {
+            AnsiConsole.MarkupLine("[green]Kurulu[/]");
+            AnsiConsole.MarkupLine($"[grey]Yol:[/] {Markup.Escape(path)}");
+        }
+
+        AnsiConsole.WriteLine();
+        AnsiConsole.MarkupLine("[grey]Devam etmek için bir tuşa basın...[/]");
+        TuiConsole.WaitForKey();
+    }
+
+    private async Task RunToolInstallAsync()
+    {
+        if (_dependencies is null)
+        {
+            Toast.Show("[red]Bağımlılık çözücü kullanılamıyor.[/]");
+
+            return;
+        }
+
+        var missing = DependencySetupRunner.FindMissing(_dependencies);
+        if (missing.Count == 0)
+        {
+            Toast.Show("[green]Tüm araçlar zaten kurulu.[/]");
+
+            return;
+        }
+
+        if (!_dependencies.CanAutoInstall)
+        {
+            AnsiConsole.Clear();
+            Theme.WriteHeader("Araçlar");
+            AnsiConsole.WriteLine();
+            AnsiConsole.MarkupLine(
+                $"[yellow]Bu platformda ({Markup.Escape(_dependencies.PlatformName)}) otomatik kurulum yok.[/]");
+            foreach (var kind in missing)
+            {
+                AnsiConsole.MarkupLine(
+                    $"[grey]{Markup.Escape(_dependencies.Installer.GetManualInstructions(kind))}[/]");
+            }
+
+            AnsiConsole.WriteLine();
+            AnsiConsole.MarkupLine("[grey]Devam etmek için bir tuşa basın...[/]");
+            TuiConsole.WaitForKey();
+
+            return;
+        }
+
+        var names = string.Join(", ", missing.Select(DependencyCatalog.DisplayName));
+        if (!Theme.Confirm($"[yellow]Şu araçlar kurulsun mu: {Markup.Escape(names)}?[/]"))
+        {
+            return;
+        }
+
+        IReadOnlyList<DependencyInstallResult> results = [];
+        await AnsiConsole.Status()
+                         .Spinner(Spinner.Known.Dots)
+                         .StartAsync("Araçlar kuruluyor...",
+                                     async ctx =>
+                                     {
+                                         var progress = new Progress<string>(line => ctx.Status(Markup.Escape(line)));
+                                         results = await DependencySetupRunner.InstallAsync(_dependencies,
+                                                                                            missing,
+                                                                                            progress,
+                                                                                            CancellationToken.None);
+                                     });
+
+        var failures = results.Where(r => !r.Success).ToList();
+        if (failures.Count == 0)
+        {
+            Toast.Show("[green]Tüm araçlar kuruldu.[/]");
+
+            return;
+        }
+
+        AnsiConsole.Clear();
+        Theme.WriteHeader("Araç kurulumu");
+        AnsiConsole.WriteLine();
+        foreach (var failure in failures)
+        {
+            AnsiConsole.MarkupLine($"[red]✗[/] {Markup.Escape(DependencyCatalog.DisplayName(failure.Kind))}:"
+                                   + $" {Markup.Escape(failure.Message)}");
+        }
+
+        AnsiConsole.WriteLine();
+        AnsiConsole.MarkupLine("[grey]Devam etmek için bir tuşa basın...[/]");
+        TuiConsole.WaitForKey();
+    }
+
     private async Task RunUpdateCheckNowAsync()
     {
         UpdateCheckResult? result = null;
@@ -767,6 +934,17 @@ public class SettingsView : BaseView
                 break;
             case "Sorting":
                 await ConfigureSortingPrioritiesAsync(config);
+                break;
+            case "ToolMpv":
+            case "ToolYtDlp":
+            case "ToolFfmpeg":
+                ShowToolDetail(item.Id);
+                break;
+            case "ToolInstall":
+                await RunToolInstallAsync();
+                break;
+            case "ToolUpdateCheck":
+                config.DependencyUpdateCheckEnabled = !config.DependencyUpdateCheckEnabled;
                 break;
             case "Save":
                 _configService.Save();
@@ -1314,6 +1492,9 @@ public class SettingsView : BaseView
                 or "AutoDownload" or "DownloadSubtitles" or "DownloadResume" or "DownloadOverwrite" =>
                 value == "Açık" ? "green" : "grey",
             "UpdateChannel" => value == "Pre-release" ? "yellow" : value == "Nightly" ? "blue" : "green",
+            "ToolMpv" or "ToolYtDlp" or "ToolFfmpeg" =>
+                value == "Kurulu" ? "green" : value == "Bilinmiyor" ? "grey" : "red",
+            "ToolUpdateCheck" => value == "Açık" ? "green" : "grey",
             "AniList" or "MyAnimeList" => value.Contains("Süresi dolmuş")
                                               ? "red"
                                               : value.StartsWith("Bağlı (yenilenecek)")
