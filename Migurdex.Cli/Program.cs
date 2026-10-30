@@ -83,7 +83,7 @@ public static class Program
             ConfigureServices(depsServices);
             using var depsProvider = depsServices.BuildServiceProvider();
 
-            using var depsCts           = new CancellationTokenSource();
+            using var depsCts         = new CancellationTokenSource();
             var       cancelRequested = 0;
 
             ConsoleCancelEventHandler depsCancelHandler = (_, eventArgs) =>
@@ -204,7 +204,12 @@ public static class Program
             _ = Task.Run(() => serviceProvider.GetRequiredService<WatchSyncService>().FlushQueueAsync());
 
             var noUpdateCheck = args.Any(a => a.Equals("--no-update-check", StringComparison.OrdinalIgnoreCase));
+            var noDepUpdateCheck = noUpdateCheck
+                                   || args.Any(a => a.Equals("--no-dep-check", StringComparison.OrdinalIgnoreCase));
+
             await MaybePromptForDependenciesAsync(serviceProvider);
+            tuiToken.ThrowIfCancellationRequested();
+            await MaybePromptForDependencyUpdatesAsync(serviceProvider, noDepUpdateCheck);
             tuiToken.ThrowIfCancellationRequested();
             await MaybePromptForUpdateAsync(serviceProvider, noUpdateCheck);
             tuiToken.ThrowIfCancellationRequested();
@@ -277,10 +282,10 @@ public static class Program
                                                      var progress =
                                                          new Progress<string>(line => ctx.Status(Markup.Escape(line)));
                                                      results = await DependencySetupRunner.InstallAsync(resolver,
-                                                                                                        missing,
-                                                                                                        progress,
-                                                                                                            TuiApplicationCancellation
-                                                                                                            .Token);
+                                                                   missing,
+                                                                   progress,
+                                                                   TuiApplicationCancellation
+                                                                       .Token);
                                                  });
 
                     foreach (var result in results)
@@ -306,6 +311,118 @@ public static class Program
         catch
         {
             // Araç istemi asla uygulamayı engellememeli.
+        }
+    }
+
+    private static async Task MaybePromptForDependencyUpdatesAsync(IServiceProvider services, bool skip)
+    {
+        if (skip || Console.IsInputRedirected)
+        {
+            return;
+        }
+
+        try
+        {
+            var checker       = services.GetService<DependencyUpdateChecker>();
+            var configService = services.GetRequiredService<IConfigurationService>();
+
+            if (checker is null || !configService.Config.DependencyUpdateCheckEnabled)
+            {
+                return;
+            }
+
+            var config = configService.Config;
+
+            using var cts = CancellationTokenSource.CreateLinkedTokenSource(
+                                TuiApplicationCancellation.Token);
+            cts.CancelAfter(TimeSpan.FromSeconds(8));
+
+            IReadOnlyList<DependencyUpdate> updates;
+            try
+            {
+                updates = await checker.CheckAsync(force: false,
+                                                    progress: null,
+                                                    cancellationToken: cts.Token);
+            }
+            catch (OperationCanceledException) when (!TuiApplicationCancellation.Token.IsCancellationRequested)
+            {
+                return;
+            }
+            if (updates.Count == 0)
+            {
+                return;
+            }
+
+            var pending = updates.Where(u => !config.SkippedDependencyVersions.TryGetValue(
+                                                 DependencyCatalog.CommandName(u.Kind),
+                                                 out var skipped)
+                                             || !DependencyUpdateChecker.IsSameVersion(skipped, u.LatestVersion))
+                                 .ToList();
+
+            if (pending.Count == 0)
+            {
+                return;
+            }
+
+            AnsiConsole.WriteLine();
+            AnsiConsole.MarkupLine("[yellow][[!]][/] Güncellenebilir araçlar:");
+            foreach (var update in pending)
+            {
+                AnsiConsole.MarkupLine($"   [white]{Markup.Escape(update.DisplayName)}[/]"
+                                       + $" [grey]{Markup.Escape(update.InstalledVersion)} →[/]"
+                                       + $" [green]{Markup.Escape(update.LatestVersion)}[/]");
+            }
+
+            var choice = AnsiConsole.Prompt(
+                new SelectionPrompt<string>()
+                    .HighlightStyle(new Style(Color.Cyan1, decoration: Decoration.Bold))
+                    .AddChoices("Şimdi güncelle", "Daha sonra", "Bu sürümü atla"));
+
+            switch (choice)
+            {
+                case "Şimdi güncelle":
+                    IReadOnlyList<DependencyInstallResult> results = [];
+                    await AnsiConsole.Status()
+                                     .Spinner(Spinner.Known.Dots)
+                                     .StartAsync("Araçlar güncelleniyor...",
+                                                 async ctx =>
+                                                 {
+                                                     var progress =
+                                                         new Progress<string>(line => ctx.Status(Markup.Escape(line)));
+                                                     results = await DependencySetupRunner.InstallAsync(
+                                                                   checker.Resolver,
+                                                                   pending.Select(u => u.Kind),
+                                                                   progress,
+                                                                   TuiApplicationCancellation.Token);
+                                                 });
+
+                    foreach (var result in results)
+                    {
+                        var name = DependencyCatalog.DisplayName(result.Kind);
+                        AnsiConsole.MarkupLine(result.Success
+                                                   ? $"[green]✓[/] {Markup.Escape(name)} güncellendi."
+                                                   : $"[red]✗[/] {Markup.Escape(name)}: {Markup.Escape(result.Message)}");
+                    }
+
+                    break;
+                case "Bu sürümü atla":
+                    foreach (var update in pending)
+                    {
+                        config.SkippedDependencyVersions[DependencyCatalog.CommandName(update.Kind)] =
+                            update.LatestVersion;
+                    }
+
+                    try { configService.Save(); }
+                    catch
+                    {
+                        // ignored
+                    }
+
+                    break;
+            }
+        }
+        catch
+        {
         }
     }
 

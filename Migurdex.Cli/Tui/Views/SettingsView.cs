@@ -251,6 +251,12 @@ public class SettingsView : BaseView
             },
             new()
             {
+                Id          = "ToolUpdateCheck",
+                Label       = "Güncelleme Kontrolü",
+                ValueGetter = c => c.DependencyUpdateCheckEnabled ? "Açık" : "Kapalı"
+            },
+            new()
+            {
                 IsSection = true,
                 Label     = "Değişiklikler"
             },
@@ -937,6 +943,9 @@ public class SettingsView : BaseView
             case "ToolInstall":
                 await RunToolInstallAsync();
                 break;
+            case "ToolUpdateCheck":
+                config.DependencyUpdateCheckEnabled = !config.DependencyUpdateCheckEnabled;
+                break;
             case "Save":
                 _configService.Save();
                 Toast.Show("[green]Kaydedildi.[/]");
@@ -1485,6 +1494,7 @@ public class SettingsView : BaseView
             "UpdateChannel" => value == "Pre-release" ? "yellow" : value == "Nightly" ? "blue" : "green",
             "ToolMpv" or "ToolYtDlp" or "ToolFfmpeg" =>
                 value == "Kurulu" ? "green" : value == "Bilinmiyor" ? "grey" : "red",
+            "ToolUpdateCheck" => value == "Açık" ? "green" : "grey",
             "AniList" or "MyAnimeList" => value.Contains("Süresi dolmuş")
                                               ? "red"
                                               : value.StartsWith("Bağlı (yenilenecek)")

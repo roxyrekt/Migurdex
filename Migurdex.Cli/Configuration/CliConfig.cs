@@ -50,7 +50,12 @@ public class CliConfig
 
     public string? OpenAnimeApiKey { get; set; }
 
-    public bool    DependencyPromptDismissed { get; set; } = false;
+    public bool DependencyPromptDismissed { get; set; } = false;
+
+    public bool DependencyUpdateCheckEnabled { get; set; } = true;
+
+    public Dictionary<string, string> SkippedDependencyVersions { get; set; } =
+        new(StringComparer.OrdinalIgnoreCase);
 
     public bool    UpdateCheckEnabled { get; set; } = true;
     public string  UpdateChannel      { get; set; } = "stable";

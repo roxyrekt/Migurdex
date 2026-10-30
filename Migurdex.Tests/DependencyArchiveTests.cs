@@ -172,6 +172,21 @@ public sealed class DependencyArchiveTests
 
 public sealed class DependencyArchiveProgressTests
 {
+    private sealed class SyncProgress<T> : IProgress<T>
+    {
+        private readonly Action<T> _report;
+
+        public SyncProgress(Action<T> report)
+        {
+            _report = report;
+        }
+
+        public void Report(T value)
+        {
+            _report(value);
+        }
+    }
+
     [Fact]
     public void ExtractToDirectory_ReportsProgressAndCompletes()
     {
@@ -182,10 +197,7 @@ public sealed class DependencyArchiveProgressTests
             CreateZip(archivePath, ("bin/tool.exe", new string('x', 4096)), ("readme.txt", "hello"));
 
             var reports = new List<string>();
-            var progress = new Progress<string>(r =>
-            {
-                lock (reports) { reports.Add(r); }
-            });
+            var progress = new SyncProgress<string>(reports.Add);
 
             DependencyArchive.ExtractToDirectory(archivePath,
                                                  Path.Combine(root, "out"),

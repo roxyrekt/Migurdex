@@ -105,6 +105,10 @@ AppImage için Linux'ta `libfuse2` gerekir (bkz. [Gereksinimler](#gereksinimler)
     sürümleri. GitHub'a erişilemezse `winget install shinchiro.mpv` yedeği denenir.
   - Sunucu HTTP Range destekliyorsa indirme **4 paralel parçaya** bölünür (parça başına en az 1 MiB); desteklemiyorsa
     tek akışa düşer. Parçalar birleştirildikten sonra SHA-256 doğrulanır.
+  - Kurulan sürüm `tools/.migurdex-version-<araç>` (MPV için `tools/mpv/.migurdex-version-mpv`) dosyasına yazılır.
+    Açılışta günde bir (önbellekli) güncelleme kontrol edilir ve varsa sorulur:
+    `Şimdi güncelle / Daha sonra / Bu sürümü atla`. Kontrolü atlamak için `--no-dep-check`
+    (veya `--no-update-check`) kullanın.
 - **Linux/macOS:** Otomatik kurulum henüz yok; araçları paket yöneticinizle kurun (`migurdex deps` ile durumu
   görebilirsiniz).
 - AppImage için Linux'ta `libfuse2`
@@ -144,6 +148,8 @@ migurdex blame --json                         # JSON çıktı
 migurdex deps                                 # araç durumu (MPV, yt-dlp, ffmpeg)
 migurdex deps install                         # eksik araçları kur (Windows)
 migurdex deps install yt-dlp ffmpeg --force   # seçili araçları yeniden kur
+migurdex deps update --check                  # güncelleme var mı (kurulum yapmaz)
+migurdex deps update                          # güncellemesi olan araçları kur
 ```
 
 `download` akışı Search -> Details -> Episode -> Group/Source sırasını izler. Yalnız API'nin çözdüğü doğrudan `MP4` ve

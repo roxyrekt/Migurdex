@@ -27,6 +27,20 @@ public static class DependencyServiceCollectionExtensions
                 extraSearchDirectories: BuildExtraSearchDirectories());
         });
 
+        services.AddSingleton(provider =>
+                                  new DependencyVersionStore(CliConfig.DefaultToolsDirectory));
+
+        services.AddSingleton(provider =>
+        {
+            var configService = provider.GetRequiredService<IConfigurationService>();
+
+            return new DependencyUpdateChecker(provider.GetRequiredService<DependencyResolver>(),
+                                               provider.GetRequiredService<HttpClient>(),
+                                               provider.GetRequiredService<DependencyVersionStore>(),
+                                               Path.Combine(configService.ConfigDirectory,
+                                                            "deps-check.json"));
+        });
+
         return services;
     }
 

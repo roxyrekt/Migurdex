@@ -26,11 +26,13 @@ public static class DepsCommand
             return 1;
         }
 
-        var    showHelp    = false;
-        var    json        = false;
-        var    install     = false;
-        var    force       = false;
-        var    requested   = new List<DependencyKind>();
+        var     showHelp   = false;
+        var     json       = false;
+        var     install    = false;
+        var     update     = false;
+        var     checkOnly  = false;
+        var     force      = false;
+        var     requested  = new List<DependencyKind>();
         string? parseError = null;
 
         for (var i = 0; i < args.Length && parseError is null; i++)
@@ -40,6 +42,12 @@ public static class DepsCommand
             {
                 case "install":
                     install = true;
+                    break;
+                case "update":
+                    update = true;
+                    break;
+                case "--check":
+                    checkOnly = true;
                     break;
                 case "--force":
                 case "-f":
@@ -83,6 +91,16 @@ public static class DepsCommand
             PrintHelp();
 
             return 0;
+        }
+
+        if (update)
+        {
+            return await UpdateAsync(resolver,
+                                     services,
+                                     requested,
+                                     checkOnly,
+                                     json,
+                                     cancellationToken);
         }
 
         return install
@@ -155,8 +173,162 @@ public static class DepsCommand
         return 0;
     }
 
+    private static async Task<int> UpdateAsync(
+        DependencyResolver            resolver,
+        IServiceProvider              services,
+        IReadOnlyList<DependencyKind> requested,
+        bool                          checkOnly,
+        bool                          json,
+        CancellationToken             cancellationToken)
+    {
+        var checker = services.GetService(typeof(DependencyUpdateChecker)) as DependencyUpdateChecker;
+
+        if (checker is null)
+        {
+            await Console.Error.WriteLineAsync("Hata: güncelleme denetleyicisi kayıtlı değil.");
+
+            return 1;
+        }
+
+        var kinds = requested.Count > 0 ? requested.ToList() : DependencyCatalog.All.ToList();
+
+        if (!resolver.CanAutoInstall)
+        {
+            if (json)
+            {
+                Console.WriteLine(JsonSerializer.Serialize(new
+                                                           {
+                                                               platform    = resolver.PlatformName,
+                                                               autoInstall = false,
+                                                               message =
+                                                                   "Bu platformda otomatik kurulum yok; araçları elle güncelleyin."
+                                                           },
+                                                           _jsonOpts));
+
+                return 1;
+            }
+
+            AnsiConsole.MarkupLine(
+                $"[yellow]Bu platformda ({Markup.Escape(resolver.PlatformName)}) otomatik güncelleme yok.[/]");
+
+            return 1;
+        }
+
+        IReadOnlyList<DependencyUpdate> updates = [];
+
+        if (json)
+        {
+            updates = await checker.CheckAsync(force: true,
+                                               kinds: kinds,
+                                               progress: null,
+                                               cancellationToken);
+        }
+        else
+        {
+            await AnsiConsole.Status()
+                             .Spinner(Spinner.Known.Dots)
+                             .StartAsync("Sürümler kontrol ediliyor...",
+                                         async ctx =>
+                                         {
+                                             var progress =
+                                                 new Progress<string>(line => ctx.Status(Markup.Escape(line)));
+                                             updates = await checker.CheckAsync(force: true,
+                                                           kinds: kinds,
+                                                           progress: progress,
+                                                           cancellationToken);
+                                         });
+        }
+
+        if (updates.Count == 0)
+        {
+            if (json)
+            {
+                Console.WriteLine(JsonSerializer.Serialize(new
+                                                           {
+                                                               upToDate = true,
+                                                               checkedTools =
+                                                                   kinds.Select(DependencyCatalog.DisplayName).ToList()
+                                                           },
+                                                           _jsonOpts));
+            }
+            else
+            {
+                AnsiConsole.MarkupLine("[green]Tüm araçlar güncel.[/]");
+            }
+
+            return 0;
+        }
+
+        if (checkOnly)
+        {
+            if (json)
+            {
+                Console.WriteLine(JsonSerializer.Serialize(updates.Select(u => new
+                                                           {
+                                                               tool      = u.DisplayName,
+                                                               installed = u.InstalledVersion,
+                                                               latest    = u.LatestVersion
+                                                           }),
+                                                           _jsonOpts));
+            }
+            else
+            {
+                AnsiConsole.WriteLine();
+                foreach (var update in updates)
+                {
+                    AnsiConsole.MarkupLine($"[yellow]{Markup.Escape(update.DisplayName)}[/]: "
+                                           + $"{Markup.Escape(update.InstalledVersion)} → "
+                                           + $"[green]{Markup.Escape(update.LatestVersion)}[/]");
+                }
+
+                AnsiConsole.WriteLine();
+                AnsiConsole.MarkupLine("[grey]Güncellemek için: migurdex deps update[/]");
+            }
+
+            return 0;
+        }
+
+        var results = new List<DependencyInstallResult>();
+
+        if (json)
+        {
+            results.AddRange(await DependencySetupRunner.InstallAsync(resolver,
+                                                                      updates.Select(u => u.Kind),
+                                                                      progress: null,
+                                                                      cancellationToken));
+            Console.WriteLine(JsonSerializer.Serialize(results, _jsonOpts));
+        }
+        else
+        {
+            await AnsiConsole.Status()
+                             .Spinner(Spinner.Known.Dots)
+                             .StartAsync("Araçlar güncelleniyor...",
+                                         async ctx =>
+                                         {
+                                             var progress =
+                                                 new Progress<string>(line => ctx.Status(Markup.Escape(line)));
+                                             results.AddRange(await DependencySetupRunner.InstallAsync(resolver,
+                                                                  updates.Select(u => u
+                                                                      .Kind),
+                                                                  progress,
+                                                                  cancellationToken));
+                                         });
+
+            AnsiConsole.WriteLine();
+            foreach (var result in results)
+            {
+                var name = DependencyCatalog.DisplayName(result.Kind);
+                AnsiConsole.MarkupLine(result.Success
+                                           ? $"[green]✓[/] {Markup.Escape(name)}: {Markup.Escape(result.Message)}"
+                                           : $"[red]✗[/] {Markup.Escape(name)}: {Markup.Escape(result.Message)}");
+            }
+        }
+
+        return results.All(r => r.Success) ? 0 : 1;
+    }
+
     private static async Task<int> InstallAsync(
-        DependencyResolver           resolver,
+        DependencyResolver            resolver,
         IReadOnlyList<DependencyKind> requested,
         bool                          force,
         bool                          json,
@@ -169,11 +341,13 @@ public static class DepsCommand
             if (json)
             {
                 Console.WriteLine(JsonSerializer.Serialize(new
-                {
-                    platform    = resolver.PlatformName,
-                    autoInstall = false,
-                    message     = "Bu platformda otomatik kurulum yok. Araçları elle kurun."
-                }, _jsonOpts));
+                                                           {
+                                                               platform    = resolver.PlatformName,
+                                                               autoInstall = false,
+                                                               message =
+                                                                   "Bu platformda otomatik kurulum yok. Araçları elle kurun."
+                                                           },
+                                                           _jsonOpts));
 
                 return 1;
             }
@@ -228,9 +402,9 @@ public static class DepsCommand
                                              var progress =
                                                  new Progress<string>(line => ctx.Status(Markup.Escape(line)));
                                              results.AddRange(await DependencySetupRunner.InstallAsync(resolver,
-                                                                                                       targets,
-                                                                                                       progress,
-                                                                                                       cancellationToken));
+                                                                  targets,
+                                                                  progress,
+                                                                  cancellationToken));
                                          });
 
             AnsiConsole.WriteLine();
@@ -257,6 +431,8 @@ public static class DepsCommand
         Console.WriteLine("  migurdex deps [--json]                 Araç durumunu gösterir.");
         Console.WriteLine("  migurdex deps install [araç...] [--force] [--json]");
         Console.WriteLine("                                         Eksik araçları kurar (Windows).");
+        Console.WriteLine("  migurdex deps update [araç...] [--check] [--json]");
+        Console.WriteLine("                                         Güncellemesi olan araçları kurar.");
         Console.WriteLine();
         Console.WriteLine("Araçlar: mpv, yt-dlp, ffmpeg");
     }

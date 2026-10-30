@@ -1,19 +1,11 @@
 using Migurdex.Cli.Services.Downloads;
 using System.Diagnostics;
-using System.Text.RegularExpressions;
 
 namespace Migurdex.Cli.Dependencies;
 
 public sealed class WindowsDependencyInstaller : IDependencyInstaller
 {
-    private const string YtDlpRepo      = "yt-dlp/yt-dlp";
-    private const string YtDlpAssetName = "yt-dlp.exe";
-    private const string YtDlpSumsUrl   = "https://github.com/yt-dlp/yt-dlp/releases/latest/download/SHA2-256SUMS";
-    private const string MpvRepo        = "shinchiro/mpv-winbuild-cmake";
-    private const string MpvWingetId    = "shinchiro.mpv";
-
-    private const string GyanFfmpegRepo  = "GyanD/codexffmpeg";
-    private const string GyanFfmpegAsset = "essentials_build.7z";
+    private const string MpvWingetId = "shinchiro.mpv";
 
     private const string FfmpegBase   = "https://www.gyan.dev/ffmpeg/builds/";
     private const string Ffmpeg7z     = FfmpegBase + "ffmpeg-release-essentials.7z";
@@ -23,13 +15,10 @@ public sealed class WindowsDependencyInstaller : IDependencyInstaller
 
     private const long MinimumExecutableBytes = 256 * 1024;
 
-    private static readonly Regex MpvAssetRegex = new(
-        @"^mpv-x86_64-(?<date>\d{8})-git-[0-9a-f]+\.7z$",
-        RegexOptions.Compiled | RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
-
     private readonly HttpClient             _httpClient;
     private readonly IExternalProcessRunner _processRunner;
     private readonly string                 _toolsDirectory;
+    private readonly DependencyVersionStore _versions;
 
     public WindowsDependencyInstaller(
         string                  toolsDirectory,
@@ -39,6 +28,7 @@ public sealed class WindowsDependencyInstaller : IDependencyInstaller
         _toolsDirectory = toolsDirectory ?? throw new ArgumentNullException(nameof(toolsDirectory));
         _processRunner  = processRunner ?? new ExternalProcessRunner();
         _httpClient     = httpClient ?? DependencyDownload.CreateHttpClient();
+        _versions       = new DependencyVersionStore(_toolsDirectory);
     }
 
     public string PlatformName => "Windows";
@@ -91,33 +81,21 @@ public sealed class WindowsDependencyInstaller : IDependencyInstaller
         {
             progress?.Report("yt-dlp sürüm bilgisi alınıyor...");
 
-            var release = await DependencyDownload.GetLatestGitHubReleaseAsync(_httpClient,
-                                                                               YtDlpRepo,
-                                                                               cancellationToken)
-                                                  .ConfigureAwait(false);
+            var release = await DependencyReleaseCatalog.ResolveLatestAsync(_httpClient,
+                                                                            DependencyKind.YtDlp,
+                                                                            cancellationToken)
+                                                        .ConfigureAwait(false);
 
-            var asset = release?.Assets.FirstOrDefault(a =>
-                                                           a.Name.Equals(YtDlpAssetName,
-                                                                         StringComparison.OrdinalIgnoreCase));
-
-            var sha256 = asset?.Sha256;
-
-            if (sha256 is null)
+            if (release is null)
             {
-                var manifest = await DependencyDownload.GetStringAsync(_httpClient,
-                                                                       YtDlpSumsUrl,
-                                                                       cancellationToken)
-                                                       .ConfigureAwait(false);
-                sha256 = DependencyDownload.ParseSha256Manifest(manifest, YtDlpAssetName);
+                return DependencyInstallResult.Failed(DependencyKind.YtDlp,
+                                                      "yt-dlp sürüm bilgisi alınamadı.");
             }
 
-            var url = asset?.DownloadUrl
-                      ?? $"https://github.com/{YtDlpRepo}/releases/latest/download/{YtDlpAssetName}";
-
             await DependencyDownload.DownloadFileAsync(_httpClient,
-                                                       url,
+                                                       release.DownloadUrl,
                                                        target,
-                                                       sha256,
+                                                       release.Sha256,
                                                        progress,
                                                        cancellationToken)
                                     .ConfigureAwait(false);
@@ -130,13 +108,11 @@ public sealed class WindowsDependencyInstaller : IDependencyInstaller
                                                       "İndirilen yt-dlp geçerli bir çalıştırılabilir dosya değil.");
             }
 
-            var version = release?.Tag;
+            _versions.Write(DependencyKind.YtDlp, release.Tag);
 
             return DependencyInstallResult.Succeeded(DependencyKind.YtDlp,
                                                      target,
-                                                     version is null
-                                                         ? "yt-dlp indirildi ve doğrulandı."
-                                                         : $"yt-dlp {version} indirildi ve doğrulandı.");
+                                                     $"yt-dlp {release.Tag} indirildi ve doğrulandı.");
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -199,27 +175,19 @@ public sealed class WindowsDependencyInstaller : IDependencyInstaller
         {
             progress?.Report("ffmpeg sürümü sorgulanıyor (GitHub mirror)...");
 
-            var release = await DependencyDownload.GetLatestGitHubReleaseAsync(_httpClient,
-                                                                               GyanFfmpegRepo,
-                                                                               cancellationToken)
-                                                  .ConfigureAwait(false);
+            var release = await DependencyReleaseCatalog.ResolveLatestAsync(_httpClient,
+                                                                            DependencyKind.Ffmpeg,
+                                                                            cancellationToken)
+                                                        .ConfigureAwait(false);
             if (release is null)
             {
                 return null;
             }
 
-            var asset = release.Assets.FirstOrDefault(a =>
-                                                          a.Name.EndsWith(GyanFfmpegAsset,
-                                                                          StringComparison.OrdinalIgnoreCase));
-            if (asset is null)
-            {
-                return null;
-            }
-
             await DependencyDownload.DownloadFileAsync(_httpClient,
-                                                       asset.DownloadUrl,
+                                                       release.DownloadUrl,
                                                        archivePath,
-                                                       asset.Sha256,
+                                                       release.Sha256,
                                                        progress,
                                                        cancellationToken)
                                     .ConfigureAwait(false);
@@ -243,6 +211,8 @@ public sealed class WindowsDependencyInstaller : IDependencyInstaller
                 return DependencyInstallResult.Failed(DependencyKind.Ffmpeg,
                                                       "Çıkarılan ffmpeg geçerli bir çalıştırılabilir dosya değil.");
             }
+
+            _versions.Write(DependencyKind.Ffmpeg, release.Tag);
 
             return DependencyInstallResult.Succeeded(DependencyKind.Ffmpeg,
                                                      target,
@@ -395,24 +365,13 @@ public sealed class WindowsDependencyInstaller : IDependencyInstaller
     {
         progress?.Report("MPV sürümü sorgulanıyor (shinchiro build)...");
 
-        var release = await DependencyDownload.GetLatestGitHubReleaseAsync(_httpClient,
-                                                                           MpvRepo,
-                                                                           cancellationToken)
-                                              .ConfigureAwait(false);
+        var release = await DependencyReleaseCatalog.ResolveLatestAsync(_httpClient,
+                                                                        DependencyKind.Mpv,
+                                                                        cancellationToken)
+                                                    .ConfigureAwait(false);
         if (release is null)
         {
             return DependencyInstallResult.Failed(DependencyKind.Mpv, "GitHub release bilgisi alınamadı.");
-        }
-
-        var asset = release.Assets
-                           .Where(a => MpvAssetRegex.IsMatch(a.Name))
-                           .OrderByDescending(a => a.Name, StringComparer.OrdinalIgnoreCase)
-                           .FirstOrDefault();
-
-        if (asset is null)
-        {
-            return DependencyInstallResult.Failed(DependencyKind.Mpv,
-                                                  $"'{release.Tag}' sürümünde x86_64 MPV arşivi bulunamadı.");
         }
 
         var archivePath = Path.Combine(_toolsDirectory, ".mpv-" + Guid.NewGuid().ToString("N") + ".7z");
@@ -421,9 +380,9 @@ public sealed class WindowsDependencyInstaller : IDependencyInstaller
         try
         {
             await DependencyDownload.DownloadFileAsync(_httpClient,
-                                                       asset.DownloadUrl,
+                                                       release.DownloadUrl,
                                                        archivePath,
-                                                       asset.Sha256,
+                                                       release.Sha256,
                                                        progress,
                                                        cancellationToken)
                                     .ConfigureAwait(false);
@@ -457,6 +416,8 @@ public sealed class WindowsDependencyInstaller : IDependencyInstaller
                 return DependencyInstallResult.Failed(DependencyKind.Mpv,
                                                       "Kurulan mpv.exe geçerli bir çalıştırılabilir dosya değil.");
             }
+
+            _versions.Write(DependencyKind.Mpv, release.Tag);
 
             return DependencyInstallResult.Succeeded(DependencyKind.Mpv,
                                                      target,
