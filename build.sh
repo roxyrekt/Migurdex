@@ -160,7 +160,8 @@ if [ "$DO_PUBLISH" = true ]; then
     echo -e "${YELLOW}[6/6] Paket hazırlanıyor...${NC}"
     dedupe_hardlinks "$CLI_DIST_DIR" "$API_DIST_DIR"
 
-    ln -sf "cli/migurdex" "$DIST_DIR/migurdex"
+    cp "$ROOT/assets/packaging/migurdex-launcher.sh" "$DIST_DIR/migurdex"
+    chmod +x "$DIST_DIR/migurdex"
 
     echo -e "${GREY}  payload: $(du -sh --apparent-size "$DIST_DIR" | cut -f1) gorunur, "\
 "$(du -sh "$DIST_DIR" | cut -f1) diskte${NC}"

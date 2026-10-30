@@ -33,6 +33,18 @@ internal static class InstallLayout
         return Path.Combine(installRoot, "api");
     }
 
+    private const string LauncherScript =
+        """
+        #!/bin/sh
+
+        self=$0
+        if command -v readlink >/dev/null 2>&1; then
+            resolved=$(readlink -f "$0" 2>/dev/null) && [ -n "$resolved" ] && self=$resolved
+        fi
+        dir=$(CDPATH= cd -- "$(dirname -- "$self")" && pwd)
+        exec "$dir/cli/migurdex" "$@"
+        """;
+
     public static void EnsureRootLauncher(string installRoot)
     {
         if (OperatingSystem.IsWindows())
@@ -57,21 +69,29 @@ internal static class InstallLayout
         try
         {
             var info = new FileInfo(link);
+
             if (info.LinkTarget is not null)
             {
-                if (info.LinkTarget.Replace('\\', '/').Equals("cli/migurdex", StringComparison.Ordinal))
-                {
-                    return;
-                }
-
                 info.Delete();
+            }
+            else if (info.Exists && info.Length == LauncherScript.Length)
+            {
+                return;
             }
             else if (info.Exists)
             {
                 info.Delete();
             }
 
-            File.CreateSymbolicLink(link, Path.Combine("cli", "migurdex"));
+            File.WriteAllText(link, LauncherScript);
+            File.SetUnixFileMode(link,
+                                 UnixFileMode.UserRead
+                                 | UnixFileMode.UserWrite
+                                 | UnixFileMode.UserExecute
+                                 | UnixFileMode.GroupRead
+                                 | UnixFileMode.GroupExecute
+                                 | UnixFileMode.OtherRead
+                                 | UnixFileMode.OtherExecute);
         }
         catch
         {

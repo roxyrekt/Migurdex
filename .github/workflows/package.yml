@@ -136,7 +136,8 @@ jobs:
                     done < <(find "$SRC" $DEPTH -type f -print0)
 
                     if [ "${{ matrix.os }}" != "windows-latest" ]; then
-                      ln -sf cli/migurdex dist/migurdex
+                      cp assets/packaging/migurdex-launcher.sh dist/migurdex
+                      chmod +x dist/migurdex
                     fi
                     echo "hardlink: $linked dosya, $((saved/1024/1024)) MB tasarruf"
                     echo "payload: $(du -sh --apparent-size dist | cut -f1) gorunur, $(du -sh dist | cut -f1) diskte"
@@ -159,12 +160,17 @@ jobs:
             -   name: Create Archive
                 shell: bash
                 run: |
-                    EXCLUDES='--exclude=migurdex-${{ matrix.runtime }}.tar.xz --exclude=migurdex-${{ matrix.runtime }}.tar.gz'
+                    EXCLUDES='--exclude=migurdex-${{ matrix.runtime }}.tar.xz --exclude=migurdex-${{ matrix.runtime }}.tar.gz --exclude=migurdex-${{ matrix.runtime }}.zip'
                     tar -cf - -C dist $EXCLUDES . | xz -9 -T0 > "migurdex-${{ matrix.runtime }}.tar.xz"
                     tar -czf "migurdex-${{ matrix.runtime }}.tar.gz" -C dist $EXCLUDES .
                     echo "xz: $(du -h migurdex-${{ matrix.runtime }}.tar.xz | cut -f1)"
                     echo "gz: $(du -h migurdex-${{ matrix.runtime }}.tar.gz | cut -f1)"
                     echo "hardlink: $(tar -tvJf migurdex-${{ matrix.runtime }}.tar.xz | grep -c '^h')"
+
+                    if [ "${{ matrix.os }}" = "windows-latest" ]; then
+                      (cd dist && 7z a -tzip "../migurdex-${{ matrix.runtime }}.zip" * >/dev/null)
+                      echo "zip (eski istemciler): $(du -h migurdex-${{ matrix.runtime }}.zip | cut -f1)"
+                    fi
 
             -   name: Download appimagetool
                 if: matrix.os != 'windows-latest'
@@ -182,8 +188,9 @@ jobs:
                     cp -a assets/packaging/migurdex.desktop assets/packaging/migurdex.png Migurdex.AppDir/
                     cp assets/packaging/migurdex.png Migurdex.AppDir/.DirIcon
                     cp assets/packaging/AppRun Migurdex.AppDir/AppRun
-                    ln -sf cli/migurdex Migurdex.AppDir/migurdex
+                    cp assets/packaging/migurdex-launcher.sh Migurdex.AppDir/migurdex
                     chmod -R a+rX Migurdex.AppDir
+                    chmod a+rx Migurdex.AppDir/migurdex
                     chmod a+rx Migurdex.AppDir/AppRun
                     chmod +x Migurdex.AppDir/cli/migurdex Migurdex.AppDir/api/Migurdex.Api
                     ARCH=${{ matrix.arch }} ./appimagetool.AppImage --appimage-extract-and-run -u "gh-releases-zsync|roxyrekt|Migurdex|latest|migurdex-${{ matrix.arch }}.AppImage.zsync" Migurdex.AppDir migurdex-${{ matrix.arch }}.AppImage
@@ -199,7 +206,7 @@ jobs:
                     if [ "${{ matrix.os }}" != "windows-latest" ]; then
                       (cd "$GITHUB_WORKSPACE" && sha256sum migurdex-${{ matrix.runtime }}.tar.xz migurdex-${{ matrix.runtime }}.tar.gz > sha256sums-${{ matrix.runtime }}.txt)
                     else
-                      (cd "$GITHUB_WORKSPACE" && sha256sum migurdex-${{ matrix.runtime }}.tar.xz migurdex-${{ matrix.runtime }}.tar.gz > sha256sums-${{ matrix.runtime }}.txt)
+                      (cd "$GITHUB_WORKSPACE" && sha256sum migurdex-${{ matrix.runtime }}.tar.xz migurdex-${{ matrix.runtime }}.tar.gz migurdex-${{ matrix.runtime }}.zip > sha256sums-${{ matrix.runtime }}.txt)
                     fi
 
             -   name: Upload AppImage Artifact
@@ -218,6 +225,7 @@ jobs:
                     path: |
                         migurdex-${{ matrix.runtime }}.tar.xz
                         migurdex-${{ matrix.runtime }}.tar.gz
+                        migurdex-${{ matrix.runtime }}.zip
                         sha256sums-${{ matrix.runtime }}.txt
                     retention-days: 1
                     if-no-files-found: error
