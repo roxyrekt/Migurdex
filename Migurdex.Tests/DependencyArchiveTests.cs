@@ -81,6 +81,54 @@ public sealed class DependencyArchiveTests
     }
 
     [Fact]
+    public void ExtractToDirectory_HandlesRealSevenZipArchive()
+    {
+        var root = NewTempDir();
+        try
+        {
+            var archivePath = Path.Combine(AppContext.BaseDirectory, "sevenzip-fixture.7z");
+            Assert.True(File.Exists(archivePath), $"fixture bulunamadı: {archivePath}");
+
+            var destination = Path.Combine(root, "out");
+            DependencyArchive.ExtractToDirectory(archivePath,
+                                                 destination,
+                                                 cancellationToken: TestContext.Current.CancellationToken);
+
+            Assert.Equal("fake-exe-binary", File.ReadAllText(Path.Combine(destination, "bin", "tool.exe")));
+            Assert.Equal("readme-content", File.ReadAllText(Path.Combine(destination, "readme.txt")));
+        }
+        finally
+        {
+            Directory.Delete(root, true);
+        }
+    }
+
+    [Fact]
+    public void TryExtractFile_ReadsFromRealSevenZipArchive()
+    {
+        var root = NewTempDir();
+        try
+        {
+            var archivePath = Path.Combine(AppContext.BaseDirectory, "sevenzip-fixture.7z");
+            Assert.True(File.Exists(archivePath), $"fixture bulunamadı: {archivePath}");
+
+            var destination = Path.Combine(root, "tool.exe");
+            Assert.True(DependencyArchive.TryExtractFile(archivePath,
+                                                         "tool.exe",
+                                                         destination,
+                                                         cancellationToken: TestContext.Current.CancellationToken));
+            Assert.Equal("fake-exe-binary", File.ReadAllText(destination));
+
+            Assert.True(DependencyArchive.ContainsFile(archivePath, "TOOL.EXE"));
+            Assert.False(DependencyArchive.ContainsFile(archivePath, "missing.exe"));
+        }
+        finally
+        {
+            Directory.Delete(root, true);
+        }
+    }
+
+    [Fact]
     public void TryExtractFile_ReturnsFalseWhenEntryMissing()
     {
         var root = NewTempDir();
