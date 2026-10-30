@@ -1,6 +1,6 @@
+using Migurdex.Cli.Services;
 using System.Formats.Tar;
 using System.IO.Compression;
-using Migurdex.Cli.Services;
 using Xunit;
 
 namespace Migurdex.Tests;
