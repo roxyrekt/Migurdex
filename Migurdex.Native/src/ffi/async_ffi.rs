@@ -2,7 +2,7 @@ use std::slice;
 use wreq_util::Profile;
 
 use crate::ffi::types::{FfiCallback, FfiHeader, FfiRequestOptions, FfiResponse};
-use crate::http::client::{get_client_with_options, ClientKey};
+use crate::http::client::{ClientKey, get_client_with_options};
 use crate::http::emulation::parse_emulation;
 use crate::http::rate_limit::RUNTIME;
 use crate::utils::alloc::{free_raw_bytes, to_raw_bytes, to_raw_layout};
@@ -54,13 +54,14 @@ pub unsafe extern "C" fn rust_send_async(
         skip_cert_verify = opt.skip_cert_verify;
         no_default_headers = opt.no_default_headers;
 
-        if !opt.emulation_ptr.is_null() && opt.emulation_len > 0 {
-            let emu_slice = unsafe { slice::from_raw_parts(opt.emulation_ptr, opt.emulation_len) };
-            if let Ok(emu_str) = std::str::from_utf8(emu_slice) {
-                if !emu_str.is_empty() {
-                    emulation = parse_emulation(emu_str);
-                }
-            }
+        if !opt.emulation_ptr.is_null()
+            && opt.emulation_len > 0
+            && let emu_slice =
+                unsafe { slice::from_raw_parts(opt.emulation_ptr, opt.emulation_len) }
+            && let Ok(emu_str) = std::str::from_utf8(emu_slice)
+            && !emu_str.is_empty()
+        {
+            emulation = parse_emulation(emu_str);
         }
     }
 
@@ -157,7 +158,9 @@ pub unsafe extern "C" fn rust_send_async(
                         };
                         unsafe { callback(ffi_resp) };
                     }
-                    Err(e) => unsafe { send_error(task_id, format!("Body read error: {:?}", e), callback) },
+                    Err(e) => unsafe {
+                        send_error(task_id, format!("Body read error: {:?}", e), callback)
+                    },
                 }
             }
             Err(e) => unsafe { send_error(task_id, format!("Network error: {:?}", e), callback) },
