@@ -50,7 +50,7 @@ jobs:
             -   name: Flatten Artifacts
                 run: |
                     mkdir release-files
-                    find artifacts -type f \( -name "*.tar.gz" -o -name "*.zip" -o -name "*.AppImage" -o -name "*.zsync" -o -name "*.txt" \) -exec cp {} release-files/ \;
+                    find artifacts -type f \( -name "*.tar.gz" -o -name "*.tar.xz" -o -name "*.zip" -o -name "*.AppImage" -o -name "*.zsync" -o -name "*.txt" \) -exec cp {} release-files/ \;
 
             -   name: Publish Nightly Release
                 uses: softprops/action-gh-release@v3

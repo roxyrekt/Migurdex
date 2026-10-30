@@ -43,8 +43,8 @@ public class UpdateService : IUpdateService
                                     : IsPrereleaseChannel(config.UpdateChannel);
 
         var useNightly = channelOverride is not null
-                               ? IsNightlyChannel(channelOverride)
-                               : IsNightlyChannel(config.UpdateChannel);
+                             ? IsNightlyChannel(channelOverride)
+                             : IsNightlyChannel(config.UpdateChannel);
 
         try
         {
@@ -288,8 +288,8 @@ public class UpdateService : IUpdateService
             el.TryGetProperty("body", out var body) ? body.GetString() ?? string.Empty : string.Empty,
             assets,
             el.TryGetProperty("published_at", out var pub)
-                && pub.ValueKind == JsonValueKind.String
-                && DateTimeOffset.TryParse(pub.GetString(), out var published)
+            && pub.ValueKind == JsonValueKind.String
+            && DateTimeOffset.TryParse(pub.GetString(), out var published)
                 ? published
                 : default);
     }
@@ -301,20 +301,33 @@ public class UpdateService : IUpdateService
 
     private static string? ResolveAsset(GitHubRelease release, out string? url, out long? size)
     {
-        var arch     = GetArchLabel();
-        var expected = OperatingSystem.IsWindows() ? $"migurdex-win-{arch}.zip" : $"migurdex-linux-{arch}.tar.gz";
-        var asset    = release.Assets.FirstOrDefault(a => a.Name.Equals(expected, StringComparison.OrdinalIgnoreCase));
+        var arch = GetArchLabel();
 
-        if (asset is null && arch != "x64")
+        var candidates = new[]
         {
-            var fallback = OperatingSystem.IsWindows() ? "migurdex-win-x64.zip" : "migurdex-linux-x64.tar.gz";
-            asset = release.Assets.FirstOrDefault(a => a.Name.Equals(fallback, StringComparison.OrdinalIgnoreCase));
-        }
+            $"migurdex-{RuntimeLabel()}-{arch}.tar.xz",
+            $"migurdex-{RuntimeLabel()}-{arch}.tar.gz",
+            $"migurdex-{RuntimeLabel()}-x64.tar.xz",
+            $"migurdex-{RuntimeLabel()}-x64.tar.gz",
+            $"migurdex-win-{arch}.zip",
+            "migurdex-win-x64.zip"
+        };
+
+        var asset = candidates
+                    .Select(name =>
+                                release.Assets.FirstOrDefault(a => a.Name.Equals(
+                                                                  name, StringComparison.OrdinalIgnoreCase)))
+                    .FirstOrDefault(a => a is not null);
 
         url  = asset?.BrowserDownloadUrl;
         size = asset is null || asset.Size <= 0 ? null : asset.Size;
 
         return asset?.Name;
+    }
+
+    private static string RuntimeLabel()
+    {
+        return OperatingSystem.IsWindows() ? "win" : "linux";
     }
 
     private static string? ResolveChecksumUrl(GitHubRelease release)

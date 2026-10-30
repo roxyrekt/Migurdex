@@ -61,6 +61,40 @@ copy_if_changed() {
     return 1
 }
 
+dedupe_hardlinks() {
+    local cli_dir="$1"
+    local api_dir="$2"
+
+    if [ ! -d "$cli_dir" ] || [ ! -d "$api_dir" ]; then
+        return 0
+    fi
+
+    local linked=0 saved=0
+    local rel src dst size
+
+    while IFS= read -r -d '' src; do
+        rel="${src#$cli_dir/}"
+        dst="$api_dir/$rel"
+        [ -f "$dst" ] || continue
+
+        [ "$(stat -c %s "$src")" = "$(stat -c %s "$dst")" ] || continue
+        [ "$(sha256sum "$src" | cut -d' ' -f1)" = "$(sha256sum "$dst" | cut -d' ' -f1)" ] || continue
+
+        size=$(stat -c %s "$src")
+        if ln "$dst" "$src.hltmp" 2>/dev/null; then
+            mv -f "$src.hltmp" "$src" 2>/dev/null || rm -f "$src.hltmp"
+            linked=$((linked + 1))
+            saved=$((saved + size))
+        else
+            rm -f "$src.hltmp"
+        fi
+    done < <(find "$cli_dir" -type f -print0)
+
+    if [ "$linked" -gt 0 ]; then
+        echo -e "${GREY}  [HARDLINK] $linked dosya paylasildi, $((saved / 1024 / 1024)) MB disk tasarrufu.${NC}"
+    fi
+}
+
 test_dotnet_restore_needed() {
     local project dir
     while IFS= read -r -d '' project; do
@@ -78,12 +112,14 @@ if [ "$DO_PUBLISH" = true ]; then
         *) RUNTIME="linux-x64" ;;
     esac
     DIST_DIR="$ROOT/dist"
+    CLI_DIST_DIR="$DIST_DIR/cli"
     API_DIST_DIR="$DIST_DIR/api"
 
     echo -e "${CYAN}--- Migurdex Paketleme Başlatıldı (Release) ---${NC}"
 
     echo -e "${YELLOW}[1/6] Temizlik yapılıyor...${NC}"
     rm -rf "$DIST_DIR"
+    mkdir -p "$CLI_DIST_DIR"
     mkdir -p "$API_DIST_DIR"
 
     echo -e "${YELLOW}[2/6] Rust Core derleniyor...${NC}"
@@ -96,7 +132,7 @@ if [ "$DO_PUBLISH" = true ]; then
         -c "$CONFIGURATION" \
         -r "$RUNTIME" \
         --self-contained true \
-        -p:PublishSingleFile=true \
+        -p:PublishSingleFile=false \
         -p:PublishTrimmed=false \
         -o "$API_DIST_DIR"
 
@@ -107,18 +143,14 @@ if [ "$DO_PUBLISH" = true ]; then
         -c "$CONFIGURATION" \
         -r "$RUNTIME" \
         --self-contained true \
-        -p:PublishSingleFile=true \
-        -p:PublishTrimmed=true \
-        -o "$DIST_DIR/temp_cli"
-
-    mv "$DIST_DIR/temp_cli/migurdex" "$DIST_DIR/"
-    rm -rf "$DIST_DIR/temp_cli"
+        -p:PublishSingleFile=false \
+        -p:PublishTrimmed=false \
+        -o "$CLI_DIST_DIR"
 
     echo -e "${YELLOW}[5/6] Pluginler derleniyor...${NC}"
     mkdir -p "$API_DIST_DIR/Plugins"
 
     for pluginProject in "${PLUGIN_PROJECTS[@]}"; do
-        echo -e "${GREY}Derleniyor: $pluginProject${NC}"
         dotnet publish "$ROOT/Plugins/$pluginProject/$pluginProject.csproj" \
             -c "$CONFIGURATION" \
             -o "$API_DIST_DIR/Plugins" \
@@ -126,8 +158,41 @@ if [ "$DO_PUBLISH" = true ]; then
     done
 
     echo -e "${YELLOW}[6/6] Paket hazırlanıyor...${NC}"
-    tar -czf "$DIST_DIR/migurdex-$RUNTIME.tar.gz" -C "$DIST_DIR" migurdex api
-    echo -e "${GREEN}Arşiv oluşturuldu: $DIST_DIR/migurdex-$RUNTIME.tar.gz${NC}"
+    dedupe_hardlinks "$CLI_DIST_DIR" "$API_DIST_DIR"
+
+    ln -sf "cli/migurdex" "$DIST_DIR/migurdex"
+
+    echo -e "${GREY}  payload: $(du -sh --apparent-size "$DIST_DIR" | cut -f1) gorunur, "\
+"$(du -sh "$DIST_DIR" | cut -f1) diskte${NC}"
+
+    tar -cf - -C "$DIST_DIR" \
+        --exclude="migurdex-$RUNTIME.tar.xz" \
+        --exclude="migurdex-$RUNTIME.tar.gz" \
+        . | xz -9 -T0 > "$ROOT/migurdex-$RUNTIME.tar.xz"
+    mv "$ROOT/migurdex-$RUNTIME.tar.xz" "$DIST_DIR/"
+
+    tar -czf "$ROOT/migurdex-$RUNTIME.tar.gz" -C "$DIST_DIR" \
+        --exclude="migurdex-$RUNTIME.tar.xz" \
+        --exclude="migurdex-$RUNTIME.tar.gz" \
+        .
+    mv "$ROOT/migurdex-$RUNTIME.tar.gz" "$DIST_DIR/"
+
+    XZ_ARCHIVE="$DIST_DIR/migurdex-$RUNTIME.tar.xz"
+    GZ_ARCHIVE="$DIST_DIR/migurdex-$RUNTIME.tar.gz"
+    hl_count=$(tar -tvJf "$XZ_ARCHIVE" | grep -c '^h' || true)
+
+    echo -e "${GREEN}Arşivler oluşturuldu:${NC}"
+    printf "  %-34s %6.1f MB  (hardlink: %s)\n" \
+        "migurdex-$RUNTIME.tar.xz" \
+        "$(awk -v s="$(stat -c %s "$XZ_ARCHIVE")" 'BEGIN{print s/1048576}')" \
+        "$hl_count"
+    printf "  %-34s %6.1f MB  (eski istemciler)\n" \
+        "migurdex-$RUNTIME.tar.gz" \
+        "$(awk -v s="$(stat -c %s "$GZ_ARCHIVE")" 'BEGIN{print s/1048576}')"
+
+    if [ "${hl_count:-0}" -lt 100 ]; then
+        echo -e "${YELLOW}[UYARI] Beklenen ~204 hardlink, bulunan: $hl_count${NC}"
+    fi
     exit 0
 fi
 

@@ -35,7 +35,7 @@ uninstall() {
     local purge="${1:-false}"
 
     echo -e "${YELLOW}Migurdex kaldırılıyor...${NC}"
-    
+
     rm -rf "$INSTALL_DIR"
     rm -f "$BIN_DIR/migurdex"
     rm -f "$DESKTOP_DIR/migurdex.desktop"
@@ -116,6 +116,13 @@ for cmd in curl tar; do
     fi
 done
 
+if ! command -v xz >/dev/null 2>&1; then
+    echo -e "${YELLOW}Uyari: 'xz' bulunamadi, .tar.gz paketine donuluyor.${NC}"
+    ARCHIVE_EXT="tar.gz"
+else
+    ARCHIVE_EXT="tar.xz"
+fi
+
 echo -e "${YELLOW}[1/5] Son sürüm kontrol ediliyor...${NC}"
 LATEST_TAG=""
 if API_RESP=$(curl -fsSL -H "Accept: application/vnd.github.v3+json" "https://api.github.com/repos/$REPO/releases/latest" 2>/dev/null); then
@@ -123,11 +130,11 @@ if API_RESP=$(curl -fsSL -H "Accept: application/vnd.github.v3+json" "https://ap
 fi
 
 if [ -n "$LATEST_TAG" ]; then
-    DOWNLOAD_URL="https://github.com/$REPO/releases/download/$LATEST_TAG/migurdex-$ASSET_RUNTIME.tar.gz"
-    echo -e "${GREEN}Bulunan son sürüm: ${BOLD}$LATEST_TAG${NC} (${ASSET_RUNTIME})"
+    DOWNLOAD_URL="https://github.com/$REPO/releases/download/$LATEST_TAG/migurdex-$ASSET_RUNTIME.$ARCHIVE_EXT"
+    echo -e "${GREEN}Bulunan son sürüm: ${BOLD}$LATEST_TAG${NC} (${ASSET_RUNTIME}, ${ARCHIVE_EXT})"
 else
-    DOWNLOAD_URL="https://github.com/$REPO/releases/latest/download/migurdex-$ASSET_RUNTIME.tar.gz"
-    echo -e "${YELLOW}Son sürüm doğrudan 'latest' kanalından indirilecek (${ASSET_RUNTIME}).${NC}"
+    DOWNLOAD_URL="https://github.com/$REPO/releases/latest/download/migurdex-$ASSET_RUNTIME.$ARCHIVE_EXT"
+    echo -e "${YELLOW}Son sürüm doğrudan 'latest' kanalından indirilecek (${ASSET_RUNTIME}, ${ARCHIVE_EXT}).${NC}"
 fi
 
 TMP_DIR=$(mktemp -d)
@@ -137,21 +144,55 @@ cleanup() {
 trap cleanup EXIT
 
 echo -e "${YELLOW}[2/5] Migurdex paketi indiriliyor...${NC}"
-ARCHIVE_PATH="$TMP_DIR/migurdex.tar.gz"
+ARCHIVE_PATH="$TMP_DIR/migurdex.$ARCHIVE_EXT"
 
 if ! curl -fSL --progress-bar "$DOWNLOAD_URL" -o "$ARCHIVE_PATH"; then
-    echo -e "${RED}Hata: Paket indirilemedi! Lütfen internet bağlantınızı veya GitHub release durumunu kontrol edin.${NC}"
-    exit 1
+    # .tar.gz fallback
+    if [ "$ARCHIVE_EXT" = "tar.xz" ]; then
+        FALLBACK_URL="${DOWNLOAD_URL%.tar.xz}.tar.gz"
+        echo -e "${YELLOW}.tar.xz bulunamadi, .tar.gz deneniyor...${NC}"
+        ARCHIVE_EXT="tar.gz"
+        ARCHIVE_PATH="$TMP_DIR/migurdex.$ARCHIVE_EXT"
+        if ! curl -fSL --progress-bar "$FALLBACK_URL" -o "$ARCHIVE_PATH"; then
+            echo -e "${RED}Hata: Paket indirilemedi! Lütfen internet bağlantınızı veya GitHub release durumunu kontrol edin.${NC}"
+            exit 1
+        fi
+    else
+        echo -e "${RED}Hata: Paket indirilemedi! Lütfen internet bağlantınızı veya GitHub release durumunu kontrol edin.${NC}"
+        exit 1
+    fi
 fi
 
 echo -e "${YELLOW}[3/5] Dosyalar kuruluyor (~/.local/share/migurdex)...${NC}"
 mkdir -p "$INSTALL_DIR"
 mkdir -p "$BIN_DIR"
 
-rm -rf "$INSTALL_DIR/api" "$INSTALL_DIR/migurdex"
+rm -rf "$INSTALL_DIR"
+mkdir -p "$INSTALL_DIR"
 
-tar -xzf "$ARCHIVE_PATH" -C "$INSTALL_DIR"
-chmod +x "$INSTALL_DIR/migurdex"
+tar -xf "$ARCHIVE_PATH" -C "$INSTALL_DIR" || true
+
+if [ ! -f "$INSTALL_DIR/cli/migurdex" ] && [ ! -f "$INSTALL_DIR/migurdex" ]; then
+    echo -e "${RED}Hata: Arşiv açılamadı (migurdex bulunamadı).${NC}"
+    echo -e "${YELLOW}Muhtemel sebep: 'xz' kurulu değil. Kurun ve tekrar deneyin:${NC}"
+    if command -v pacman >/dev/null 2>&1; then
+        echo -e "  ${BOLD}sudo pacman -S xz${NC}"
+    elif command -v apt >/dev/null 2>&1; then
+        echo -e "  ${BOLD}sudo apt install xz-utils${NC}"
+    elif command -v dnf >/dev/null 2>&1; then
+        echo -e "  ${BOLD}sudo dnf install xz${NC}"
+    else
+        echo -e "  Paket yöneticinizden 'xz' paketini kurun."
+    fi
+    exit 1
+fi
+
+if [ -f "$INSTALL_DIR/cli/migurdex" ]; then
+    chmod +x "$INSTALL_DIR/cli/migurdex"
+fi
+if [ -f "$INSTALL_DIR/migurdex" ] && [ ! -L "$INSTALL_DIR/migurdex" ]; then
+    chmod +x "$INSTALL_DIR/migurdex"
+fi
 if [ -f "$INSTALL_DIR/api/Migurdex.Api" ]; then
     chmod +x "$INSTALL_DIR/api/Migurdex.Api"
 fi
@@ -212,7 +253,7 @@ echo -e "\n${GREEN}${BOLD}🎉 Migurdex kurulumu başarıyla tamamlandı!${NC}\n
 if [ "$PATH_WARNING" = true ]; then
     echo -e "${YELLOW}Not: '$BIN_DIR' dizini mevcut PATH değişkeninizde bulunmuyor.${NC}"
     echo -e "Komut satırından doğrudan 'migurdex' yazarak çalıştırabilmek için kabuk konfigürasyonunuza şu satırı ekleyin:"
-    
+
     CURRENT_SHELL="$(basename "${SHELL:-bash}")"
     if [ "$CURRENT_SHELL" = "zsh" ]; then
         echo -e "  ${BOLD}echo 'export PATH=\"\$HOME/.local/bin:\$PATH\"' >> ~/.zshrc && source ~/.zshrc${NC}"

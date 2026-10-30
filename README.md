@@ -73,9 +73,13 @@ Manuel kurmak istersen [Releases](https://github.com/roxyrekt/Migurdex/releases)
 
 | Platform | Dosyalar |
 |---|---|
-| Linux x86_64 | `migurdex-linux-x64.tar.gz`, `migurdex-x86_64.AppImage`, `migurdex-x86_64.AppImage.zsync` |
-| Linux aarch64 | `migurdex-linux-arm64.tar.gz`, `migurdex-aarch64.AppImage`, `migurdex-aarch64.AppImage.zsync` |
-| Windows x64 | `migurdex-win-x64.zip` |
+| Linux x86_64 | `migurdex-linux-x64.tar.xz`, `migurdex-x86_64.AppImage`, `migurdex-x86_64.AppImage.zsync` |
+| Linux aarch64 | `migurdex-linux-arm64.tar.xz`, `migurdex-aarch64.AppImage`, `migurdex-aarch64.AppImage.zsync` |
+| Windows x64 | `migurdex-win-x64.tar.xz` |
+
+`migurdex-<platform>.tar.xz` (≈39 MB) paketi CLI'yi `cli/` altında, API'yi `api/` altında taşır; ikisinin
+paylaştığı .NET runtime dosyaları arşivde **hardlink** olarak saklanır, yani diskte tek kopya kalır
+(≈129 MB yerine ≈215 MB). Eski istemciler için aynı sürüm `.tar.gz` olarak da yayınlanır.
 
 Her platform için ayrıca `sha256sums-linux-x64.txt`, `sha256sums-linux-arm64.txt` ve
 `sha256sums-win-x64.txt` özet dosyaları yayınlanır. Linux'ta AppImage'yi çalıştırmak için:
