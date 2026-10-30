@@ -39,7 +39,7 @@ pub struct NativeBuffer {
 
 #[repr(C)]
 pub struct RustApi {
-    pub rust_free: extern "C" fn(*mut u8, usize),
+    pub rust_free: unsafe extern "C" fn(*mut u8, usize),
     pub rust_alloc: extern "C" fn(usize) -> *mut u8,
     pub rust_send_async: unsafe extern "C" fn(
         i64,
@@ -55,6 +55,6 @@ pub struct RustApi {
         FfiCallback,
     ),
     pub rust_free_headers: unsafe extern "C" fn(*mut FfiHeader, usize),
-    pub rust_js_unpack: extern "C" fn(*const c_char) -> NativeBuffer,
-    pub rust_fuzzy_similarity: extern "C" fn(*const c_char, *const c_char) -> f64,
+    pub rust_js_unpack: unsafe extern "C" fn(*const c_char) -> NativeBuffer,
+    pub rust_fuzzy_similarity: unsafe extern "C" fn(*const c_char, *const c_char) -> f64,
 }

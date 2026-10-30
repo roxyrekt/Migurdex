@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Logging;
 using Migurdex.Core.PluginSystem;
 using Migurdex.Core.Services;
 using Migurdex.Shared.Diagnostics;
@@ -5,7 +6,6 @@ using Migurdex.Shared.Enums;
 using Migurdex.Shared.Infrastructure;
 using Migurdex.Shared.Interfaces;
 using Migurdex.Shared.Models;
-using Microsoft.Extensions.Logging;
 using Xunit;
 
 namespace Migurdex.Tests;

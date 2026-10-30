@@ -25,7 +25,7 @@ public class JikanProvider : IMetadataProvider
     {
         limit = Math.Clamp(limit, 1, 25);
         offset = Math.Max(0, offset);
-        var page = offset / limit + 1;
+        var page = (offset / limit) + 1;
         var url = $"https://api.jikan.moe/v4/anime?q={Uri.EscapeDataString(title)}&limit={limit}&page={page}";
         if (expectedFormat == ContentFormat.Manga)
         {

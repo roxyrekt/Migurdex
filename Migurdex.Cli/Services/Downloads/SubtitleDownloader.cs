@@ -160,7 +160,7 @@ public sealed class SubtitleDownloader : ISubtitleDownloader
                 await file.WriteAsync(buffer.AsMemory(0, read), cancellationToken)
                           .ConfigureAwait(false);
                 downloaded += read;
-                if (declaredLength is > 0 && downloaded >= declaredLength.Value
+                if ((declaredLength is > 0 && downloaded >= declaredLength.Value)
                     || System.Diagnostics.Stopwatch.GetElapsedTime(lastReportTime).TotalMilliseconds >= 150)
                 {
                     Report(progress, DownloadStage.Downloading, downloaded, declaredLength);

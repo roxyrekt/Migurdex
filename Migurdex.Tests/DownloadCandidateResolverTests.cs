@@ -37,7 +37,7 @@ public sealed class DownloadCandidateResolverTests
     [Fact]
     public async Task Resolve_PassesGroupThrough()
     {
-        string? seenGroup = "unset";
+        var seenGroup = (string?) "unset";
         var api = new StubApiClient((provider, episodeId, group, _) =>
         {
             seenGroup = group;

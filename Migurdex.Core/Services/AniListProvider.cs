@@ -65,7 +65,7 @@ public partial class AniListProvider : IMetadataProvider
         {
             search = title,
             type   = expectedFormat == ContentFormat.Manga ? "MANGA" : "ANIME",
-            page   = offset / limit + 1,
+            page   = (offset / limit) + 1,
             perPage = limit
         };
 

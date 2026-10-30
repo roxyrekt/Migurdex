@@ -1,0 +1,43 @@
+name: Rust
+
+on:
+    workflow_call:
+
+permissions:
+    contents: read
+
+jobs:
+    rust:
+        name: Rust (${{ matrix.os }})
+        runs-on: ${{ matrix.os }}
+        timeout-minutes: 25
+        strategy:
+            fail-fast: false
+            matrix:
+                os: [ ubuntu-22.04, windows-latest ]
+
+        steps:
+            -   uses: actions/checkout@v7
+
+            -   name: Setup Rust
+                uses: dtolnay/rust-toolchain@stable
+                with:
+                    components: rustfmt, clippy
+
+            -   name: Cache Rust
+                uses: Swatinem/rust-cache@v2
+                with:
+                    workspaces: Migurdex.Native -> target
+
+            -   name: Check formatting
+                if: matrix.os == 'ubuntu-22.04'
+                working-directory: ./Migurdex.Native
+                run: cargo fmt --all -- --check
+
+            -   name: Clippy
+                working-directory: ./Migurdex.Native
+                run: cargo clippy --all-targets --locked -- -D warnings
+
+            -   name: Test
+                working-directory: ./Migurdex.Native
+                run: cargo test --locked

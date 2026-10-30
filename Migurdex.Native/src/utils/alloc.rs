@@ -1,5 +1,5 @@
-use std::alloc::{alloc, dealloc, Layout};
 use super::super::ffi::types::FfiHeader;
+use std::alloc::{Layout, alloc, dealloc};
 
 #[unsafe(no_mangle)]
 pub extern "C" fn rust_alloc(size: usize) -> *mut u8 {
@@ -14,7 +14,7 @@ pub extern "C" fn rust_alloc(size: usize) -> *mut u8 {
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn rust_free(ptr: *mut u8, size: usize) {
+pub unsafe extern "C" fn rust_free(ptr: *mut u8, size: usize) {
     if ptr.is_null() || size == 0 {
         return;
     }
@@ -40,18 +40,20 @@ pub unsafe extern "C" fn rust_free_headers(ptr: *mut FfiHeader, len: usize) {
     }
     let headers = unsafe { std::slice::from_raw_parts(ptr, len) };
     for h in headers {
-        if !h.key_ptr.is_null() && h.key_len > 0 {
-            if let Ok(layout) = Layout::from_size_align(h.key_len, 8) {
-                unsafe { dealloc(h.key_ptr as *mut u8, layout) };
-            }
+        if !h.key_ptr.is_null()
+            && h.key_len > 0
+            && let Ok(layout) = Layout::from_size_align(h.key_len, 8)
+        {
+            unsafe { dealloc(h.key_ptr as *mut u8, layout) };
         }
-        if !h.val_ptr.is_null() && h.val_len > 0 {
-            if let Ok(layout) = Layout::from_size_align(h.val_len, 8) {
-                unsafe { dealloc(h.val_ptr as *mut u8, layout) };
-            }
+        if !h.val_ptr.is_null()
+            && h.val_len > 0
+            && let Ok(layout) = Layout::from_size_align(h.val_len, 8)
+        {
+            unsafe { dealloc(h.val_ptr as *mut u8, layout) };
         }
     }
-    let _ = unsafe { Box::from_raw(std::slice::from_raw_parts_mut(ptr, len)) };
+    let _ = unsafe { Box::from_raw(std::ptr::slice_from_raw_parts_mut(ptr, len)) };
 }
 
 pub fn to_raw_bytes(vec: Vec<u8>) -> (*mut u8, usize) {

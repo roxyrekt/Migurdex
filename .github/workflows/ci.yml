@@ -1,0 +1,23 @@
+name: CI
+
+on:
+    pull_request:
+        branches: [ "main" ]
+        paths-ignore: [ "**.md", "LICENSE" ]
+    workflow_dispatch:
+
+permissions:
+    contents: read
+
+concurrency:
+    group: ci-${{ github.ref }}
+    cancel-in-progress: true
+
+jobs:
+    rust:
+        name: Rust
+        uses: ./.github/workflows/rust.yml
+
+    test:
+        name: Test
+        uses: ./.github/workflows/test.yml

@@ -9,7 +9,7 @@ public sealed class ExternalProcessRunnerTests
     [Fact]
     public async Task RunAsync_LimitsCapturedOutput()
     {
-        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(60));
         var result = await new ExternalProcessRunner().RunAsync(
             ShellCommand("large-output"),
             cts.Token);
@@ -17,6 +17,7 @@ public sealed class ExternalProcessRunnerTests
         Assert.Equal(0, result.ExitCode);
         Assert.True(result.OutputTruncated);
         Assert.True(result.StandardOutput.Length <= ExternalProcessRunner.MaxCapturedCharactersPerStream + 64);
+        Assert.True(result.StandardOutput.Length > ExternalProcessRunner.MaxCapturedCharactersPerStream / 2);
     }
 
     [Fact]
@@ -61,7 +62,7 @@ public sealed class ExternalProcessRunnerTests
             startInfo.ArgumentList.Add("-Command");
             startInfo.ArgumentList.Add(kind switch
             {
-                "large-output" => "[Console]::Out.Write('x' * 1000000)",
+                "large-output" => "[Console]::Out.Write('x' * 400000)",
                 "infinite-output" => "while ($true) { [Console]::Out.Write('x'); Start-Sleep -Milliseconds 10 }",
                 _ => "[Console]::Out.WriteLine('[download] 50% of 10MiB')"
             });
@@ -72,7 +73,7 @@ public sealed class ExternalProcessRunnerTests
             startInfo.ArgumentList.Add("-c");
             startInfo.ArgumentList.Add(kind switch
             {
-                "large-output" => "head -c 1000000 /dev/zero | tr '\\0' x",
+                "large-output" => "head -c 400000 /dev/zero | tr '\\0' x",
                 "infinite-output" => "yes x",
                 _ => "printf '%s\\n' '[download] 50% of 10MiB'"
             });

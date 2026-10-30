@@ -102,7 +102,7 @@ public class Mp4MetadataReader : IMp4MetadataReader
 
             if (bytes.Length == 0 || !IsMp4Start(bytes))
             {
-                UpstreamErrorKind kind = UpstreamErrorKind.Unknown;
+                var kind = UpstreamErrorKind.Unknown;
                 if (bytes.Length > 0)
                 {
                     kind = UpstreamErrorClassifier.Detect(0,
@@ -283,7 +283,7 @@ public class Mp4MetadataReader : IMp4MetadataReader
 
             var high = (uint) ((bytes[32] << 24) | (bytes[33] << 16) | (bytes[34] << 8) | bytes[35]);
             var low  = (uint) ((bytes[36] << 24) | (bytes[37] << 16) | (bytes[38] << 8) | bytes[39]);
-            duration = high * 4294967296.0 + low;
+            duration = (high * 4294967296.0) + low;
         }
         else if (version == 0)
         {
@@ -321,8 +321,8 @@ public class Mp4MetadataReader : IMp4MetadataReader
         var currentOffset = moovOffset + 8;
         var moovEndOffset = moovOffset + moovSize;
 
-        byte[] buffer            = headBytes;
-        long   bufferStartOffset = 0;
+        var  buffer            = headBytes;
+        long bufferStartOffset = 0;
 
         string? quality         = null;
         int?    width           = null;
