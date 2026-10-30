@@ -318,23 +318,41 @@ internal static class BlobStoreUpdater
         var keep    = new HashSet<string>(manifest.Paths.Keys, StringComparer.Ordinal);
         var deleted = 0;
 
-        foreach (var sub in new[] { "cli", "api" })
+        var scans = new List<(string Dir, SearchOption Depth)>
         {
-            var dir = Path.Combine(installRoot, sub);
+            (installRoot, SearchOption.TopDirectoryOnly),
+            (Path.Combine(installRoot, "cli"), SearchOption.AllDirectories),
+            (Path.Combine(installRoot, "api"), SearchOption.AllDirectories)
+        };
+
+        foreach (var (dir, depth) in scans)
+        {
             if (!Directory.Exists(dir))
             {
                 continue;
             }
 
-            foreach (var file in Directory.EnumerateFiles(dir, "*", SearchOption.AllDirectories))
+            foreach (var file in Directory.EnumerateFiles(dir, "*", depth))
             {
-                if (file.EndsWith(".new", StringComparison.Ordinal) || file.EndsWith(".old", StringComparison.Ordinal))
+                var name = Path.GetFileName(file);
+
+                if (name.EndsWith(".new", StringComparison.Ordinal))
                 {
                     continue;
                 }
 
                 var rel = Path.GetRelativePath(installRoot, file).Replace('\\', '/');
-                if (keep.Contains(rel))
+
+                if (name.EndsWith(".old", StringComparison.Ordinal))
+                {
+                    var original = rel[..^4];
+
+                    if (!keep.Contains(original))
+                    {
+                        continue;
+                    }
+                }
+                else if (keep.Contains(rel))
                 {
                     continue;
                 }

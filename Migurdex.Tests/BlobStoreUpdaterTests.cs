@@ -636,4 +636,75 @@ public sealed class BlobStoreUpdaterTests : IDisposable
         Assert.False(File.Exists(Path.Combine(_root, "escape.txt")));
         Assert.False(File.Exists(Path.Combine(Path.GetTempPath(), "escape.txt")));
     }
+
+    [Fact]
+    public async Task Apply_PrunesStaleOldBackup()
+    {
+        if (!XzAvailable())
+        {
+            return;
+        }
+
+        var ct = TestContext.Current.CancellationToken;
+
+        var source = MakeTree("v1",
+                              ("migurdex", "launcher"),
+                              ("cli/migurdex", "cli"));
+
+        var (tarPath, manifest) = BuildStore(source);
+
+        var install = Path.Combine(_root, "install");
+        Directory.CreateDirectory(Path.Combine(install, "cli"));
+
+        var first = await BlobStoreUpdater.ApplyAsync(
+                        new StoreServer(tarPath, true).Url,
+                        install,
+                        manifest,
+                        _root,
+                        null,
+                        ct);
+        Assert.Equal(2, first.Written);
+
+        var backup = Path.Combine(install, "migurdex.old");
+        File.WriteAllText(backup, "eski surum");
+
+        using var server = new StoreServer(tarPath, supportRange: true);
+
+        var second = await BlobStoreUpdater.ApplyAsync(server.Url, install, manifest, _root, null, ct);
+
+        Assert.Equal(0, second.Written);
+        Assert.Equal(1, second.Deleted);
+        Assert.False(File.Exists(backup));
+        Assert.True(File.Exists(Path.Combine(install, "migurdex")));
+    }
+
+    [Fact]
+    public async Task Apply_PrunesStaleRootFile()
+    {
+        if (!XzAvailable())
+        {
+            return;
+        }
+
+        var ct = TestContext.Current.CancellationToken;
+
+        var source = MakeTree("v1", ("cli/migurdex", "cli"));
+        var (tarPath, manifest) = BuildStore(source);
+
+        var install = Path.Combine(_root, "install");
+        Directory.CreateDirectory(install);
+
+        using var server = new StoreServer(tarPath, supportRange: true);
+
+        var first = await BlobStoreUpdater.ApplyAsync(server.Url, install, manifest, _root, null, ct);
+        Assert.Equal(1, first.Written);
+
+        var stale = Path.Combine(install, "migurdex");
+        File.WriteAllText(stale, "eski single-file binary");
+
+        var second = await BlobStoreUpdater.ApplyAsync(server.Url, install, manifest, _root, null, ct);
+
+        Assert.Equal(1, second.Deleted);
+        Assert.False(File.Exists(stale));
+    }
 }
