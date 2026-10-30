@@ -67,7 +67,7 @@ internal sealed class DownloadSpeedometer
         var instant = Math.Max(0, (bytes - _lastBytes) / elapsed);
         _lastBytes  = bytes;
         _bytesPerSecond = _hasEstimate
-                              ? _alpha * instant + (1 - _alpha) * _bytesPerSecond
+                              ? (_alpha * instant) + ((1 - _alpha) * _bytesPerSecond)
                               : instant;
         _hasEstimate = true;
     }

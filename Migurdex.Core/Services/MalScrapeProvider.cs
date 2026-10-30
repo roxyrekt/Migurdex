@@ -155,7 +155,7 @@ public partial class MalScrapeProvider : IMetadataProvider
     private async Task<List<MediaMetadata>> SearchHtmlAsync(string q, int limit, int offset, CancellationToken ct)
     {
         await ThrottleAsync(ct);
-        var show = offset - offset % 50;
+        var show = offset - (offset % 50);
         using var response = await _httpClient.GetAsync(
             $"https://myanimelist.net/anime.php?q={Uri.EscapeDataString(q)}&cat=anime&show={show}", ct);
         if (!response.IsSuccessStatusCode)

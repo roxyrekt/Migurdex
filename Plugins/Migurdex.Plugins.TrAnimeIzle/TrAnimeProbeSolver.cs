@@ -156,7 +156,7 @@ internal static partial class TrAnimeProbeSolver
             }
 
             var payload = raw.Replace('-', '+').Replace('_', '/');
-            payload += new string('=', (4 - payload.Length % 4) % 4);
+            payload += new string('=', (4 - (payload.Length % 4)) % 4);
             using var doc = JsonDocument.Parse(Convert.FromBase64String(payload));
             if (doc.RootElement.TryGetProperty("exp", out var exp) && exp.TryGetInt64(out var unix))
             {
@@ -183,7 +183,7 @@ internal static partial class TrAnimeProbeSolver
             }
 
             var payload = raw.Replace('-', '+').Replace('_', '/');
-            payload += new string('=', (4 - payload.Length % 4) % 4);
+            payload += new string('=', (4 - (payload.Length % 4)) % 4);
             using var doc = JsonDocument.Parse(Convert.FromBase64String(payload));
             if (doc.RootElement.TryGetProperty("exp", out var exp) && exp.TryGetInt64(out var unix))
             {

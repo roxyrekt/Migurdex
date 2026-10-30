@@ -344,10 +344,10 @@ public sealed class DownloadPathBuilder : IDownloadPathBuilder
                || firstPart.Equals("NUL", StringComparison.OrdinalIgnoreCase)
                || (firstPart.Length == 4
                    && firstPart.StartsWith("COM", StringComparison.OrdinalIgnoreCase)
-                   && firstPart[3] is >= '1' and <= '9' or '¹' or '²' or '³')
+                   && firstPart[3] is (>= '1' and <= '9') or '¹' or '²' or '³')
                || (firstPart.Length == 4
                    && firstPart.StartsWith("LPT", StringComparison.OrdinalIgnoreCase)
-                   && firstPart[3] is >= '1' and <= '9' or '¹' or '²' or '³')
+                   && firstPart[3] is (>= '1' and <= '9') or '¹' or '²' or '³')
                || firstPart.Equals("CONIN$", StringComparison.OrdinalIgnoreCase)
                || firstPart.Equals("CONOUT$", StringComparison.OrdinalIgnoreCase)
                || firstPart.Equals("CLOCK$", StringComparison.OrdinalIgnoreCase);

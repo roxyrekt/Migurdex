@@ -497,7 +497,7 @@ public class EpisodeSourcesView : BaseView
         Episode                                                    episode,
         CliConfig                                                  config)
     {
-        List<VideoSource> pool = _cachedSources.Count > 0
+        var pool = _cachedSources.Count > 0
                                      ? DownloadSourceResolver.SelectCandidates(_cachedSources,
                                                                                DownloadSourceFormat.Auto,
                                                                                config)

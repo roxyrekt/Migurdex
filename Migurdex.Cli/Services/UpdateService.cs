@@ -1,5 +1,5 @@
-using Migurdex.Shared.Update;
 using Migurdex.Cli.Configuration;
+using Migurdex.Shared.Update;
 using System.Diagnostics;
 using System.Net;
 using System.Runtime.InteropServices;
