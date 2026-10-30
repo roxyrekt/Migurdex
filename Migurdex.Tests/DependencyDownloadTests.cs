@@ -105,7 +105,7 @@ public sealed class DependencyDownloadParallelTests
     [Fact]
     public async Task DownloadFileAsync_UsesParallelRangesAndVerifiesHash()
     {
-        var payload = CreatePayload(4 * 1024 * 1024 + 1234);
+        var payload = CreatePayload((4 * 1024 * 1024) + 1234);
         var expected = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(payload))
                               .ToLowerInvariant();
 
@@ -240,7 +240,7 @@ public sealed class DependencyDownloadParallelTests
                 RangeRequestCount++;
 
                 var start = range.From ?? 0;
-                var end   = Math.Min(range.To ?? _payload.Length - 1, _payload.Length - 1);
+                var end   = Math.Min(range.To ?? (_payload.Length - 1), _payload.Length - 1);
                 var slice = _payload[(int) start..(int) (end + 1)];
 
                 var partial = new HttpResponseMessage(System.Net.HttpStatusCode.PartialContent)
