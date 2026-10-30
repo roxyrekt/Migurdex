@@ -50,9 +50,9 @@ jobs:
             -   name: Flatten Artifacts
                 run: |
                     mkdir release-files
-                    find artifacts -type f \( -name "*.tar.gz" -o -name "*.blobs.tar" -o -name "*.manifest.json.gz" -o -name "*.zip" -o -name "*.AppImage" -o -name "*.zsync" -o -name "*.txt" \) -exec cp {} release-files/ \;
-                    cat release-files/sha256sums-*.txt > release-files/sha256sums.txt
-                    rm -f release-files/sha256sums-*.txt
+                    find artifacts -type f \( -name "*.tar.gz" -o -name "*.delta.tar" -o -name "*.zip" -o -name "*.AppImage" -o -name "*.zsync" \) -exec cp {} release-files/ \;
+                    (cd release-files && sha256sum * > sha256sums.txt)
+                    cat release-files/sha256sums.txt
 
             -   name: Delete previous nightly release
                 env:

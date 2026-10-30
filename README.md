@@ -82,8 +82,10 @@ Tek arşiv formatı `.tar.gz`: Linux, macOS ve Windows 10+ sistem `tar`'ı ile a
 paylaştığı .NET runtime dosyaları arşivde **hardlink** olarak saklanır, yani diskte tek kopya kalır
 (≈129 MB yerine ≈215 MB).
 
-Her platform için ayrıca `migurdex-<platform>.blobs.tar` + `.manifest.json.gz` (delta) ve tek bir
-`sha256sums.txt` yayınlanır.
+Her platform için ayrıca güncelleme istemcisinin kullandığı tek dosyalık `migurdex-<platform>.delta.tar`
+ve tek bir `sha256sums.txt` yayınlanır. Delta paketi normal bir tar'dır: ilk girdi
+`manifest.json.gz`, ardından `<sha>.xz` blob'ları gelir; istemci manifesti tek bir Range
+isteğiyle okuyup yalnızca değişen blob'ları çeker.
 
 Windows'ta bir süre daha `migurdex-win-x64.zip` yayınlanır: v1.17.0 ve öncesi istemciler yalnızca zip
 tanıdığı için bu dosya olmadan otomatik güncelleyemiyorlar. Zip hardlink taşımadığı için daha

@@ -399,8 +399,6 @@ public class UpdateService : IUpdateService
     {
         var arch = GetArchLabel();
 
-        // Tek format: tar.gz. Windows 10'un bsdtar 3.3.2'si xz bilmiyor,
-        // tar.gz ise her platformda sistem tar'i ile aciliyor.
         var candidates = new[]
         {
             $"migurdex-{RuntimeLabel()}-{arch}.tar.gz",
@@ -430,7 +428,7 @@ public class UpdateService : IUpdateService
         var arch    = GetArchLabel();
         var runtime = RuntimeLabel();
 
-        var name  = $"migurdex-{runtime}-{arch}.delta.tar";
+        var name = $"migurdex-{runtime}-{arch}.delta.tar";
         var asset = release.Assets.FirstOrDefault(a => a.Name.Equals(name, StringComparison.OrdinalIgnoreCase));
 
         return asset is null ? null : new BlobDelta(asset.Name, asset.BrowserDownloadUrl, asset.Size);
@@ -438,21 +436,18 @@ public class UpdateService : IUpdateService
 
     private static string? ResolveChecksumUrl(GitHubRelease release)
     {
-        var cands = release.Assets
-                           .Where(a => a.Name.Contains("sha256", StringComparison.OrdinalIgnoreCase))
-                           .ToList();
-        if (cands.Count == 0)
+        var single = release.Assets.FirstOrDefault(a => a.Name.Equals("sha256sums.txt",
+                                                                      StringComparison.OrdinalIgnoreCase));
+        if (single is not null)
         {
-            return null;
+            return single.BrowserDownloadUrl;
         }
 
         var arch    = GetArchLabel();
         var runtime = OperatingSystem.IsWindows() ? "win" : "linux";
-        return cands.FirstOrDefault(a => a.Name.Contains(runtime, StringComparison.OrdinalIgnoreCase)
-                                         && a.Name.Contains(arch, StringComparison.OrdinalIgnoreCase))
-                    ?.BrowserDownloadUrl
-               ?? cands.FirstOrDefault(a => a.Name.Contains(runtime, StringComparison.OrdinalIgnoreCase))
-                       ?.BrowserDownloadUrl
-               ?? cands[0].BrowserDownloadUrl;
+
+        return release.Assets.FirstOrDefault(a => a.Name.Equals($"sha256sums-{runtime}-{arch}.txt",
+                                                                StringComparison.OrdinalIgnoreCase))
+                      ?.BrowserDownloadUrl;
     }
 }

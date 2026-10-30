@@ -161,14 +161,14 @@ jobs:
             -   name: Create Archive
                 shell: bash
                 run: |
-                    EXCLUDES='--exclude=*.tar.gz --exclude=*.blobs.tar --exclude=*.manifest.json.gz --exclude=*.zip'
+                    EXCLUDES='--exclude=*.tar.gz --exclude=*.delta.tar --exclude=*.zip'
                     tar -czf "migurdex-${{ matrix.runtime }}.tar.gz" -C dist $EXCLUDES .
                     echo "gz: $(du -h migurdex-${{ matrix.runtime }}.tar.gz | cut -f1)"
                     echo "hardlink: $(tar -tvzf migurdex-${{ matrix.runtime }}.tar.gz | grep -c '^h')"
 
                     if [ "${{ matrix.os }}" = "windows-latest" ]; then
                       (cd dist && 7z a -tzip "../migurdex-${{ matrix.runtime }}.zip" \
-                        -x'!*.tar.gz' -x'!*.blobs.tar' -x'!*.manifest.json.gz' -x'!*.zip' \
+                        -x'!*.tar.gz' -x'!*.delta.tar' -x'!*.zip' \
                         * >/dev/null)
                       echo "zip: $(du -h migurdex-${{ matrix.runtime }}.zip | cut -f1)"
                     fi
@@ -181,10 +181,8 @@ jobs:
                       --output-dir . \
                       --runtime ${{ matrix.runtime }} \
                       --exclude '*.tar.gz' \
-                      --exclude '*.blobs.tar' \
-                      --exclude '*.manifest.json.gz' \
+                      --exclude '*.delta.tar' \
                       --exclude '*.zip'
-                    ls -lh migurdex-${{ matrix.runtime }}.blobs.tar migurdex-${{ matrix.runtime }}.manifest.json.gz
 
             -   name: Download appimagetool
                 if: matrix.os != 'windows-latest'
@@ -214,11 +212,6 @@ jobs:
                 run: |
                     ./migurdex-${{ matrix.arch }}.AppImage --appimage-updateinformation | grep -q "gh-releases-zsync|roxyrekt|Migurdex"
 
-            -   name: Generate checksums
-                shell: bash
-                run: |
-                    (cd "$GITHUB_WORKSPACE" && sha256sum migurdex-${{ matrix.runtime }}.tar.gz migurdex-${{ matrix.runtime }}.blobs.tar migurdex-${{ matrix.runtime }}.manifest.json.gz > sha256sums-${{ matrix.runtime }}.txt)
-
             -   name: Upload AppImage Artifact
                 if: matrix.os != 'windows-latest'
                 uses: actions/upload-artifact@v7
@@ -234,9 +227,7 @@ jobs:
                     name: migurdex-${{ matrix.runtime }}
                     path: |
                         migurdex-${{ matrix.runtime }}.tar.gz
-                        migurdex-${{ matrix.runtime }}.blobs.tar
-                        migurdex-${{ matrix.runtime }}.manifest.json.gz
+                        migurdex-${{ matrix.runtime }}.delta.tar
                         migurdex-${{ matrix.runtime }}.zip
-                        sha256sums-${{ matrix.runtime }}.txt
                     retention-days: 1
                     if-no-files-found: error
