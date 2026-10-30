@@ -15,6 +15,23 @@ public sealed class DownloadPathBuilder : IDownloadPathBuilder
 
     public static int MaxFullPathUtf8Bytes => OperatingSystem.IsWindows() ? 240 : 1024;
 
+    private readonly int _maxFullPathUtf8Bytes;
+
+    public DownloadPathBuilder()
+        : this(MaxFullPathUtf8Bytes)
+    {
+    }
+
+    internal DownloadPathBuilder(int maxFullPathUtf8Bytes)
+    {
+        if (maxFullPathUtf8Bytes <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(maxFullPathUtf8Bytes));
+        }
+
+        _maxFullPathUtf8Bytes = maxFullPathUtf8Bytes;
+    }
+
     public DownloadPath Build(
         string  rootDirectory,
         string  animeTitle,
@@ -32,9 +49,9 @@ public sealed class DownloadPathBuilder : IDownloadPathBuilder
         var normalizedExtension = NormalizeExtension(extension);
         var separatorBytes = Encoding.UTF8.GetByteCount(Path.DirectorySeparatorChar.ToString());
         var extensionBytes = Encoding.UTF8.GetByteCount(normalizedExtension ?? string.Empty);
-        var availableBytes = MaxFullPathUtf8Bytes
+        var availableBytes = _maxFullPathUtf8Bytes
                              - Encoding.UTF8.GetByteCount(root)
-                             - separatorBytes
+                             - (separatorBytes * 2)
                              - extensionBytes
                              - TemporarySuffixUtf8Bytes;
         if (availableBytes < 48)
@@ -74,7 +91,7 @@ public sealed class DownloadPathBuilder : IDownloadPathBuilder
         stem = TruncateUtf8(SanitizeComponent(stem, "Episode"), fileBudget);
         var mediaPath = Path.Combine(animeDir, stem + (normalizedExtension ?? string.Empty));
         EnsureUnderRoot(root, mediaPath);
-        EnsureFullPathBudget(mediaPath, TemporarySuffixUtf8Bytes);
+        EnsureFullPathBudget(mediaPath, TemporarySuffixUtf8Bytes, _maxFullPathUtf8Bytes);
 
         return new DownloadPath(root, animeDir, stem, normalizedExtension, mediaPath);
     }
@@ -117,7 +134,7 @@ public sealed class DownloadPathBuilder : IDownloadPathBuilder
 
         var root  = Path.GetFullPath(rootDirectory);
         var anime = SanitizeComponent(animeTitle, AnimeFallback);
-        var availableBytes = MaxFullPathUtf8Bytes
+        var availableBytes = _maxFullPathUtf8Bytes
                              - Encoding.UTF8.GetByteCount(root)
                              - Encoding.UTF8.GetByteCount(Path.DirectorySeparatorChar.ToString())
                              - TemporarySuffixUtf8Bytes;
@@ -129,7 +146,7 @@ public sealed class DownloadPathBuilder : IDownloadPathBuilder
         anime = TruncateUtf8(anime, Math.Min(MaxComponentUtf8Bytes, availableBytes));
         var animeDir = Path.Combine(root, anime);
         EnsureUnderRoot(root, animeDir);
-        EnsureFullPathBudget(animeDir, TemporarySuffixUtf8Bytes);
+        EnsureFullPathBudget(animeDir, TemporarySuffixUtf8Bytes, _maxFullPathUtf8Bytes);
         return animeDir;
     }
 
@@ -355,6 +372,11 @@ public sealed class DownloadPathBuilder : IDownloadPathBuilder
 
     internal static void EnsureFullPathBudget(string path, int reservedSuffixBytes)
     {
+        EnsureFullPathBudget(path, reservedSuffixBytes, MaxFullPathUtf8Bytes);
+    }
+
+    internal static void EnsureFullPathBudget(string path, int reservedSuffixBytes, int maxFullPathUtf8Bytes)
+    {
         if (reservedSuffixBytes < 0)
         {
             throw new ArgumentOutOfRangeException(nameof(reservedSuffixBytes));
@@ -362,7 +384,7 @@ public sealed class DownloadPathBuilder : IDownloadPathBuilder
 
         var fullPath = Path.GetFullPath(path);
         var byteCount = Encoding.UTF8.GetByteCount(fullPath);
-        if (byteCount > MaxFullPathUtf8Bytes - reservedSuffixBytes)
+        if (byteCount > maxFullPathUtf8Bytes - reservedSuffixBytes)
         {
             throw new ArgumentException("Tam çıktı yolu güvenli dosya adı bütçesini aşıyor.", nameof(path));
         }
