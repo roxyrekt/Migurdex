@@ -14,6 +14,10 @@ concurrency:
     cancel-in-progress: true
 
 jobs:
+    rust:
+        name: Rust
+        uses: ./.github/workflows/rust.yml
+
     test:
         name: Test
         uses: ./.github/workflows/test.yml

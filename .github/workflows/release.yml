@@ -12,19 +12,24 @@ concurrency:
     cancel-in-progress: false
 
 jobs:
+    rust:
+        name: Rust
+        uses: ./.github/workflows/rust.yml
+
     test:
         name: Test
         uses: ./.github/workflows/test.yml
 
     package:
         name: Package
-        needs: test
+        needs: [ rust, test ]
         uses: ./.github/workflows/package.yml
 
     release:
         name: Create Release
         needs: package
         runs-on: ubuntu-latest
+        timeout-minutes: 10
         permissions:
             contents: write
         steps:

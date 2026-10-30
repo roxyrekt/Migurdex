@@ -15,6 +15,7 @@ jobs:
     unit:
         name: Unit tests (${{ matrix.os }})
         runs-on: ${{ matrix.os }}
+        timeout-minutes: 20
         strategy:
             fail-fast: false
             matrix:
@@ -32,6 +33,18 @@ jobs:
 
             -   name: Build
                 run: dotnet build Migurdex.slnx -c Release --nologo
+
+            -   name: Verify formatting
+                shell: bash
+                run: |
+                    dotnet format style Migurdex.slnx \
+                      --verify-no-changes \
+                      --no-restore \
+                      --severity warn
+                    dotnet format analyzers Migurdex.slnx \
+                      --verify-no-changes \
+                      --no-restore \
+                      --severity warn
 
             -   name: Test
                 shell: bash
