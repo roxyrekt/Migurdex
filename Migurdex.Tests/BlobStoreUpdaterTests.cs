@@ -1,10 +1,12 @@
 using Migurdex.Cli.Services;
 using System.Diagnostics;
 using System.Formats.Tar;
+using System.IO.Compression;
 using System.Net;
 using System.Net.Sockets;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
 using Xunit;
 
 namespace Migurdex.Tests;
@@ -82,7 +84,7 @@ public sealed class BlobStoreUpdaterTests : IDisposable
         return stdout.ToArray();
     }
 
-    private (string TarPath, BlobManifest Manifest) BuildStore(string srcDir)
+    private (DeltaLocation Location, BlobManifest Manifest) BuildStore(string srcDir)
     {
         var paths     = new Dictionary<string, string>(StringComparer.Ordinal);
         var shaToPath = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
@@ -96,58 +98,18 @@ public sealed class BlobStoreUpdaterTests : IDisposable
             shaToPath.TryAdd(sha, full);
         }
 
-        var tarPath = Path.Combine(_root, $"migurdex-{Runtime}.blobs.tar");
+        var compressed = shaToPath
+                         .OrderBy(kv => kv.Key, StringComparer.Ordinal)
+                         .ToDictionary(kv => kv.Key,
+                                       kv => XzCompress(File.ReadAllBytes(kv.Value)),
+                                       StringComparer.Ordinal);
 
-        using (var fs = File.Create(tarPath))
-        using (var tw = new TarWriter(fs, TarEntryFormat.Gnu, leaveOpen: false))
+        var blobs   = new List<BlobEntry>();
+        var running = 0L;
+        foreach (var (sha, data) in compressed)
         {
-            foreach (var (sha, full) in shaToPath.OrderBy(kv => kv.Key, StringComparer.Ordinal))
-            {
-                var entry = new GnuTarEntry(TarEntryType.RegularFile, sha + ".xz")
-                {
-                    DataStream       = new MemoryStream(XzCompress(File.ReadAllBytes(full))),
-                    ModificationTime = DateTimeOffset.UnixEpoch
-                };
-                entry.Mode = UnixFileMode.UserRead
-                             | UnixFileMode.UserWrite
-                             | UnixFileMode.GroupRead
-                             | UnixFileMode.OtherRead;
-
-                tw.WriteEntry(entry);
-            }
-        }
-
-        var blobs = new List<BlobEntry>();
-
-        using (var fs = File.OpenRead(tarPath))
-        {
-            var header = new byte[512];
-
-            while (fs.Position + 512 <= fs.Length)
-            {
-                var headerPos = fs.Position;
-                if (fs.Read(header, 0, 512) != 512)
-                {
-                    break;
-                }
-
-                if (header.All(b => b == 0))
-                {
-                    break;
-                }
-
-                var name      = Encoding.ASCII.GetString(header, 0, 100).TrimEnd('\0');
-                var sizeField = Encoding.ASCII.GetString(header, 124, 12).Trim('\0', ' ');
-                var size      = sizeField.Length == 0 ? 0 : Convert.ToInt64(sizeField, 8);
-
-                if (name.EndsWith(".xz", StringComparison.Ordinal))
-                {
-                    blobs.Add(new BlobEntry(name[..^3], headerPos + 512, (int) size));
-                }
-
-                var padded = (size + 511) / 512 * 512;
-                fs.Seek(headerPos + 512 + padded, SeekOrigin.Begin);
-            }
+            blobs.Add(new BlobEntry(sha, running + 512, data.Length));
+            running += 512 + Align512(data.Length);
         }
 
         var manifest = new BlobManifest
@@ -158,7 +120,47 @@ public sealed class BlobStoreUpdaterTests : IDisposable
             Paths   = paths
         };
 
-        return (tarPath, manifest);
+        var raw = JsonSerializer.SerializeToUtf8Bytes(manifest);
+        var gz  = new MemoryStream();
+        using (var gzip = new GZipStream(gz, CompressionLevel.Optimal, leaveOpen: true))
+        {
+            gzip.Write(raw);
+        }
+
+        var manifestGz = gz.ToArray();
+        var tarPath    = Path.Combine(_root, $"migurdex-{Runtime}.delta.tar");
+
+        using (var fs = File.Create(tarPath))
+        using (var tw = new TarWriter(fs, TarEntryFormat.Gnu, leaveOpen: false))
+        {
+            WriteEntry(tw, "manifest.json.gz", manifestGz);
+
+            foreach (var (sha, data) in compressed)
+            {
+                WriteEntry(tw, sha + ".xz", data);
+            }
+        }
+
+        var payloadStart = 512 + Align512(manifestGz.Length);
+
+        return (new DeltaLocation("", false, tarPath, new FileInfo(tarPath).Length, payloadStart), manifest);
+    }
+
+    private static long Align512(long size) => (size + 511) / 512 * 512;
+
+    private static void WriteEntry(TarWriter tw, string name, byte[] data)
+    {
+        var entry = new GnuTarEntry(TarEntryType.RegularFile, name)
+        {
+            DataStream       = new MemoryStream(data),
+            ModificationTime = DateTimeOffset.UnixEpoch
+        };
+        entry.Mode = UnixFileMode.UserRead
+                     | UnixFileMode.UserWrite
+                     | UnixFileMode.GroupRead
+                     | UnixFileMode.OtherRead;
+
+        tw.WriteEntry(entry);
     }
 
     private static bool XzAvailable()
@@ -354,6 +356,171 @@ public sealed class BlobStoreUpdaterTests : IDisposable
         return map;
     }
 
+    private static string? RepoRoot()
+    {
+        var dir = new DirectoryInfo(AppContext.BaseDirectory);
+        while (dir is not null)
+        {
+            if (File.Exists(Path.Combine(dir.FullName, "assets", "packaging", "build-blobs.py")))
+            {
+                return dir.FullName;
+            }
+
+            dir = dir.Parent;
+        }
+
+        return null;
+    }
+
+    [Fact]
+    public async Task PythonProducer_IsReadableByClient()
+    {
+        if (!XzAvailable())
+        {
+            return;
+        }
+
+        var root = RepoRoot();
+        if (root is null)
+        {
+            return;
+        }
+
+        var source = MakeTree("payload",
+                              ("cli/migurdex", "cli-v1"),
+                              ("api/Migurdex.Api", new string('q', 8192)));
+
+        var py = new ProcessStartInfo("python3")
+        {
+            RedirectStandardOutput = true,
+            RedirectStandardError  = true,
+            UseShellExecute        = false,
+            WorkingDirectory       = root
+        };
+        foreach (var a in new[]
+                 {
+                     Path.Combine(root, "assets", "packaging", "build-blobs.py"),
+                     "--input", source,
+                     "--output-dir", Path.Combine(_root, "out"),
+                     "--runtime", Runtime
+                 })
+        {
+            py.ArgumentList.Add(a);
+        }
+
+        using var proc = Process.Start(py)!;
+        var       err  = await proc.StandardError.ReadToEndAsync(TestContext.Current.CancellationToken);
+        proc.WaitForExit();
+
+        Assert.True(proc.ExitCode == 0, err);
+
+        var tar = Path.Combine(_root, "out", $"migurdex-{Runtime}.delta.tar");
+        Assert.True(File.Exists(tar), $"uretilen paket yok: {tar}");
+
+        using var server = new StoreServer(tar, supportRange: true);
+        using var http   = new HttpClient();
+
+        var (location, manifest) =
+            await DeltaArchive.OpenAsync(http, server.Url, _root, TestContext.Current.CancellationToken);
+
+        using var _ = location;
+
+        Assert.Equal(Runtime, manifest.Runtime);
+        Assert.Equal(Index(source), manifest.Paths);
+
+        var install = Path.Combine(_root, "install");
+        Directory.CreateDirectory(install);
+
+        var result = await BlobStoreUpdater.ApplyAsync(server.Url,
+                                                       location.PayloadStart,
+                                                       null,
+                                                       0,
+                                                       install,
+                                                       manifest,
+                                                       _root,
+                                                       null,
+                                                       TestContext.Current.CancellationToken);
+
+        Assert.Equal(manifest.Paths.Count, result.Written);
+        Assert.Equal(Index(source), Index(install));
+    }
+
+    [Fact]
+    public async Task DeltaArchive_ReadsManifestFromFirstEntry()
+    {
+        if (!XzAvailable())
+        {
+            return;
+        }
+
+        var ct = TestContext.Current.CancellationToken;
+
+        var source = MakeTree("v1",
+                              ("cli/migurdex", "cli-v1"),
+                              ("api/Migurdex.Api", new string('z', 4096)));
+
+        var (location, expected) = BuildStore(source);
+
+        using var server = new StoreServer(location.LocalPath!, supportRange: true);
+        using var http   = new HttpClient();
+
+        var (opened, manifest) = await DeltaArchive.OpenAsync(http, server.Url, _root, ct);
+
+        using var _ = opened;
+
+        Assert.True(opened.SupportsRange);
+        Assert.Equal(location.PayloadStart, opened.PayloadStart);
+        Assert.Equal(expected.Paths, manifest.Paths);
+        Assert.Equal(expected.Blobs.Count, manifest.Blobs.Count);
+
+        Assert.Equal(512, manifest.Blobs[0].Offset);
+    }
+
+    [Fact]
+    public async Task DeltaArchive_FallsBackWhenServerIgnoresRange()
+    {
+        if (!XzAvailable())
+        {
+            return;
+        }
+
+        var ct = TestContext.Current.CancellationToken;
+
+        var source = MakeTree("v1", ("cli/migurdex", "cli-v1"));
+        var (location, expected) = BuildStore(source);
+
+        using var server = new StoreServer(location.LocalPath!, supportRange: false);
+        using var http   = new HttpClient();
+
+        var (opened, manifest) = await DeltaArchive.OpenAsync(http, server.Url, _root, ct);
+
+        using var _ = opened;
+
+        Assert.False(opened.SupportsRange);
+        Assert.NotNull(opened.LocalPath);
+        Assert.True(opened.TotalBytes > 0);
+        Assert.Equal(expected.Paths, manifest.Paths);
+    }
+
+    [Fact]
+    public async Task DeltaArchive_RejectsArchiveWithoutManifest()
+    {
+        var ct = TestContext.Current.CancellationToken;
+
+        var bogus = Path.Combine(_root, "bogus.delta.tar");
+        await using (var fs = File.Create(bogus))
+        await using (var tw = new TarWriter(fs, TarEntryFormat.Gnu, leaveOpen: false))
+        {
+            WriteEntry(tw, "not-a-manifest.txt", "hello"u8.ToArray());
+        }
+
+        using var server = new StoreServer(bogus, supportRange: true);
+        using var http   = new HttpClient();
+
+        await Assert.ThrowsAsync<InvalidDataException>(() =>
+                                                           DeltaArchive.OpenAsync(http, server.Url, _root, ct));
+    }
+
     [Fact]
     public async Task Apply_FreshInstall_WritesEveryFile()
     {
@@ -369,13 +536,13 @@ public sealed class BlobStoreUpdaterTests : IDisposable
                               ("cli/migurdex.dll", new string('a', 2048)),
                               ("api/Migurdex.Api", "api-v1"));
 
-        var (tarPath, manifest) = BuildStore(source);
+        var (location, manifest) = BuildStore(source);
         var install = Path.Combine(_root, "install");
         Directory.CreateDirectory(install);
 
-        using var server = new StoreServer(tarPath, supportRange: true);
+        using var server = new StoreServer(location.LocalPath!, supportRange: true);
 
-        var result = await BlobStoreUpdater.ApplyAsync(server.Url, install, manifest, _root, null, ct);
+        var result = await BlobStoreUpdater.ApplyAsync(server.Url, location.PayloadStart, null, 0, install, manifest, _root, null, ct);
 
         Assert.Equal(0, result.Reused);
         Assert.Equal(manifest.Paths.Count, result.Written);
@@ -417,11 +584,11 @@ public sealed class BlobStoreUpdaterTests : IDisposable
                           ("cli/big.dll", new string('x', 100_000)),
                           ("api/Migurdex.Api", "api-v2-changed"));
 
-        var (v2Tar, v2Manifest) = BuildStore(v2);
+        var (v2Location, v2Manifest) = BuildStore(v2);
 
-        using var server = new StoreServer(v2Tar, supportRange: true);
+        using var server = new StoreServer(v2Location.LocalPath!, supportRange: true);
 
-        var result = await BlobStoreUpdater.ApplyAsync(server.Url, install, v2Manifest, _root, null, ct);
+        var result = await BlobStoreUpdater.ApplyAsync(server.Url, v2Location.PayloadStart, null, 0, install, v2Manifest, _root, null, ct);
 
         Assert.Equal(1, result.Written);
         Assert.Equal(2, result.Reused);
@@ -444,16 +611,16 @@ public sealed class BlobStoreUpdaterTests : IDisposable
                               ("cli/migurdex", "cli"),
                               ("api/Migurdex.Api", "api"));
 
-        var (tarPath, manifest) = BuildStore(source);
+        var (location, manifest) = BuildStore(source);
         var install = Path.Combine(_root, "install");
         Directory.CreateDirectory(install);
 
-        using var server = new StoreServer(tarPath, supportRange: true);
+        using var server = new StoreServer(location.LocalPath!, supportRange: true);
 
-        var first = await BlobStoreUpdater.ApplyAsync(server.Url, install, manifest, _root, null, ct);
+        var first = await BlobStoreUpdater.ApplyAsync(server.Url, location.PayloadStart, null, 0, install, manifest, _root, null, ct);
         Assert.Equal(2, first.Written);
 
-        var second = await BlobStoreUpdater.ApplyAsync(server.Url, install, manifest, _root, null, ct);
+        var second = await BlobStoreUpdater.ApplyAsync(server.Url, location.PayloadStart, null, 0, install, manifest, _root, null, ct);
 
         Assert.Equal(0, second.Written);
         Assert.Equal(2, second.Reused);
@@ -477,7 +644,7 @@ public sealed class BlobStoreUpdaterTests : IDisposable
                               ("api/runtime.dll", payload),
                               ("cli/migurdex", "cli"));
 
-        var (tarPath, manifest) = BuildStore(source);
+        var (location, manifest) = BuildStore(source);
 
         Assert.Equal(2, manifest.Blobs.Count);
         Assert.Equal(3, manifest.Paths.Count);
@@ -485,9 +652,9 @@ public sealed class BlobStoreUpdaterTests : IDisposable
         var install = Path.Combine(_root, "install");
         Directory.CreateDirectory(install);
 
-        using var server = new StoreServer(tarPath, supportRange: true);
+        using var server = new StoreServer(location.LocalPath!, supportRange: true);
 
-        var result = await BlobStoreUpdater.ApplyAsync(server.Url, install, manifest, _root, null, ct);
+        var result = await BlobStoreUpdater.ApplyAsync(server.Url, location.PayloadStart, null, 0, install, manifest, _root, null, ct);
 
         Assert.Equal(3, result.Written);
         Assert.Equal(Index(source), Index(install));
@@ -509,19 +676,19 @@ public sealed class BlobStoreUpdaterTests : IDisposable
                               ("cli/migurdex", "cli"),
                               ("api/Migurdex.Api", "api"));
 
-        var (tarPath, manifest) = BuildStore(source);
+        var (location, manifest) = BuildStore(source);
         var install = Path.Combine(_root, "install");
         Directory.CreateDirectory(install);
 
-        using var server = new StoreServer(tarPath, supportRange: false);
+        using var server = new StoreServer(location.LocalPath!, supportRange: false);
 
-        var result = await BlobStoreUpdater.ApplyAsync(server.Url, install, manifest, _root, null, ct);
+        var result = await BlobStoreUpdater.ApplyAsync(server.Url, location.PayloadStart, null, 0, install, manifest, _root, null, ct);
 
         Assert.Equal(2, result.Written);
         Assert.Empty(result.Deferred);
         Assert.Equal(Index(source), Index(install));
 
-        Assert.Equal(new FileInfo(tarPath).Length, result.BytesDownloaded);
+        Assert.Equal(new FileInfo(location.LocalPath!).Length, result.BytesDownloaded);
     }
 
     [Fact]
@@ -554,11 +721,11 @@ public sealed class BlobStoreUpdaterTests : IDisposable
                           ("cli/migurdex", "cli"),
                           ("api/Migurdex.Api", "api"));
 
-        var (v2Tar, v2Manifest) = BuildStore(v2);
+        var (v2Location, v2Manifest) = BuildStore(v2);
 
-        using var server = new StoreServer(v2Tar, supportRange: true);
+        using var server = new StoreServer(v2Location.LocalPath!, supportRange: true);
 
-        var result = await BlobStoreUpdater.ApplyAsync(server.Url, install, v2Manifest, _root, null, ct);
+        var result = await BlobStoreUpdater.ApplyAsync(server.Url, v2Location.PayloadStart, null, 0, install, v2Manifest, _root, null, ct);
 
         Assert.Equal(1, result.Deleted);
         Assert.Equal(Index(v2), Index(install));
@@ -576,25 +743,29 @@ public sealed class BlobStoreUpdaterTests : IDisposable
         var ct = TestContext.Current.CancellationToken;
 
         var source = MakeTree("v1", ("cli/migurdex", "cli"));
-        var (tarPath, manifest) = BuildStore(source);
+        var (location, manifest) = BuildStore(source);
 
-        var bytes = File.ReadAllBytes(tarPath);
+        var bytes = File.ReadAllBytes(location.LocalPath!);
         var blob  = manifest.Blobs[0];
+        var start = location.PayloadStart + blob.Offset;
         for (var i = 0; i < 8; i++)
         {
-            bytes[blob.Offset + i] ^= 0xFF;
+            bytes[start + i] ^= 0xFF;
         }
 
-        File.WriteAllBytes(tarPath, bytes);
+        File.WriteAllBytes(location.LocalPath!, bytes);
 
         var install = Path.Combine(_root, "install");
         Directory.CreateDirectory(install);
 
-        using var server = new StoreServer(tarPath, supportRange: true);
+        using var server = new StoreServer(location.LocalPath!, supportRange: true);
 
         await Assert.ThrowsAnyAsync<Exception>(() =>
                                                    BlobStoreUpdater.ApplyAsync(
                                                        server.Url,
+                                                       location.PayloadStart,
+                                                       null,
+                                                       0,
                                                        install,
                                                        manifest,
                                                        _root,
@@ -613,7 +784,7 @@ public sealed class BlobStoreUpdaterTests : IDisposable
         var ct = TestContext.Current.CancellationToken;
 
         var source = MakeTree("v1", ("cli/migurdex", "cli"));
-        var (tarPath, manifest) = BuildStore(source);
+        var (location, manifest) = BuildStore(source);
 
         var existingSha = manifest.Paths.Values.First();
         manifest.Paths["../../escape.txt"] = existingSha;
@@ -621,11 +792,14 @@ public sealed class BlobStoreUpdaterTests : IDisposable
         var install = Path.Combine(_root, "install");
         Directory.CreateDirectory(install);
 
-        using var server = new StoreServer(tarPath, supportRange: true);
+        using var server = new StoreServer(location.LocalPath!, supportRange: true);
 
         var ex = await Assert.ThrowsAsync<InvalidDataException>(() =>
                                                                     BlobStoreUpdater.ApplyAsync(
                                                                         server.Url,
+                                                                        location.PayloadStart,
+                                                                        null,
+                                                                        0,
                                                                         install,
                                                                         manifest,
                                                                         _root,
@@ -651,13 +825,18 @@ public sealed class BlobStoreUpdaterTests : IDisposable
                               ("migurdex", "launcher"),
                               ("cli/migurdex", "cli"));
 
-        var (tarPath, manifest) = BuildStore(source);
+        var (location, manifest) = BuildStore(source);
 
         var install = Path.Combine(_root, "install");
         Directory.CreateDirectory(Path.Combine(install, "cli"));
 
+        using var firstServer = new StoreServer(location.LocalPath!, supportRange: true);
+
         var first = await BlobStoreUpdater.ApplyAsync(
-                        new StoreServer(tarPath, true).Url,
+                        firstServer.Url,
+                        location.PayloadStart,
+                        null,
+                        0,
                         install,
                         manifest,
                         _root,
@@ -668,9 +847,9 @@ public sealed class BlobStoreUpdaterTests : IDisposable
         var backup = Path.Combine(install, "migurdex.old");
         File.WriteAllText(backup, "eski surum");
 
-        using var server = new StoreServer(tarPath, supportRange: true);
+        using var server = new StoreServer(location.LocalPath!, supportRange: true);
 
-        var second = await BlobStoreUpdater.ApplyAsync(server.Url, install, manifest, _root, null, ct);
+        var second = await BlobStoreUpdater.ApplyAsync(server.Url, location.PayloadStart, null, 0, install, manifest, _root, null, ct);
 
         Assert.Equal(0, second.Written);
         Assert.Equal(1, second.Deleted);
@@ -689,20 +868,20 @@ public sealed class BlobStoreUpdaterTests : IDisposable
         var ct = TestContext.Current.CancellationToken;
 
         var source = MakeTree("v1", ("cli/migurdex", "cli"));
-        var (tarPath, manifest) = BuildStore(source);
+        var (location, manifest) = BuildStore(source);
 
         var install = Path.Combine(_root, "install");
         Directory.CreateDirectory(install);
 
-        using var server = new StoreServer(tarPath, supportRange: true);
+        using var server = new StoreServer(location.LocalPath!, supportRange: true);
 
-        var first = await BlobStoreUpdater.ApplyAsync(server.Url, install, manifest, _root, null, ct);
+        var first = await BlobStoreUpdater.ApplyAsync(server.Url, location.PayloadStart, null, 0, install, manifest, _root, null, ct);
         Assert.Equal(1, first.Written);
 
         var stale = Path.Combine(install, "migurdex");
         File.WriteAllText(stale, "eski single-file binary");
 
-        var second = await BlobStoreUpdater.ApplyAsync(server.Url, install, manifest, _root, null, ct);
+        var second = await BlobStoreUpdater.ApplyAsync(server.Url, location.PayloadStart, null, 0, install, manifest, _root, null, ct);
 
         Assert.Equal(1, second.Deleted);
         Assert.False(File.Exists(stale));

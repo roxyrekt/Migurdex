@@ -430,24 +430,10 @@ public class UpdateService : IUpdateService
         var arch    = GetArchLabel();
         var runtime = RuntimeLabel();
 
-        var storeName    = $"migurdex-{runtime}-{arch}.blobs.tar";
-        var manifestName = $"migurdex-{runtime}-{arch}.manifest.json.gz";
+        var name  = $"migurdex-{runtime}-{arch}.delta.tar";
+        var asset = release.Assets.FirstOrDefault(a => a.Name.Equals(name, StringComparison.OrdinalIgnoreCase));
 
-        var store = release.Assets.FirstOrDefault(a => a.Name.Equals(storeName, StringComparison.OrdinalIgnoreCase));
-        var manifest =
-            release.Assets.FirstOrDefault(a => a.Name.Equals(manifestName, StringComparison.OrdinalIgnoreCase));
-
-        if (store is null || manifest is null)
-        {
-            return null;
-        }
-
-        return new BlobDelta(store.Name,
-                             store.BrowserDownloadUrl,
-                             store.Size,
-                             manifest.Name,
-                             manifest.BrowserDownloadUrl,
-                             manifest.Size);
+        return asset is null ? null : new BlobDelta(asset.Name, asset.BrowserDownloadUrl, asset.Size);
     }
 
     private static string? ResolveChecksumUrl(GitHubRelease release)

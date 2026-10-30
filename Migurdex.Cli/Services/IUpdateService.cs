@@ -9,12 +9,9 @@ public enum InstallType
 }
 
 public sealed record BlobDelta(
-    string StoreName,
-    string StoreUrl,
-    long   StoreSize,
-    string ManifestName,
-    string ManifestUrl,
-    long   ManifestSize);
+    string Name,
+    string Url,
+    long   Size);
 
 public sealed record UpdateCheckResult(
     string     CurrentVersion,

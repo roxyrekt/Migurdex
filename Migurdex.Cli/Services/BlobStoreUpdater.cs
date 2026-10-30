@@ -18,6 +18,9 @@ internal static class BlobStoreUpdater
     private const int MaxParallel = 4;
 
     public static async Task<BlobUpdateResult> ApplyAsync(string storeUrl,
+        long                                                     payloadStart,
+        string?                                                  localStorePath,
+        long                                                     localStoreBytes,
         string                                                   installRoot,
         BlobManifest                                             manifest,
         string                                                   workDir,
@@ -84,17 +87,34 @@ internal static class BlobStoreUpdater
             http.Timeout = TimeSpan.FromMinutes(30);
             http.DefaultRequestHeaders.TryAddWithoutValidation("User-Agent", "migurdex");
 
-            var (supportsRange, localStore, storeBytes) =
-                await ProbeAsync(http,
-                                 storeUrl,
-                                 bySha.Values.OrderBy(b => b.Length).First(),
-                                 workDir,
-                                 cancellationToken)
-                    .ConfigureAwait(false);
+            bool    supportsRange;
+            string? localStore;
+            var     ownsLocal = false;
 
-            if (!supportsRange)
+            if (localStorePath is not null)
             {
-                downloaded += storeBytes;
+                supportsRange = false;
+                localStore    = localStorePath;
+                downloaded    += localStoreBytes;
+            }
+            else
+            {
+                var probe = await ProbeAsync(http,
+                                             storeUrl,
+                                             payloadStart,
+                                             bySha.Values.OrderBy(b => b.Length).First(),
+                                             workDir,
+                                             cancellationToken)
+                        .ConfigureAwait(false);
+
+                supportsRange = probe.SupportsRange;
+                localStore    = probe.LocalStore;
+                ownsLocal     = probe.LocalStore is not null;
+
+                if (!supportsRange)
+                {
+                    downloaded += probe.StoreBytes;
+                }
             }
 
             try
@@ -109,9 +129,10 @@ internal static class BlobStoreUpdater
                         var blob = bySha[pair.Key];
 
                         var compressed = supportsRange
-                                             ? await FetchRangeAsync(http, storeUrl, blob, cancellationToken)
+                                             ? await FetchRangeAsync(http, storeUrl, payloadStart, blob,
+                                                                    cancellationToken)
                                                    .ConfigureAwait(false)
-                                             : SliceLocal(localStore!, blob);
+                                             : SliceLocal(localStore!, payloadStart, blob);
 
                         if (supportsRange)
                         {
@@ -150,7 +171,7 @@ internal static class BlobStoreUpdater
             }
             finally
             {
-                if (localStore is not null)
+                if (ownsLocal && localStore is not null)
                 {
                     try { File.Delete(localStore); }
                     catch
@@ -173,12 +194,15 @@ internal static class BlobStoreUpdater
     private static async Task<(bool SupportsRange, string? LocalStore, long StoreBytes)> ProbeAsync(
         HttpClient        http,
         string            storeUrl,
+        long              payloadStart,
         BlobEntry         probe,
         string            workDir,
         CancellationToken cancellationToken)
     {
+        var start = payloadStart + probe.Offset;
+
         using var request = new HttpRequestMessage(HttpMethod.Get, storeUrl);
-        request.Headers.Range = new RangeHeaderValue(probe.Offset, probe.Offset + probe.Length - 1);
+        request.Headers.Range = new RangeHeaderValue(start, start + probe.Length - 1);
 
         using var response = await http
                                    .SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken)
@@ -201,11 +225,14 @@ internal static class BlobStoreUpdater
 
     private static async Task<byte[]> FetchRangeAsync(HttpClient http,
         string                                                   storeUrl,
+        long                                                     payloadStart,
         BlobEntry                                                blob,
         CancellationToken                                        cancellationToken)
     {
+        var start = payloadStart + blob.Offset;
+
         using var request = new HttpRequestMessage(HttpMethod.Get, storeUrl);
-        request.Headers.Range = new RangeHeaderValue(blob.Offset, blob.Offset + blob.Length - 1);
+        request.Headers.Range = new RangeHeaderValue(start, start + blob.Length - 1);
 
         using var response = await http
                                    .SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken)
@@ -224,10 +251,10 @@ internal static class BlobStoreUpdater
         return buffer;
     }
 
-    private static byte[] SliceLocal(string storePath, BlobEntry blob)
+    private static byte[] SliceLocal(string storePath, long payloadStart, BlobEntry blob)
     {
         using var fs = File.OpenRead(storePath);
-        fs.Seek(blob.Offset, SeekOrigin.Begin);
+        fs.Seek(payloadStart + blob.Offset, SeekOrigin.Begin);
 
         var buffer = new byte[blob.Length];
         fs.ReadExactly(buffer, 0, blob.Length);

@@ -243,23 +243,18 @@ public static class UpdateCommand
     {
         try
         {
-            var manifestPath = Path.Combine(tmpDir, delta.ManifestName);
+            AnsiConsole.MarkupLine($"[cyan]Delta paketi okunuyor:[/] {delta.Name}"
+                                   + (delta.Size > 0 ? $" ({delta.Size / 1024 / 1024} MB)" : ""));
 
-            AnsiConsole.MarkupLine($"[cyan]Manifest indiriliyor:[/] {delta.ManifestName}"
-                                   + $" ({delta.ManifestSize / 1024} KB)");
+            using var http = new HttpClient();
+            http.Timeout = TimeSpan.FromMinutes(30);
+            http.DefaultRequestHeaders.TryAddWithoutValidation("User-Agent", "migurdex");
 
-            if (!await DownloadFileAsync(delta.ManifestUrl, manifestPath))
-            {
-                AnsiConsole.MarkupLine("[yellow]Manifest indirilemedi.[/]");
+            var (location, manifest) =
+                await DeltaArchive.OpenAsync(http, delta.Url, tmpDir, CancellationToken.None)
+                                   .ConfigureAwait(false);
 
-                return 1;
-            }
-
-            BlobManifest manifest;
-            await using (var fs = File.OpenRead(manifestPath))
-            {
-                manifest = await BlobManifest.LoadGzipAsync(fs);
-            }
+            using var _ = location;
 
             if (manifest.Runtime.Length > 0
                 && !manifest.Runtime.Equals(RuntimeId(), StringComparison.OrdinalIgnoreCase))
@@ -272,10 +267,14 @@ public static class UpdateCommand
             AnsiConsole.MarkupLine($"[cyan]Delta uygulanıyor:[/] {manifest.Paths.Count} dosya, "
                                    + $"{manifest.Blobs.Count} benzersiz blob");
 
-            var blobResult = await BlobStoreUpdater.ApplyAsync(delta.StoreUrl,
+            var blobResult = await BlobStoreUpdater.ApplyAsync(delta.Url,
+                                                               location.PayloadStart,
+                                                               location.LocalPath,
+                                                               location.TotalBytes,
                                                                installRoot,
                                                                manifest,
-                                                               tmpDir);
+                                                               tmpDir)
+                                                   .ConfigureAwait(false);
 
             AnsiConsole.MarkupLine($"[green]Güncellendi:[/] {blobResult.Written} dosya yazıldı, "
                                    + $"{blobResult.Reused} dosya zaten günceldi"

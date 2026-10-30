@@ -3,12 +3,25 @@
 Build a content-addressed blob store for delta updates.
 
 Input  : publish directory (contains cli/, api/, and the migurdex launcher)
-Output : <runtime>.blobs.tar       (uncompressed tar; one <sha>.xz per unique blob)
-         <runtime>.manifest.json.gz (path -> sha, sha -> offset/len)
+Output : <runtime>.delta.tar  (uncompressed tar)
 
-Why uncompressed tar: each blob is already xz-compressed individually. Keeping
-the tar uncompressed lets the updater fetch a single blob with an HTTP Range
-request (`bytes=off-(off+len-1)`) without touching the rest of the store.
+Layout of delta.tar:
+
+    [512B header: manifest.json.gz][manifest gzip][pad to 512]
+    [512B header: <sha>.xz]       [blob xz]      [pad to 512]
+    ...
+
+The manifest is the first tar entry, so a client reads one 512-byte header to
+learn its size and offset, then fetches only that entry. Blob offsets in the
+manifest are relative to the start of the blob section (the byte right after
+the padded manifest entry), which keeps the document independent of its own
+size.
+
+Why an uncompressed tar: each blob is already xz-compressed individually, so a
+single blob can be fetched with one HTTP Range request
+(`bytes=(payload+off)-(payload+off+len-1)`) without touching the rest of the
+archive. Keeping the container a real tar means `tar -tf` and `tar -x` still
+work for inspection.
 
 Same-content files (including hardlinks from the split cli/api layout) share a
 single blob, so a typical delta update only fetches the handful of files that
@@ -148,22 +161,42 @@ def main() -> int:
         print("error: no regular files found", file=sys.stderr)
         return 1
 
-    # ----- 2. write blobs.tar (per-blob xz, uncompressed outer tar) -----
-    blobs_tar = os.path.join(out, f"migurdex-{args.runtime}.blobs.tar")
-    blobs: dict[str, dict] = {}
-
     compressor = pick_compressor(args.xz_level)
     print(f"compressor    : {compressor.__name__}")
 
-    with tarfile.open(blobs_tar, "w", format=tarfile.GNU_FORMAT) as tf:
-        for sha in sorted(sha_to_path):
-            try:
-                data = compressor(sha_to_path[sha], args.xz_level)
-            except Exception as exc:  # noqa: BLE001
-                print(f"error: compress failed for {sha}: {exc}", file=sys.stderr)
-                return 1
+    compressed: dict[str, bytes] = {}
+    for sha in sorted(sha_to_path):
+        try:
+            compressed[sha] = compressor(sha_to_path[sha], args.xz_level)
+        except Exception as exc:  # noqa: BLE001
+            print(f"error: compress failed for {sha}: {exc}", file=sys.stderr)
+            return 1
 
-            info = tarfile.TarInfo(name=f"{sha}.xz")
+    blobs: list[dict] = []
+    running = 0
+    for sha in sorted(compressed):
+        blobs.append({"sha": sha, "off": running + 512, "len": len(compressed[sha])})
+        running += 512 + (len(compressed[sha]) + 511) // 512 * 512
+
+    manifest = {
+        "version": 1,
+        "runtime": args.runtime,
+        "blobs": blobs,
+        "paths": dict(sorted(path_to_sha.items())),
+        "exec": sorted(exec_paths),
+    }
+    raw = json.dumps(manifest, separators=(",", ":")).encode("utf-8")
+
+    man_buf = io.BytesIO()
+    with gzip.GzipFile(fileobj=man_buf, mode="wb", compresslevel=9, mtime=0) as gz:
+        gz.write(raw)
+    man_gz = man_buf.getvalue()
+
+    delta_tar = os.path.join(out, f"migurdex-{args.runtime}.delta.tar")
+
+    with tarfile.open(delta_tar, "w", format=tarfile.GNU_FORMAT) as tf:
+        def add(name: str, data: bytes) -> None:
+            info = tarfile.TarInfo(name=name)
             info.size = len(data)
             info.mode = 0o644
             info.mtime = 0
@@ -172,46 +205,41 @@ def main() -> int:
             info.uname = "root"
             info.gname = "root"
             tf.addfile(info, io.BytesIO(data))
-            blobs[sha] = {"sha": sha, "len": len(data)}
 
-    # ----- 3. read offsets back (tarfile doesn't expose them while writing) -----
-    with tarfile.open(blobs_tar, "r") as tf:
-        for member in tf:
-            if not member.name.endswith(".xz"):
-                continue
-            sha = member.name[:-3]
-            if sha in blobs:
-                blobs[sha]["off"] = member.offset_data
+        add("manifest.json.gz", man_gz)
+        for sha in sorted(compressed):
+            add(f"{sha}.xz", compressed[sha])
 
-    missing = [b["sha"] for b in blobs.values() if "off" not in b]
-    if missing:
-        print(f"error: {len(missing)} blob(s) missing offset", file=sys.stderr)
+    payload_start = 512 + (len(man_gz) + 511) // 512 * 512
+
+    with tarfile.open(delta_tar, "r") as tf:
+        members = {m.name: m for m in tf if m.isfile()}
+
+    if "manifest.json.gz" not in members:
+        print("error: manifest entry missing from delta.tar", file=sys.stderr)
         return 1
 
-    # ----- 4. manifest -----
-    manifest = {
-        "version": 1,
-        "runtime": args.runtime,
-        "blobs": sorted(blobs.values(), key=lambda b: b["sha"]),
-        "paths": dict(sorted(path_to_sha.items())),
-        # Icerik adresli depo mod biti tasimaz; delta yazimi 644 birakir.
-        # Calistirilabilir dosyalar burada listelenir ki updater modu geri kursun.
-        "exec": sorted(exec_paths),
-    }
-    raw = json.dumps(manifest, separators=(",", ":")).encode("utf-8")
-    man_path = os.path.join(out, f"migurdex-{args.runtime}.manifest.json.gz")
-    with open(man_path, "wb") as fh:
-        with gzip.GzipFile(fileobj=fh, mode="wb", compresslevel=9, mtime=0) as gz:
-            gz.write(raw)
+    actual_start = members["manifest.json.gz"].offset_data + (len(man_gz) + 511) // 512 * 512
+    if actual_start != payload_start:
+        print(f"error: payload start mismatch: {actual_start} != {payload_start}", file=sys.stderr)
+        return 1
 
-    # ----- 5. report -----
-    tar_sz = os.path.getsize(blobs_tar)
-    man_sz = os.path.getsize(man_path)
-    payload = sum(b["len"] for b in blobs.values())
+    for blob in blobs:
+        member = members.get(f"{blob['sha']}.xz")
+        if member is None:
+            print(f"error: blob missing from delta.tar: {blob['sha'][:12]}", file=sys.stderr)
+            return 1
+        if member.offset_data - payload_start != blob["off"]:
+            print(f"error: offset mismatch for {blob['sha'][:12]}", file=sys.stderr)
+            return 1
+
+    tar_sz = os.path.getsize(delta_tar)
+    payload = sum(len(v) for v in compressed.values())
     print(f"paths         : {len(path_to_sha)}")
-    print(f"unique blobs  : {len(blobs)}")
-    print(f"blobs.tar     : {tar_sz/1048576:.2f} MB  (payload {payload/1048576:.2f} MB)")
-    print(f"manifest.json : {man_sz/1024:.1f} KB  (raw {len(raw)/1024:.0f} KB)")
+    print(f"unique blobs  : {len(compressed)}")
+    print(f"delta.tar     : {tar_sz/1048576:.2f} MB  (payload {payload/1048576:.2f} MB)")
+    print(f"manifest      : {len(man_gz)/1024:.1f} KB at +512  (raw {len(raw)/1024:.0f} KB)")
+    print(f"payload start : {payload_start}")
     return 0
 
 
