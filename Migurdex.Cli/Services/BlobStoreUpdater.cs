@@ -10,7 +10,8 @@ public sealed record BlobUpdateResult(
     int          Reused,
     int          Deleted,
     long         BytesDownloaded,
-    List<string> Deferred);
+    List<string> Deferred,
+    int          ExecRestored = 0);
 
 internal static class BlobStoreUpdater
 {
@@ -160,9 +161,12 @@ internal static class BlobStoreUpdater
             }
         }
 
+        // depo mod biti taşımadığı için yazılan dosyalar 644 kalır; +x geri kur.
+        var execRestored = RestoreExecutableBits(installRoot, manifest);
+
         var deleted = PruneStale(installRoot, manifest);
 
-        return new BlobUpdateResult(written, reused, deleted, downloaded, deferred);
+        return new BlobUpdateResult(written, reused, deleted, downloaded, deferred, execRestored);
     }
 
 
@@ -269,6 +273,45 @@ internal static class BlobStoreUpdater
         }
     }
 
+    private static int RestoreExecutableBits(string installRoot, BlobManifest manifest)
+    {
+        if (OperatingSystem.IsWindows() || manifest.Exec.Count == 0)
+        {
+            return 0;
+        }
+
+        const UnixFileMode bits = UnixFileMode.UserRead
+                                  | UnixFileMode.UserWrite
+                                  | UnixFileMode.UserExecute
+                                  | UnixFileMode.GroupRead
+                                  | UnixFileMode.GroupExecute
+                                  | UnixFileMode.OtherRead
+                                  | UnixFileMode.OtherExecute;
+
+        var restored = 0;
+
+        foreach (var rel in manifest.Exec)
+        {
+            var full = FullPath(installRoot, rel);
+
+            try
+            {
+                if (!File.Exists(full) || File.GetUnixFileMode(full) == bits)
+                {
+                    continue;
+                }
+
+                File.SetUnixFileMode(full, bits);
+                restored++;
+            }
+            catch
+            {
+                // ignored
+            }
+        }
+
+        return restored;
+    }
 
     private static int PruneStale(string installRoot, BlobManifest manifest)
     {

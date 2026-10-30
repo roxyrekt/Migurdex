@@ -71,6 +71,24 @@ def walk_source(src: str, exclude: list[str]):
     return sha_to_path
 
 
+def is_executable(path: str) -> bool:
+    """Ger\u00e7ek giri\u015f noktas\u0131 m\u0131?
+
+    'dotnet publish' veri dosyalar\u0131na 744 (sadece sahibi +x), giri\u015f
+    noktalar\u0131na 755 (herkes +x) veriyor. Mod bitinin tamam\u0131na bakmak
+    ikisini ay\u0131r\u0131r; tek ba\u015f\u0131na 0o111 kontrol\u00fc 744'\u00fc de yakalar.
+
+    Windows'ta mod biti yok; uzant\u0131ya bak\u0131l\u0131r.
+    """
+    if os.name == "nt":
+        return os.path.basename(path).lower().endswith((".exe", ".bat", ".cmd"))
+
+    try:
+        return os.stat(path).st_mode & 0o111 == 0o111
+    except OSError:
+        return False
+
+
 def compress_xz_binary(path: str, level: str) -> bytes:
     """Compress via the `xz` binary (fastest, multithreaded)."""
     r = subprocess.run(["xz", f"-{level}", "-T0", "-c", path], capture_output=True, check=False)
@@ -117,8 +135,12 @@ def main() -> int:
     # ----- 1. inventory -----
     sha_to_path: dict[str, str] = {}
     path_to_sha: dict[str, str] = {}
+    exec_paths: list[str] = []
+
     for rel, sha, full in walk_source(src, args.exclude):
         path_to_sha[rel] = sha
+        if is_executable(full):
+            exec_paths.append(rel)
         if sha not in sha_to_path:
             sha_to_path[sha] = full
 
@@ -172,6 +194,9 @@ def main() -> int:
         "runtime": args.runtime,
         "blobs": sorted(blobs.values(), key=lambda b: b["sha"]),
         "paths": dict(sorted(path_to_sha.items())),
+        # Icerik adresli depo mod biti tasimaz; delta yazimi 644 birakir.
+        # Calistirilabilir dosyalar burada listelenir ki updater modu geri kursun.
+        "exec": sorted(exec_paths),
     }
     raw = json.dumps(manifest, separators=(",", ":")).encode("utf-8")
     man_path = os.path.join(out, f"migurdex-{args.runtime}.manifest.json.gz")

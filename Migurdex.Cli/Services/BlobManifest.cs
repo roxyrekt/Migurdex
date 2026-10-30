@@ -23,6 +23,9 @@ public sealed class BlobManifest
     [JsonPropertyName("paths")]
     public Dictionary<string, string> Paths { get; set; } = new(StringComparer.Ordinal);
 
+    [JsonPropertyName("exec")]
+    public List<string> Exec { get; set; } = [];
+
     public Dictionary<string, BlobEntry> BySha()
     {
         var map = new Dictionary<string, BlobEntry>(Blobs.Count, StringComparer.OrdinalIgnoreCase);

@@ -551,7 +551,7 @@ public static class UpdateCommand
 
             try
             {
-                File.Copy(file, dest, true);
+                CopyReplacing(file, dest);
                 copied++;
             }
             catch (Exception ex) when ((ex is IOException || ex is UnauthorizedAccessException)
@@ -589,6 +589,28 @@ public static class UpdateCommand
                        OperatingSystem.IsWindows() ? "Migurdex.Api.exe" : "Migurdex.Api");
 
         return (copied, deferred, backedUp);
+    }
+
+    internal static void CopyReplacing(string src, string dest)
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            File.Copy(src, dest, true);
+
+            return;
+        }
+
+        var tmp = dest + ".tmp";
+
+        try
+        {
+            File.Copy(src, tmp, true);
+            File.Move(tmp, dest, true);
+        }
+        finally
+        {
+            try { File.Delete(tmp); } catch { /* ignored */ }
+        }
     }
 
     private static bool TrySwapLockedExe(string newFile, string dest)
