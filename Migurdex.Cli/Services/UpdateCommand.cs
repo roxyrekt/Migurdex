@@ -213,6 +213,11 @@ public static class UpdateCommand
                     return 0;
                 }
 
+                if (deltaStatus == 2)
+                {
+                    return 2;
+                }
+
                 AnsiConsole.MarkupLine("[yellow]Delta uygulanamadi, tam pakete geçiliyor...[/]");
             }
 
@@ -384,7 +389,9 @@ public static class UpdateCommand
 
     private static string RuntimeId()
     {
-        return OperatingSystem.IsWindows() ? "win-x64" : "linux-x64";
+        var arch = RuntimeInformation.OSArchitecture == Architecture.Arm64 ? "arm64" : "x64";
+
+        return OperatingSystem.IsWindows() ? $"win-{arch}" : $"linux-{arch}";
     }
 
     private static void StopApiDaemon()
