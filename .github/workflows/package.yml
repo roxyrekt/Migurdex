@@ -63,6 +63,10 @@ jobs:
                       echo "VERSION=0.0.0-dev" >> "$GITHUB_ENV"
                     fi
 
+            -   name: Restore
+                shell: bash
+                run: dotnet restore Migurdex.slnx -r ${{ matrix.runtime }}
+
             -   name: Build Rust Native
                 working-directory: ./Migurdex.Native
                 run: cargo build --release --locked
@@ -78,6 +82,7 @@ jobs:
                       -p:PublishSingleFile=false \
                       -p:PublishTrimmed=false \
                       -p:Version="$VERSION" \
+                      --no-restore \
                       -o dist/api
 
             -   name: Copy Native Library to API
@@ -100,6 +105,7 @@ jobs:
                       -p:PublishSingleFile=false \
                       -p:PublishTrimmed=false \
                       -p:Version="$VERSION" \
+                      --no-restore \
                       -o "$OUT"
 
             -   name: Dedupe Shared Runtime
@@ -145,6 +151,7 @@ jobs:
                       dotnet publish "Plugins/$plugin/$plugin.csproj" \
                         -c Release \
                         -p:Version="$VERSION" \
+                        --no-restore \
                         -o dist/api/Plugins \
                         --no-self-contained
                     done

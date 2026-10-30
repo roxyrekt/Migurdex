@@ -35,6 +35,7 @@ jobs:
                 run: dotnet build Migurdex.slnx -c Release --nologo
 
             -   name: Verify formatting
+                if: matrix.os == 'ubuntu-22.04'
                 shell: bash
                 run: |
                     dotnet format style Migurdex.slnx \
