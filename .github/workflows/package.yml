@@ -1,24 +1,15 @@
-name: Build and Release
+name: Package
 
 on:
-    push:
-        branches: [ "main" ]
-        tags: [ "v*" ]
-        paths-ignore: [ "**.md", "LICENSE" ]
-    pull_request:
-        branches: [ "main" ]
-        paths-ignore: [ "**.md", "LICENSE" ]
-    workflow_dispatch:
+    workflow_call:
 
 permissions:
     contents: read
 
-concurrency:
-    group: ci-${{ github.ref }}
-    cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
-
 env:
     DOTNET_VERSION: "10.0.x"
+    DOTNET_NOLOGO: "true"
+    DOTNET_CLI_TELEMETRY_OPTOUT: "true"
 
 jobs:
     build:
@@ -51,9 +42,16 @@ jobs:
                 uses: actions/setup-dotnet@v6
                 with:
                     dotnet-version: ${{ env.DOTNET_VERSION }}
+                    cache: true
+                    cache-dependency-path: "**/*.csproj"
 
             -   name: Setup Rust
                 uses: dtolnay/rust-toolchain@stable
+
+            -   name: Cache Rust
+                uses: Swatinem/rust-cache@v2
+                with:
+                    workspaces: Migurdex.Native -> target
 
             -   name: Determine version
                 shell: bash
@@ -66,7 +64,8 @@ jobs:
 
             -   name: Build Rust Native
                 working-directory: ./Migurdex.Native
-                run: cargo build --release
+                run: cargo build --release --locked
+
 
             -   name: Publish API
                 shell: bash
@@ -131,7 +130,9 @@ jobs:
             -   name: Download appimagetool
                 if: matrix.os != 'windows-latest'
                 run: |
-                    curl -sL -o appimagetool.AppImage https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-${{ matrix.arch }}.AppImage
+                    curl -fsSL --retry 3 --retry-delay 2 \
+                      -o appimagetool.AppImage \
+                      https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-${{ matrix.arch }}.AppImage
                     chmod +x appimagetool.AppImage
 
             -   name: Build AppImage
@@ -166,6 +167,8 @@ jobs:
                 with:
                     name: migurdex-appimage-${{ matrix.arch }}
                     path: migurdex-${{ matrix.arch }}.AppImage*
+                    if-no-files-found: error
+                    retention-days: 1
 
             -   name: Upload Artifact
                 uses: actions/upload-artifact@v7
@@ -175,68 +178,5 @@ jobs:
                         migurdex-${{ matrix.runtime }}.tar.gz
                         migurdex-${{ matrix.runtime }}.zip
                         sha256sums-${{ matrix.runtime }}.txt
-
-    release:
-        name: Create Release
-        needs: build
-        if: startsWith(github.ref, 'refs/tags/v')
-        runs-on: ubuntu-latest
-        permissions:
-            contents: write
-        steps:
-            -   uses: actions/checkout@v7
-
-            -   name: Download Artifacts
-                uses: actions/download-artifact@v8
-                with:
-                    path: artifacts
-
-            -   name: Flatten Artifacts
-                run: |
-                    mkdir release-files
-                    find artifacts -type f \( -name "*.tar.gz" -o -name "*.zip" -o -name "*.AppImage" -o -name "*.zsync" -o -name "*.txt" \) -exec cp {} release-files/ \;
-
-            -   name: Create GitHub Release
-                uses: softprops/action-gh-release@v3
-                with:
-                    files: release-files/*
-                    generate_release_notes: true
-                    draft: false
-                    prerelease: ${{ contains(github.ref, '-') }}
-
-    nightly:
-        name: Update Nightly
-        needs: build
-        if: github.ref == 'refs/heads/main'
-        runs-on: ubuntu-latest
-        permissions:
-            contents: write
-        steps:
-            -   uses: actions/checkout@v7
-
-            -   name: Move nightly tag
-                run: |
-                    git tag -f nightly ${{ github.sha }}
-                    git push -f origin nightly
-
-            -   name: Download Artifacts
-                uses: actions/download-artifact@v8
-                with:
-                    path: artifacts
-
-            -   name: Flatten Artifacts
-                run: |
-                    mkdir release-files
-                    find artifacts -type f \( -name "*.tar.gz" -o -name "*.zip" -o -name "*.AppImage" -o -name "*.zsync" -o -name "*.txt" \) -exec cp {} release-files/ \;
-
-            -   name: Publish Nightly Release
-                uses: softprops/action-gh-release@v3
-                with:
-                    tag_name: nightly
-                    files: release-files/*
-                    draft: false
-                    prerelease: true
-                    make_latest: false
-                    body: |
-                        Etiketsiz son `main` derlemesi (${{ github.sha }}).
-                        Stabil sürüm için `latest`'e bakın.
+                    retention-days: 1
+                    if-no-files-found: error

@@ -1,0 +1,49 @@
+name: Release
+
+on:
+    push:
+        tags: [ "v*" ]
+
+permissions:
+    contents: read
+
+concurrency:
+    group: release-${{ github.ref }}
+    cancel-in-progress: false
+
+jobs:
+    test:
+        name: Test
+        uses: ./.github/workflows/test.yml
+
+    package:
+        name: Package
+        needs: test
+        uses: ./.github/workflows/package.yml
+
+    release:
+        name: Create Release
+        needs: package
+        runs-on: ubuntu-latest
+        permissions:
+            contents: write
+        steps:
+            -   uses: actions/checkout@v7
+
+            -   name: Download Artifacts
+                uses: actions/download-artifact@v8
+                with:
+                    path: artifacts
+
+            -   name: Flatten Artifacts
+                run: |
+                    mkdir release-files
+                    find artifacts -type f \( -name "*.tar.gz" -o -name "*.zip" -o -name "*.AppImage" -o -name "*.zsync" -o -name "*.txt" \) -exec cp {} release-files/ \;
+
+            -   name: Create GitHub Release
+                uses: softprops/action-gh-release@v3
+                with:
+                    files: release-files/*
+                    generate_release_notes: true
+                    draft: false
+                    prerelease: ${{ contains(github.ref, '-') }}

@@ -5,7 +5,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/roxyrekt/Migurdex/actions"><img src="https://github.com/roxyrekt/Migurdex/actions/workflows/build-release.yml/badge.svg" alt="Build"/></a>
+  <a href="https://github.com/roxyrekt/Migurdex/actions/workflows/nightly.yml"><img src="https://github.com/roxyrekt/Migurdex/actions/workflows/nightly.yml/badge.svg" alt="Build"/></a>
   <a href="https://github.com/roxyrekt/Migurdex/releases"><img src="https://img.shields.io/github/v/release/roxyrekt/Migurdex" alt="Release"/></a>
   <a href="https://discord.gg/7eh3Qd7MJt"><img src="https://img.shields.io/discord/1561825988298670172?color=5865F2&logo=discord&logoColor=white&label=Discord" alt="Discord"/></a>
   <a href="LICENSE"><img src="https://img.shields.io/github/license/roxyrekt/Migurdex" alt="License"/></a>
