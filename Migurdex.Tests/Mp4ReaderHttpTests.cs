@@ -211,7 +211,7 @@ public sealed class Mp4ReaderHttpTests
             if (honorRange && range?.From is not null)
             {
                 var from = (int) Math.Min(range.From.Value, file.Length);
-                var to   = (int) Math.Min(range.To ?? file.Length - 1, file.Length - 1);
+                var to   = (int) Math.Min(range.To ?? (file.Length - 1), file.Length - 1);
                 if (to < from)
                 {
                     return Task.FromResult(new HttpResponseMessage(HttpStatusCode.RequestedRangeNotSatisfiable));

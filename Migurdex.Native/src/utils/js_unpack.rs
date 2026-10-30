@@ -1,9 +1,9 @@
+use super::alloc::to_raw_bytes;
+use crate::ffi::types::NativeBuffer;
+use regex::Regex;
 use std::ffi::CStr;
 use std::os::raw::c_char;
 use std::sync::LazyLock;
-use regex::Regex;
-use super::alloc::to_raw_bytes;
-use crate::ffi::types::NativeBuffer;
 
 static PACKED_RE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(
@@ -25,15 +25,17 @@ pub fn unpack_packed(html: &str) -> Option<String> {
 }
 
 pub fn unpack(packed: &str, radix: u32, words: &[&str]) -> String {
-    WORD_RE.replace_all(packed, |caps: &regex::Captures| {
-        let value = caps.get(0).unwrap().as_str();
-        let index = unbase(value, radix);
-        if index < words.len() && !words[index].is_empty() {
-            words[index].to_string()
-        } else {
-            value.to_string()
-        }
-    }).into_owned()
+    WORD_RE
+        .replace_all(packed, |caps: &regex::Captures| {
+            let value = caps.get(0).unwrap().as_str();
+            let index = unbase(value, radix);
+            if index < words.len() && !words[index].is_empty() {
+                words[index].to_string()
+            } else {
+                value.to_string()
+            }
+        })
+        .into_owned()
 }
 
 fn unbase(value: &str, radix: u32) -> usize {
@@ -59,7 +61,7 @@ fn unbase(value: &str, radix: u32) -> usize {
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn rust_js_unpack(html_ptr: *const c_char) -> NativeBuffer {
+pub unsafe extern "C" fn rust_js_unpack(html_ptr: *const c_char) -> NativeBuffer {
     if html_ptr.is_null() {
         return NativeBuffer {
             ptr: std::ptr::null_mut(),
@@ -72,4 +74,50 @@ pub extern "C" fn rust_js_unpack(html_ptr: *const c_char) -> NativeBuffer {
 
     let (ptr, len) = to_raw_bytes(unpacked.into_bytes());
     NativeBuffer { ptr, len }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{unbase, unpack, unpack_packed};
+
+    #[test]
+    fn unbase_decimal() {
+        assert_eq!(unbase("42", 10), 42);
+    }
+
+    #[test]
+    fn unbase_base_62() {
+        assert_eq!(unbase("10", 62), 62);
+        assert_eq!(unbase("z", 62), 35);
+        assert_eq!(unbase("Z", 62), 61);
+    }
+
+    #[test]
+    fn unbase_out_of_range_digit_returns_zero() {
+        assert_eq!(unbase("!", 62), 0);
+    }
+
+    #[test]
+    fn unpack_replaces_known_words() {
+        let words = ["alpha", "beta", "gamma"];
+        assert_eq!(unpack("0 1 2", 10, &words), "alpha beta gamma");
+    }
+
+    #[test]
+    fn unpack_keeps_unknown_or_out_of_range_tokens() {
+        let words = ["alpha"];
+        assert_eq!(unpack("0 9", 10, &words), "alpha 9");
+    }
+
+    #[test]
+    fn unpack_packed_returns_none_for_plain_html() {
+        assert!(unpack_packed("<html><body>hi</body></html>").is_none());
+    }
+
+    #[test]
+    fn unpack_packed_decodes_classic_packer_payload() {
+        let html =
+            r#"eval(function(p,a,c,k,e,d){return p}( '0 1',10,2,'alpha|beta'.split('|'),0,{}))"#;
+        assert_eq!(unpack_packed(html).as_deref(), Some("alpha beta"));
+    }
 }

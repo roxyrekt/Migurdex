@@ -1,0 +1,65 @@
+name: Nightly
+
+on:
+    push:
+        branches: [ "main" ]
+        paths-ignore: [ "**.md", "LICENSE", ".github/workflows/smoke.yml" ]
+    workflow_dispatch:
+
+permissions:
+    contents: read
+
+concurrency:
+    group: nightly
+    cancel-in-progress: true
+
+jobs:
+    rust:
+        name: Rust
+        uses: ./.github/workflows/rust.yml
+
+    test:
+        name: Test
+        uses: ./.github/workflows/test.yml
+
+    package:
+        name: Package
+        needs: [ rust, test ]
+        uses: ./.github/workflows/package.yml
+
+    nightly:
+        name: Update Nightly
+        needs: package
+        runs-on: ubuntu-latest
+        timeout-minutes: 10
+        permissions:
+            contents: write
+        steps:
+            -   uses: actions/checkout@v7
+
+            -   name: Move nightly tag
+                run: |
+                    git tag -f nightly ${{ github.sha }}
+                    git push -f origin nightly
+
+            -   name: Download Artifacts
+                uses: actions/download-artifact@v8
+                with:
+                    path: artifacts
+
+            -   name: Flatten Artifacts
+                run: |
+                    mkdir release-files
+                    find artifacts -type f \( -name "*.tar.gz" -o -name "*.zip" -o -name "*.AppImage" -o -name "*.zsync" -o -name "*.txt" \) -exec cp {} release-files/ \;
+
+            -   name: Publish Nightly Release
+                uses: softprops/action-gh-release@v3
+                with:
+                    tag_name: nightly
+                    files: release-files/*
+                    draft: false
+                    prerelease: true
+                    make_latest: false
+                    body: |
+                        Etiketsiz son `main` derlemesi (${{ github.sha }}).
+                        Stabil sürüm için `latest`'e bakın.

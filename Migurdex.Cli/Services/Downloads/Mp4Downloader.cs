@@ -799,7 +799,7 @@ public sealed class Mp4Downloader : IMp4Downloader
         for (var i = 0; i < segmentCount; i++)
         {
             var start = i * segmentLengthBase;
-            var end = i == segmentCount - 1 ? total - 1 : (i + 1) * segmentLengthBase - 1;
+            var end = i == segmentCount - 1 ? total - 1 : ((i + 1) * segmentLengthBase) - 1;
             ranges[i] = (start, end);
         }
 

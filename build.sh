@@ -88,7 +88,7 @@ if [ "$DO_PUBLISH" = true ]; then
 
     echo -e "${YELLOW}[2/6] Rust Core derleniyor...${NC}"
     pushd "$RUST_DIR" > /dev/null
-    cargo build --release
+    cargo build --release --locked
     popd > /dev/null
 
     echo -e "${YELLOW}[3/6] API derleniyor...${NC}"
@@ -144,9 +144,9 @@ fi
 if [ "$SHOULD_BUILD_RUST" = true ]; then
     echo -e "${YELLOW}[RUST] Değişiklik algılandı, derleniyor...${NC}"
     if [ "$RUST_PROFILE" = "release" ]; then
-        cargo build --release
+        cargo build --release --locked
     else
-        cargo build
+        cargo build --locked
     fi
 else
     echo -e "${GREEN}[RUST] Güncel, derleme atlanıyor.${NC}"

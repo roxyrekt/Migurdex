@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Logging;
 using Migurdex.Cli.Configuration;
 using Migurdex.Cli.Services;
 using Migurdex.Core.Extractors;
@@ -6,7 +7,6 @@ using Migurdex.Core.Utils;
 using Migurdex.Shared.Enums;
 using Migurdex.Shared.Interfaces;
 using Migurdex.Shared.Models;
-using Microsoft.Extensions.Logging;
 using System.Globalization;
 using System.Text.Json;
 using Xunit;

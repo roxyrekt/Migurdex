@@ -6,6 +6,8 @@ namespace Migurdex.Tests;
 
 public sealed class DownloadPathBuilderTests
 {
+    private const int WindowsPathLimit = 240;
+
     [Fact]
     public void Build_KeepsTraversalAndReservedNamesInsideRoot()
     {
@@ -44,7 +46,7 @@ public sealed class DownloadPathBuilderTests
         var root = NewTempDir();
         try
         {
-            var builder = new DownloadPathBuilder();
+            var builder = new DownloadPathBuilder(WindowsPathLimit);
             var longTitle = string.Concat(Enumerable.Repeat("\U0001F600", 300));
             var path = builder.Build(root, longTitle, longTitle, 1, 1, ".mkv");
 
@@ -53,6 +55,47 @@ public sealed class DownloadPathBuilderTests
             Assert.True(Encoding.UTF8.GetByteCount(Path.GetFileNameWithoutExtension(path.MediaPath))
                         <= DownloadPathBuilder.MaxComponentUtf8Bytes);
             Assert.DoesNotContain("\uFFFD", path.MediaPath, StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(root, true);
+        }
+    }
+
+    [Fact]
+    public void Build_FitsFullPathBudgetUnderWindowsLimit()
+    {
+        var root = NewTempDir();
+        try
+        {
+            var builder = new DownloadPathBuilder(WindowsPathLimit);
+            var longTitle = string.Concat(Enumerable.Repeat("\U0001F600", 300));
+            var path = builder.Build(root, longTitle, longTitle, 1, 1, ".mkv");
+
+            var budget = WindowsPathLimit - DownloadPathBuilder.TemporarySuffixUtf8Bytes;
+            Assert.True(Encoding.UTF8.GetByteCount(Path.GetFullPath(path.MediaPath)) <= budget);
+            Assert.True(Encoding.UTF8.GetByteCount(Path.GetFullPath(path.AnimeDirectory)) <= budget);
+        }
+        finally
+        {
+            Directory.Delete(root, true);
+        }
+    }
+
+    [Fact]
+    public void Build_ProducesFittingPathForNarrowBudget()
+    {
+        var root = NewTempDir();
+        try
+        {
+            var narrowLimit = Encoding.UTF8.GetByteCount(Path.GetFullPath(root))
+                              + DownloadPathBuilder.TemporarySuffixUtf8Bytes
+                              + 64;
+            var builder = new DownloadPathBuilder(narrowLimit);
+            var path = builder.Build(root, new string('a', 400), new string('b', 400), 1, 1, ".mp4");
+
+            var budget = narrowLimit - DownloadPathBuilder.TemporarySuffixUtf8Bytes;
+            Assert.True(Encoding.UTF8.GetByteCount(Path.GetFullPath(path.MediaPath)) <= budget);
         }
         finally
         {

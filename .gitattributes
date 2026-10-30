@@ -1,0 +1,29 @@
+* text=auto eol=lf
+
+*.cs      text diff=csharp
+*.csproj  text diff=xml
+*.slnx    text diff=xml
+*.props   text diff=xml
+*.targets text diff=xml
+*.json    text
+*.yml     text
+*.yaml    text
+*.md      text
+*.sh      text eol=lf
+*.rs      text
+*.toml    text
+Cargo.lock text
+
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.webp binary
+*.ico binary
+*.7z binary
+*.zip binary
+*.gz binary
+*.dll binary
+*.so binary
+*.dylib binary
+*.exe binary
