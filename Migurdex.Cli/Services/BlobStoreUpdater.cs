@@ -357,7 +357,20 @@ internal static class BlobStoreUpdater
 
     private static string FullPath(string root, string relative)
     {
-        return Path.Combine(root, relative.Replace('/', Path.DirectorySeparatorChar));
+        var normalized = relative.Replace('/', Path.DirectorySeparatorChar);
+        var rootFull   = Path.GetFullPath(root);
+        var combined   = Path.GetFullPath(Path.Combine(rootFull, normalized));
+
+        var rootPrefix = rootFull.EndsWith(Path.DirectorySeparatorChar)
+                             ? rootFull
+                             : rootFull + Path.DirectorySeparatorChar;
+
+        if (!combined.StartsWith(rootPrefix, StringComparison.Ordinal))
+        {
+            throw new InvalidDataException($"manifest yolu kokun disinda: {relative}");
+        }
+
+        return combined;
     }
 
     private static string Short(string sha)

@@ -601,4 +601,39 @@ public sealed class BlobStoreUpdaterTests : IDisposable
                                                        null,
                                                        ct));
     }
+
+    [Fact]
+    public async Task Apply_RejectsPathTraversal()
+    {
+        if (!XzAvailable())
+        {
+            return;
+        }
+
+        var ct = TestContext.Current.CancellationToken;
+
+        var source = MakeTree("v1", ("cli/migurdex", "cli"));
+        var (tarPath, manifest) = BuildStore(source);
+
+        var existingSha = manifest.Paths.Values.First();
+        manifest.Paths["../../escape.txt"] = existingSha;
+
+        var install = Path.Combine(_root, "install");
+        Directory.CreateDirectory(install);
+
+        using var server = new StoreServer(tarPath, supportRange: true);
+
+        var ex = await Assert.ThrowsAsync<InvalidDataException>(() =>
+                                                                    BlobStoreUpdater.ApplyAsync(
+                                                                        server.Url,
+                                                                        install,
+                                                                        manifest,
+                                                                        _root,
+                                                                        null,
+                                                                        ct));
+
+        Assert.Contains("kokun disinda", ex.Message);
+        Assert.False(File.Exists(Path.Combine(_root, "escape.txt")));
+        Assert.False(File.Exists(Path.Combine(Path.GetTempPath(), "escape.txt")));
+    }
 }
