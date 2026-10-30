@@ -167,6 +167,36 @@ echo -e "${YELLOW}[3/5] Dosyalar kuruluyor (~/.local/share/migurdex)...${NC}"
 mkdir -p "$INSTALL_DIR"
 mkdir -p "$BIN_DIR"
 
+stop_migurdex_processes() {
+    local stopped=0
+    local pid
+
+    for pid in $(pgrep -f 'Migurdex[.]Api' 2>/dev/null); do
+        kill "$pid" 2>/dev/null && stopped=$((stopped + 1))
+    done
+
+    for pid in $(pgrep -x '[m]igurdex' 2>/dev/null); do
+        kill "$pid" 2>/dev/null && stopped=$((stopped + 1))
+    done
+
+    if [ "$stopped" -gt 0 ]; then
+        echo -e "${GREY}Açık Migurdex süreçleri sonlandırılıyor...${NC}"
+        local deadline=$(( $(date +%s) + 3 ))
+        while [ "$(date +%s)" -lt "$deadline" ]; do
+            pgrep -f 'Migurdex[.]Api' >/dev/null 2>&1 || pgrep -x '[m]igurdex' >/dev/null 2>&1 || break
+            sleep 0.1
+        done
+        for pid in $(pgrep -f 'Migurdex[.]Api' 2>/dev/null); do
+            kill -9 "$pid" 2>/dev/null
+        done
+        for pid in $(pgrep -x '[m]igurdex' 2>/dev/null); do
+            kill -9 "$pid" 2>/dev/null
+        done
+    fi
+}
+
+stop_migurdex_processes
+
 rm -rf "$INSTALL_DIR"
 mkdir -p "$INSTALL_DIR"
 
