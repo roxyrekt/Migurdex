@@ -240,23 +240,24 @@ Native kütüphane API ile birlikte gelir, eksikse API başlamaz.
 
 ## Extractor'lar
 
-Sağlayıcı plugin'leri sayfayı bulur; asıl video linkini `Migurdex.Core/Extractors` altındaki 39 yerleşik extractor çözer. `POST /api/v1/extractors/resolve` bunları dışarıya açar.
+Sağlayıcı plugin'leri sayfayı bulur; asıl video linkini `Migurdex.Core/Extractors` altındaki 41 yerleşik extractor çözer. `POST /api/v1/extractors/resolve` bunları dışarıya açar.
 
 **Built-in extractor'lar**
 
 <table>
   <tr><td>Abyss</td><td>AitrVip</td><td>AnizmPlayer</td><td>Byse</td><td>Cyberfile</td></tr>
-  <tr><td>Dailymotion</td><td>DoodStream</td><td>Firestream</td><td>Flyfile</td><td>Gofile</td></tr>
-  <tr><td>GoogleDrive</td><td>HdVid</td><td>HexUpload</td><td>MailRu</td><td>M3U8Playlist</td></tr>
-  <tr><td>MixDrop</td><td>Mp4Upload</td><td>OkRu</td><td>Puffy</td><td>Rumble</td></tr>
-  <tr><td>Sendvid</td><td>Sibnet</td><td>Sistenn</td><td>Streamain</td><td>Streamcash</td></tr>
-  <tr><td>Streamtape</td><td>StreamWish</td><td>TauVideo</td><td>Turkanime</td><td>Upbolt</td></tr>
-  <tr><td>Uqload</td><td>Videa</td><td>Vidmoly</td><td>VidsSt</td><td>Vidsonic</td></tr>
-  <tr><td>Vk</td><td>Voe</td><td>YandexDisk</td><td>YourUpload</td><td></td></tr>
+  <tr><td>Dailymotion</td><td>DoodStream</td><td>EmbedOrigin</td><td>F4Stream</td><td>Firestream</td></tr>
+  <tr><td>Flyfile</td><td>Gofile</td><td>GoogleDrive</td><td>HdVid</td><td>HexUpload</td></tr>
+  <tr><td>M3U8Playlist</td><td>MailRu</td><td>MixDrop</td><td>Mp4Upload</td><td>OkRu</td></tr>
+  <tr><td>Puffy</td><td>Rumble</td><td>Sendvid</td><td>Sibnet</td><td>Sistenn</td></tr>
+  <tr><td>StreamWish</td><td>Streamain</td><td>Streamcash</td><td>Streamtape</td><td>TauVideo</td></tr>
+  <tr><td>Turkanime</td><td>Upbolt</td><td>Uqload</td><td>Videa</td><td>Vidmoly</td></tr>
+  <tr><td>VidsSt</td><td>Vidsonic</td><td>Vk</td><td>Voe</td><td>YandexDisk</td></tr>
+  <tr><td>YourUpload</td><td></td><td></td><td></td><td></td></tr>
 </table>
 
 <details>
-<summary><b>Hangi extractor hangi host'u çözüyor (39)</b></summary>
+<summary><b>Hangi extractor hangi host'u çözüyor (41)</b></summary>
 
 | Extractor | Çözdüğü host |
 |---|---|
@@ -267,6 +268,8 @@ Sağlayıcı plugin'leri sayfayı bulur; asıl video linkini `Migurdex.Core/Extr
 | Cyberfile | `cyberfile.me` |
 | Dailymotion | `dailymotion.com` |
 | DoodStream | `doodstream.com`, `dood.to/.so/.la/.ws/.pm/.wf/.cx/.sh/.re/.watch`, `vide0`, `playmogo.com` |
+| EmbedOrigin | `embedorigin.cc`, `streamorigin.cc` |
+| F4Stream | `f4scdn.com`, `f4stream.com` |
 | Firestream | `firestream.*` |
 | Flyfile | `flyfile.app`, `flyfile.io` |
 | Gofile | `gofile.io` |
