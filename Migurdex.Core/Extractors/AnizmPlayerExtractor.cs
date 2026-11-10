@@ -76,28 +76,38 @@ public partial class AnizmPlayerExtractor : IExtractor
         try
         {
             using var doc = JsonDocument.Parse(jsonResponse);
-            if (doc.RootElement.TryGetProperty("securedLink", out var secLink))
+
+            var hlsUrl = string.Empty;
+            if (doc.RootElement.TryGetProperty("videoSource", out var videoSourceProp)
+                && videoSourceProp.ValueKind == JsonValueKind.String)
             {
-                var sUrl = secLink.GetString() ?? "";
-                if (!string.IsNullOrEmpty(sUrl))
+                hlsUrl = videoSourceProp.GetString() ?? string.Empty;
+            }
+
+            if (string.IsNullOrEmpty(hlsUrl)
+                && doc.RootElement.TryGetProperty("securedLink", out var secLink))
+            {
+                hlsUrl = secLink.GetString() ?? string.Empty;
+            }
+
+            if (!string.IsNullOrEmpty(hlsUrl))
+            {
+                var extracted = await _m3U8Extractor.ExtractAsync(hlsUrl,
+                                                                  new Dictionary<string, string>
+                                                                  {
+                                                                      { "Referer", "https://anizmplayer.com/" }
+                                                                  });
+                if (extracted.Count > 0)
                 {
-                    var extracted = await _m3U8Extractor.ExtractAsync(sUrl,
-                                                                      new Dictionary<string, string>
-                                                                      {
-                                                                          { "Referer", "https://anizmplayer.com/" }
-                                                                      });
-                    if (extracted.Count > 0)
+                    sources.AddRange(extracted);
+                }
+                else
+                {
+                    sources.Add(new VideoSource
                     {
-                        sources.AddRange(extracted);
-                    }
-                    else
-                    {
-                        sources.Add(new VideoSource
-                        {
-                            Url  = sUrl,
-                            Type = VideoType.M3U8
-                        });
-                    }
+                        Url  = hlsUrl,
+                        Type = VideoType.M3U8
+                    });
                 }
             }
 
