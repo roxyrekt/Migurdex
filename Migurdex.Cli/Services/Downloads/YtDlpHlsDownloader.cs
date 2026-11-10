@@ -303,7 +303,10 @@ public sealed class YtDlpHlsDownloader : IHlsDownloader
 
         // yt-dlp'ye global --add-header yalnız güvenli allowlist ile verilir.
         // Cookie/Authorization/API-key benzeri başlıklar dış sürece hiç taşınmaz.
-        foreach (var (name, value) in DownloadHttp.CopyExternalProcessHeaders(source.Headers))
+        var transferHeaders = DownloadHttp.CopyExternalProcessHeaders(source.Headers);
+        transferHeaders.TryAdd("Accept", "*/*");
+
+        foreach (var (name, value) in transferHeaders)
         {
             startInfo.ArgumentList.Add("--add-header");
             startInfo.ArgumentList.Add($"{name}: {value}");
