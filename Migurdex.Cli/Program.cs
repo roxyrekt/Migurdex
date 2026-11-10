@@ -202,6 +202,7 @@ public static class Program
             activeNavigator = navigator;
             var mainMenu = serviceProvider.GetRequiredService<MainMenuView>();
 
+            var downloadQueue = serviceProvider.GetRequiredService<IDownloadQueueService>();
             _ = Task.Run(() => serviceProvider.GetRequiredService<WatchSyncService>().FlushQueueAsync());
 
             var noUpdateCheck = args.Any(a => a.Equals("--no-update-check", StringComparison.OrdinalIgnoreCase));
@@ -216,6 +217,7 @@ public static class Program
             tuiToken.ThrowIfCancellationRequested();
 
             await navigator.StartAsync(mainMenu);
+            await downloadQueue.StopAsync();
 
             AnsiConsole.Clear();
             return 0;
@@ -529,18 +531,36 @@ public static class Program
         services.AddSingleton<IHistoryService>(sp =>
                                                    new HistoryService(sp.GetRequiredService<IConfigurationService>(),
                                                                       sp.GetRequiredService<MigurdexDatabase>()));
-        services.AddDownloadServices(provider =>
-        {
-            var config     = provider.GetRequiredService<IConfigurationService>().Config;
-            var dependency = provider.GetService<DependencyResolver>();
-            return new HlsDownloadOptions
+        services.AddDownloadServices(
+            provider =>
             {
-                Executable  = dependency?.Resolve(DependencyKind.YtDlp) ?? config.YtDlpPath,
-                FfmpegPath  = dependency?.Resolve(DependencyKind.Ffmpeg),
-                MaxAttempts = 3,
-                RetryDelay  = TimeSpan.FromSeconds(1)
-            };
-        });
+                var configSvc  = provider.GetRequiredService<IConfigurationService>();
+                var dependency = provider.GetService<DependencyResolver>();
+                return new HlsDownloadOptions
+                {
+                    Executable = dependency?.Resolve(DependencyKind.YtDlp) ?? configSvc.Config.YtDlpPath,
+                    FfmpegPath = dependency?.Resolve(DependencyKind.Ffmpeg),
+                    MaxAttempts = 3,
+                    RetryDelay = TimeSpan.FromSeconds(1),
+                    ConcurrentFragments = configSvc.Config.HlsConcurrentFragments,
+                    SpeedLimitKbps = configSvc.Config.DownloadSpeedLimitKbps,
+                    ExecutableSelector = () => dependency?.Resolve(DependencyKind.YtDlp) ?? configSvc.Config.YtDlpPath,
+                    FfmpegPathSelector = () => dependency?.Resolve(DependencyKind.Ffmpeg),
+                    ConcurrentFragmentsSelector = () => configSvc.Config.HlsConcurrentFragments,
+                    SpeedLimitKbpsSelector = () => configSvc.Config.DownloadSpeedLimitKbps
+                };
+            },
+            provider =>
+            {
+                var configSvc = provider.GetRequiredService<IConfigurationService>();
+                return new Mp4DownloadOptions
+                {
+                    MaxSegments            = configSvc.Config.Mp4MaxSegments,
+                    SpeedLimitKbps         = configSvc.Config.DownloadSpeedLimitKbps,
+                    MaxSegmentsSelector    = () => configSvc.Config.Mp4MaxSegments,
+                    SpeedLimitKbpsSelector = () => configSvc.Config.DownloadSpeedLimitKbps
+                };
+            });
         services.AddSingleton<IDiscordRpcService, DiscordRpcService>();
         services.AddSingleton<IMpvPlayerService, MpvPlayerService>();
         services.AddSingleton<PlaybackOrchestrator>();
@@ -584,6 +604,7 @@ public static class Program
         services.AddTransient<PlaybackMenuView>();
         services.AddTransient<FavoritesView>();
         services.AddTransient<WatchHistoryView>();
+        services.AddTransient<DownloadsView>();
         services.AddTransient<SettingsView>();
     }
 

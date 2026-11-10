@@ -16,22 +16,22 @@ public class SettingsView : BaseView
     internal const int ChromeRows = 5;
 
     private static readonly string[]              _rpcTitleModes = ["Migurdex", "Sağlayıcı", "İçerik"];
-    private readonly        AniListOAuthClient      _aniListOAuth;
-    private readonly        IApiClientService       _apiClient;
-    private readonly        IConfigurationService   _configService;
-    private readonly        DependencyResolver?     _dependencies;
-    private readonly        MalOAuthClient          _malOAuth;
-    private readonly        OAuthTokenStore         _tokenStore;
-    private readonly        IUpdateService          _updateService;
-    private                 string?                 _lastProviderName;
+    private readonly        AniListOAuthClient    _aniListOAuth;
+    private readonly        IApiClientService     _apiClient;
+    private readonly        IConfigurationService _configService;
+    private readonly        DependencyResolver?   _dependencies;
+    private readonly        MalOAuthClient        _malOAuth;
+    private readonly        OAuthTokenStore       _tokenStore;
+    private readonly        IUpdateService        _updateService;
+    private                 string?               _lastProviderName;
 
     public SettingsView(IConfigurationService configService,
-        IApiClientService                       apiClient,
-        OAuthTokenStore                         tokenStore,
-        AniListOAuthClient                      aniListOAuth,
-        MalOAuthClient                          malOAuth,
-        IUpdateService                          updateService,
-        DependencyResolver?                     dependencies = null)
+        IApiClientService                     apiClient,
+        OAuthTokenStore                       tokenStore,
+        AniListOAuthClient                    aniListOAuth,
+        MalOAuthClient                        malOAuth,
+        IUpdateService                        updateService,
+        DependencyResolver?                   dependencies = null)
     {
         _configService = configService;
         _apiClient     = apiClient;
@@ -114,9 +114,68 @@ public class SettingsView : BaseView
             },
             new()
             {
+                Id          = "AutoResumeDownloadsOnStartup",
+                Label       = "Açılışta Kuyruğu Başlat",
+                ValueGetter = c => c.AutoResumeDownloadsOnStartup ? "Açık" : "Kapalı"
+            },
+            new()
+            {
+                Id          = "AutoClearCompletedDownloads",
+                Label       = "Tamamlananları Otomatik Sil",
+                ValueGetter = c => c.AutoClearCompletedDownloads ? "Açık" : "Kapalı"
+            },
+            new()
+            {
+                Id          = "MaxConcurrentDownloads",
+                Label       = "Eşzamanlı İndirme",
+                ValueGetter = c => $"{c.MaxConcurrentDownloads} görev"
+            },
+            new()
+            {
+                Id          = "Mp4MaxSegments",
+                Label       = "MP4 Paralel Bağlantı",
+                ValueGetter = c => c.Mp4MaxSegments == 1 ? "1 (Tek)" : $"{c.Mp4MaxSegments} segment"
+            },
+            new()
+            {
+                Id          = "HlsConcurrentFragments",
+                Label       = "HLS Eşzamanlı Parça",
+                ValueGetter = c => $"{c.HlsConcurrentFragments} parça"
+            },
+            new()
+            {
+                Id          = "DownloadSpeedLimitKbps",
+                Label       = "İndirme Hız Sınırı",
+                ValueGetter = c => c.DownloadSpeedLimitKbps <= 0 ? "Sınırsız" : $"{c.DownloadSpeedLimitKbps} KiB/s"
+            },
+            new()
+            {
                 Id          = "DownloadDirectory",
                 Label       = "İndirme Dizini",
                 ValueGetter = c => c.DownloadDirectory
+            },
+            new()
+            {
+                IsSection = true,
+                Label     = "Cloudflare / Turnstile"
+            },
+            new()
+            {
+                Id          = "TurnstileEnabled",
+                Label       = "Otomatik Çözücü",
+                ValueGetter = c => c.Turnstile.Enabled ? "Açık" : "Kapalı"
+            },
+            new()
+            {
+                Id          = "TurnstileAllowDownload",
+                Label       = "Tarayıcı İndirme İzni",
+                ValueGetter = c => c.Turnstile.AllowDownload ? "Açık" : "Kapalı"
+            },
+            new()
+            {
+                Id          = "TurnstileTimeout",
+                Label       = "Çözücü Zaman Aşımı",
+                ValueGetter = c => $"{c.Turnstile.TimeoutSeconds:F0} sn"
             },
             new()
             {
@@ -354,7 +413,10 @@ public class SettingsView : BaseView
                              .StartAsync(async ctx =>
                              {
                                  var last = string.Empty;
-                                 while (settingsRunning && pendingSelection is null && !pendingEscape && !TuiConsole.IsAppExitRequested)
+                                 while (settingsRunning
+                                        && pendingSelection is null
+                                        && !pendingEscape
+                                        && !TuiConsole.IsAppExitRequested)
                                  {
                                      var config = _configService.Config;
                                      var fp     = cursorIndex + "|" + SnapshotConfig();
@@ -675,7 +737,7 @@ public class SettingsView : BaseView
         return path is null ? "Eksik" : "Kurulu";
     }
 
-    private void ShowToolDetail(string id)
+    private void ShowToolDetail(string id, CliConfig config)
     {
         var kind = id switch
         {
@@ -692,25 +754,92 @@ public class SettingsView : BaseView
             return;
         }
 
-        var path = _dependencies.Resolve(kind);
-        AnsiConsole.Clear();
-        Theme.WriteHeader($"Araç: {DependencyCatalog.DisplayName(kind)}");
-        AnsiConsole.WriteLine();
+        var path          = _dependencies.Resolve(kind);
+        var defaultBinary = DependencyCatalog.CommandName(kind);
+        var configured = kind switch
+        {
+            DependencyKind.Mpv    => config.PreferredPlayer,
+            DependencyKind.YtDlp  => config.YtDlpPath,
+            DependencyKind.Ffmpeg => config.FfmpegPath,
+            _                     => defaultBinary
+        };
 
+        var headers = new List<string>();
         if (path is null)
         {
-            AnsiConsole.MarkupLine("[red]Kurulu değil.[/]");
-            AnsiConsole.MarkupLine($"[grey]{Markup.Escape(_dependencies.Installer.GetManualInstructions(kind))}[/]");
+            headers.Add("[red]Durum:[/] Kurulu değil");
+            headers.Add($"[grey]{Markup.Escape(_dependencies.Installer.GetManualInstructions(kind))}[/]");
         }
         else
         {
-            AnsiConsole.MarkupLine("[green]Kurulu[/]");
-            AnsiConsole.MarkupLine($"[grey]Yol:[/] {Markup.Escape(path)}");
+            headers.Add("[green]Durum:[/] Kurulu");
+            headers.Add($"[grey]Çözülen yol:[/] [white]{Markup.Escape(path)}[/]");
         }
 
-        AnsiConsole.WriteLine();
-        AnsiConsole.MarkupLine("[grey]Devam etmek için bir tuşa basın...[/]");
-        TuiConsole.WaitForKey();
+        headers.Add($"[grey]Yapılandırılan yol/komut:[/] [cyan]{Markup.Escape(configured)}[/]");
+
+        var choices = new List<FuzzyChoice>
+        {
+            Theme.ActionChoice("Özel Yol / Komut Belirle...", Theme.Primary),
+            Theme.ActionChoice($"Varsayılana Sıfırla ({defaultBinary})", Theme.Warning),
+            TuiHelpers.Back()
+        };
+
+        var choice = FuzzyPrompt.Show($"Araç: {DependencyCatalog.DisplayName(kind)}",
+                                      choices,
+                                      searchable: false,
+                                      headerLines: headers,
+                                      footerHelp: "↑↓ gez • Enter seç • Esc geri");
+
+        if (choice is null || choice.Searchable == "Geri")
+        {
+            return;
+        }
+
+        if (choice.Searchable == "Özel Yol / Komut Belirle...")
+        {
+            var input = (Theme.Ask($"{DependencyCatalog.DisplayName(kind)} yolu veya komutu:", configured)
+                         ?? string.Empty).Trim();
+            if (string.IsNullOrEmpty(input))
+            {
+                Toast.Show("[yellow]Değişiklik yapılmadı.[/]");
+                return;
+            }
+
+            SetToolConfiguredPath(config, kind, input);
+            _dependencies.InvalidateCache();
+            var resolvedAfter = _dependencies.Resolve(kind);
+            if (resolvedAfter is null)
+            {
+                Toast.Show($"[yellow]Yol kaydedildi ancak '{Markup.Escape(input)}' şu an bulunamadı.[/]", 2500);
+            }
+            else
+            {
+                Toast.Show($"[green]✓[/] {Markup.Escape(DependencyCatalog.DisplayName(kind))} yolu güncellendi.", 2000);
+            }
+        }
+        else if (choice.Searchable.StartsWith("Varsayılana Sıfırla", StringComparison.Ordinal))
+        {
+            SetToolConfiguredPath(config, kind, defaultBinary);
+            _dependencies.InvalidateCache();
+            Toast.Show($"[green]✓[/] Varsayılan ({Markup.Escape(defaultBinary)}) geri yüklendi.", 1800);
+        }
+    }
+
+    private static void SetToolConfiguredPath(CliConfig config, DependencyKind kind, string value)
+    {
+        switch (kind)
+        {
+            case DependencyKind.Mpv:
+                config.PreferredPlayer = value;
+                break;
+            case DependencyKind.YtDlp:
+                config.YtDlpPath = value;
+                break;
+            case DependencyKind.Ffmpeg:
+                config.FfmpegPath = value;
+                break;
+        }
     }
 
     private async Task RunToolInstallAsync()
@@ -764,9 +893,9 @@ public class SettingsView : BaseView
                                      {
                                          var progress = new Progress<string>(line => ctx.Status(Markup.Escape(line)));
                                          results = await DependencySetupRunner.InstallAsync(_dependencies,
-                                                                                            missing,
-                                                                                            progress,
-                                                                                            CancellationToken.None);
+                                                       missing,
+                                                       progress,
+                                                       CancellationToken.None);
                                      });
 
         var failures = results.Where(r => !r.Success).ToList();
@@ -880,6 +1009,32 @@ public class SettingsView : BaseView
             case "DownloadOverwrite":
                 config.DownloadOverwrite = !config.DownloadOverwrite;
                 break;
+            case "AutoResumeDownloadsOnStartup":
+                config.AutoResumeDownloadsOnStartup = !config.AutoResumeDownloadsOnStartup;
+                break;
+            case "AutoClearCompletedDownloads":
+                config.AutoClearCompletedDownloads = !config.AutoClearCompletedDownloads;
+                break;
+            case "MaxConcurrentDownloads":
+                var requestedConcurrency =
+                    Theme.Ask("Eşzamanlı maksimum indirme (1-8):", config.MaxConcurrentDownloads);
+                config.MaxConcurrentDownloads = Math.Clamp(requestedConcurrency, 1, 8);
+                break;
+            case "Mp4MaxSegments":
+                var requestedSegments =
+                    Theme.Ask("MP4 paralel bağlantı / segment sayısı (1-16):", config.Mp4MaxSegments);
+                config.Mp4MaxSegments = Math.Clamp(requestedSegments, 1, 16);
+                break;
+            case "HlsConcurrentFragments":
+                var requestedFragments =
+                    Theme.Ask("HLS eşzamanlı parça sayısı (1-16):", config.HlsConcurrentFragments);
+                config.HlsConcurrentFragments = Math.Clamp(requestedFragments, 1, 16);
+                break;
+            case "DownloadSpeedLimitKbps":
+                var requestedSpeed =
+                    Theme.Ask("İndirme hız sınırı KiB/s (0 = sınırsız):", config.DownloadSpeedLimitKbps);
+                config.DownloadSpeedLimitKbps = Math.Max(0, requestedSpeed);
+                break;
             case "DownloadDirectory":
                 var downloadDir = (Theme.Ask("İndirme dizini:", config.DownloadDirectory) ?? string.Empty).Trim();
                 if (string.IsNullOrEmpty(downloadDir))
@@ -890,11 +1045,22 @@ public class SettingsView : BaseView
 
                 config.DownloadDirectory = downloadDir;
                 break;
+            case "TurnstileEnabled":
+                config.Turnstile.Enabled = !config.Turnstile.Enabled;
+                break;
+            case "TurnstileAllowDownload":
+                config.Turnstile.AllowDownload = !config.Turnstile.AllowDownload;
+                break;
+            case "TurnstileTimeout":
+                var turnstileTimeout =
+                    Theme.Ask("Turnstile çözücü zaman aşımı (sn):", config.Turnstile.TimeoutSeconds);
+                config.Turnstile.TimeoutSeconds = Math.Clamp(turnstileTimeout, 5.0, 300.0);
+                break;
             case "UpdateCheck":
                 config.UpdateCheckEnabled = !config.UpdateCheckEnabled;
                 break;
             case "UpdateChannel":
-                config.UpdateChannel = NextChannel(config.UpdateChannel);
+                config.UpdateChannel  = NextChannel(config.UpdateChannel);
                 config.SkippedVersion = null;
                 break;
             case "CheckUpdate":
@@ -925,9 +1091,13 @@ public class SettingsView : BaseView
                 await RunMalLoginAsync();
                 break;
             case "OpenAnimeKey":
-                var newKey = Theme.Ask("OpenAnime Altyazı Anahtarı (boş = kaldır):", config.OpenAnimeApiKey ?? string.Empty)?.Trim();
+                var newKey = Theme.Ask("OpenAnime Altyazı Anahtarı (boş = kaldır):",
+                                       config.OpenAnimeApiKey ?? string.Empty)
+                                  ?.Trim();
                 config.OpenAnimeApiKey = string.IsNullOrWhiteSpace(newKey) ? null : newKey;
-                Toast.Show(config.OpenAnimeApiKey is null ? "[yellow]OpenAnime anahtarı kaldırıldı.[/]" : "[green]OpenAnime anahtarı güncellendi.[/]");
+                Toast.Show(config.OpenAnimeApiKey is null
+                               ? "[yellow]OpenAnime anahtarı kaldırıldı.[/]"
+                               : "[green]OpenAnime anahtarı güncellendi.[/]");
                 break;
             case "Providers":
                 await ConfigureProvidersAsync(config);
@@ -938,7 +1108,7 @@ public class SettingsView : BaseView
             case "ToolMpv":
             case "ToolYtDlp":
             case "ToolFfmpeg":
-                ShowToolDetail(item.Id);
+                ShowToolDetail(item.Id, config);
                 break;
             case "ToolInstall":
                 await RunToolInstallAsync();
@@ -1488,12 +1658,31 @@ public class SettingsView : BaseView
         var bold = isSelected ? "bold " : "";
         var color = id switch
         {
-            "AutoPlay" or "Rpc" or "Incognito" or "PlayerLogs" or "UpdateCheck"
-                or "AutoDownload" or "DownloadSubtitles" or "DownloadResume" or "DownloadOverwrite" =>
+            "AutoPlay"
+                or "Rpc"
+                or "Incognito"
+                or "PlayerLogs"
+                or "UpdateCheck"
+                or "AutoDownload"
+                or "DownloadSubtitles"
+                or "DownloadResume"
+                or "DownloadOverwrite"
+                or "AutoResumeDownloadsOnStartup"
+                or "AutoClearCompletedDownloads"
+                or "TurnstileEnabled"
+                or "TurnstileAllowDownload" =>
                 value == "Açık" ? "green" : "grey",
-            "UpdateChannel" => value == "Pre-release" ? "yellow" : value == "Nightly" ? "blue" : "green",
+            "UpdateChannel" => value == "Pre-release"
+                                   ? "yellow"
+                                   : value == "Nightly"
+                                       ? "blue"
+                                       : "green",
             "ToolMpv" or "ToolYtDlp" or "ToolFfmpeg" =>
-                value == "Kurulu" ? "green" : value == "Bilinmiyor" ? "grey" : "red",
+                value == "Kurulu"
+                    ? "green"
+                    : value == "Bilinmiyor"
+                        ? "grey"
+                        : "red",
             "ToolUpdateCheck" => value == "Açık" ? "green" : "grey",
             "AniList" or "MyAnimeList" => value.Contains("Süresi dolmuş")
                                               ? "red"
