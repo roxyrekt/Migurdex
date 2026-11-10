@@ -1,4 +1,5 @@
 using Migurdex.Cli.Services;
+using Migurdex.Cli.Services.Downloads;
 using Migurdex.Shared.Update;
 using Spectre.Console;
 
@@ -27,6 +28,7 @@ public class MainMenuView : BaseView
             Theme.MenuItem("Arama"),
             Theme.MenuItem("Favoriler"),
             Theme.MenuItem("Geçmiş"),
+            BuildDownloadsMenuItem(),
             Theme.MenuItem("Ayarlar"),
             Theme.BackChoice("Çıkış")
         };
@@ -55,10 +57,60 @@ public class MainMenuView : BaseView
             case "Geçmiş":
                 navigator.Push((BaseView) _serviceProvider.GetService(typeof(WatchHistoryView))!);
                 break;
+            case "İndirmeler":
+                navigator.Push((BaseView) _serviceProvider.GetService(typeof(DownloadsView))!);
+                break;
             case "Ayarlar":
                 navigator.Push((BaseView) _serviceProvider.GetService(typeof(SettingsView))!);
                 break;
         }
+    }
+
+    private FuzzyChoice BuildDownloadsMenuItem()
+    {
+        var queue = _serviceProvider.GetService(typeof(IDownloadQueueService)) as IDownloadQueueService;
+        if (queue is null)
+        {
+            return Theme.MenuItem("İndirmeler");
+        }
+
+        var summary = queue.GetSummary();
+        if (summary.ActiveCount > 0 || summary.QueuedCount > 0)
+        {
+            var activeText = $"{summary.ActiveCount} aktif";
+            if (summary.QueuedCount > 0)
+            {
+                activeText += $", {summary.QueuedCount} sırada";
+            }
+
+            if (summary.TotalSpeedBytesPerSecond > 0)
+            {
+                activeText += $" • {DownloadsView.FormatBytes((long) summary.TotalSpeedBytesPerSecond)}/s";
+            }
+
+            return Theme.MenuItemMarkup(
+                "İndirmeler",
+                $"İndirmeler [cyan]({Markup.Escape(activeText)})[/]",
+                $"İndirmeler ({Markup.Escape(activeText)})");
+        }
+
+        if (summary.FailedCount > 0)
+        {
+            return Theme.MenuItemMarkup(
+                "İndirmeler",
+                $"İndirmeler [red]({summary.FailedCount} başarısız)[/]",
+                $"İndirmeler ({summary.FailedCount} başarısız)");
+        }
+
+        if (summary.PausedCount > 0)
+        {
+            return Theme.MenuItemMarkup(
+                "İndirmeler",
+                $"İndirmeler [yellow]({summary.PausedCount} duraklatıldı)[/]",
+                $"İndirmeler ({summary.PausedCount} duraklatıldı)");
+        }
+
+        return Theme.MenuItem("İndirmeler");
     }
 
     private async Task<List<string>> BuildStatusLinesAsync()

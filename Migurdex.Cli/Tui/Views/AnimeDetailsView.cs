@@ -1,4 +1,5 @@
 using Migurdex.Cli.Services;
+using Migurdex.Cli.Services.Downloads;
 using Migurdex.Shared.Enums;
 using Migurdex.Shared.Models;
 using Spectre.Console;
@@ -301,6 +302,14 @@ public class AnimeDetailsView : BaseView
 
             if (currentSeasonGroup != null)
             {
+                choices.Add(new FuzzyChoice
+                {
+                    Display       = "[cyan]⤓ Toplu indir (sezon / aralık)...[/]",
+                    DisplayActive = "[bold white on grey23] ⤓ Toplu indir (sezon / aralık)... [/]",
+                    Searchable    = "Toplu İndir",
+                    IsAction      = true
+                });
+
                 var isMovie    = details.Format == ContentFormat.Movie;
                 var unitPrefix = isMovie ? "Film" : "Bölüm";
 
@@ -387,40 +396,222 @@ public class AnimeDetailsView : BaseView
             return;
         }
 
+        if (choice.Searchable == "Toplu İndir" && currentSeasonGroup != null)
+        {
+            ShowBatchDownloadMenu(navigator,
+                                  details,
+                                  currentSeasonGroup.OrderBy(e => e.Number).ToList(),
+                                  activeSeason);
+            return;
+        }
+
         if (episodeMap.TryGetValue(choice.Searchable, out var selectedEp))
         {
+            var queueService = _serviceProvider.GetService(typeof(IDownloadQueueService)) as IDownloadQueueService;
+
             if (isSingleContent)
             {
                 var singleMode = choice.Searchable.Contains("İndir", StringComparison.OrdinalIgnoreCase)
                                      ? SourceViewMode.Download
                                      : SourceViewMode.Play;
                 var singleSourcesView = (EpisodeSourcesView) _serviceProvider.GetService(typeof(EpisodeSourcesView))!;
-                singleSourcesView.SetTarget(_provider, _animeId, details.Title, selectedEp, details.Episodes, details.PosterUrl, mode: singleMode);
+                singleSourcesView.SetTarget(_provider,
+                                            _animeId,
+                                            details.Title,
+                                            selectedEp,
+                                            details.Episodes,
+                                            details.PosterUrl,
+                                            mode: singleMode);
                 navigator.Push(singleSourcesView);
                 return;
             }
 
             var actions = new List<FuzzyChoice>
             {
-                Theme.PlayChoice("Oynat"),
-                Theme.ActionChoice("İndir", Theme.Primary),
-                TuiHelpers.Back()
+                Theme.PlayChoice("Oynat")
             };
+
+            if (queueService is not null)
+            {
+                actions.Add(Theme.ActionChoice("İndir (Kuyruğa Ekle)", Theme.Primary));
+                actions.Add(Theme.ActionChoice("İndir (Kaynak Seç)", Theme.Text));
+            }
+            else
+            {
+                actions.Add(Theme.ActionChoice("İndir", Theme.Primary));
+            }
+
+            actions.Add(TuiHelpers.Back());
+
             var action = FuzzyPrompt.Show(details.Title,
                                           actions,
                                           searchable: false,
                                           headerLines:
-                                          [$"[grey]{Markup.Escape(TuiHelpers.EllipsizedTitle(details.Title))} › {Markup.Escape(TuiHelpers.FormatEpisodeRef(selectedEp))}[/]"],
+                                          [
+                                              $"[grey]{Markup.Escape(TuiHelpers.EllipsizedTitle(details.Title))} › {Markup.Escape(TuiHelpers.FormatEpisodeRef(selectedEp))}[/]"
+                                          ],
                                           footerHelp: "↑↓ gez • Enter seç • Esc geri");
             if (action is null || action.Searchable == "Geri")
             {
                 return;
             }
 
-            var mode = action.Searchable == "İndir" ? SourceViewMode.Download : SourceViewMode.Play;
+            if (action.Searchable == "İndir (Kuyruğa Ekle)" && queueService is not null)
+            {
+                EnqueueSingleEpisode(queueService, details, selectedEp);
+                return;
+            }
+
+            var mode = action.Searchable.StartsWith("İndir", StringComparison.Ordinal)
+                           ? SourceViewMode.Download
+                           : SourceViewMode.Play;
             var sourcesView = (EpisodeSourcesView) _serviceProvider.GetService(typeof(EpisodeSourcesView))!;
-            sourcesView.SetTarget(_provider, _animeId, details.Title, selectedEp, details.Episodes, details.PosterUrl, mode: mode);
+            sourcesView.SetTarget(_provider,
+                                  _animeId,
+                                  details.Title,
+                                  selectedEp,
+                                  details.Episodes,
+                                  details.PosterUrl,
+                                  mode: mode);
             navigator.Push(sourcesView);
+        }
+    }
+
+    private void EnqueueSingleEpisode(IDownloadQueueService queueService, AnimeDetails details, Episode episode)
+    {
+        queueService.Enqueue(new DownloadJobRequest
+                             {
+                                 ProviderName  = _provider!,
+                                 AnimeId       = _animeId!,
+                                 AnimeTitle    = details.Title,
+                                 EpisodeId     = episode.Id,
+                                 EpisodeTitle  = episode.Title,
+                                 Season        = episode.Season ?? 1,
+                                 EpisodeNumber = episode.Number
+                             },
+                             out var alreadyExisted);
+
+        var epRef = TuiHelpers.FormatEpisodeRef(episode);
+        if (alreadyExisted)
+        {
+            Toast.Show($"[yellow]! {Markup.Escape(epRef)} zaten indirme kuyruğunda.[/]", 2000);
+        }
+        else
+        {
+            Toast.Show($"[green]✓[/] {Markup.Escape(epRef)} indirme kuyruğuna eklendi.", 2000);
+        }
+    }
+
+    private void ShowBatchDownloadMenu(
+        ITuiNavigator          navigator,
+        AnimeDetails           details,
+        IReadOnlyList<Episode> seasonEpisodes,
+        int                    activeSeason)
+    {
+        var queueService = _serviceProvider.GetService(typeof(IDownloadQueueService)) as IDownloadQueueService;
+        if (queueService is null)
+        {
+            Toast.Show("[red]İndirme kuyruğu servisi kullanılamıyor.[/]");
+            return;
+        }
+
+        var watchedEpisodeIds = _historyService.GetWatchHistory()
+                                               .Where(h => h.ProviderName == _provider
+                                                           && h.AnimeId == _animeId
+                                                           && h.IsCompleted)
+                                               .Select(h => h.EpisodeId)
+                                               .ToHashSet(StringComparer.Ordinal);
+        var unwatchedEpisodes = seasonEpisodes.Where(e => !watchedEpisodeIds.Contains(e.Id)).ToList();
+
+        var batchChoices = new List<FuzzyChoice>
+        {
+            Theme.ActionChoice($"Tüm Sezonu Kuyruğa Ekle ({seasonEpisodes.Count} bölüm)", Theme.Primary),
+            Theme.ActionChoice("Bölüm Aralığı Seç (örn. 1-12 veya 1,3,5)", Theme.Text)
+        };
+
+        if (unwatchedEpisodes.Count > 0 && unwatchedEpisodes.Count < seasonEpisodes.Count)
+        {
+            batchChoices.Add(Theme.ActionChoice($"İzlenmeyenleri Kuyruğa Ekle ({unwatchedEpisodes.Count} bölüm)",
+                                                Theme.Warning));
+        }
+
+        batchChoices.Add(Theme.ActionChoice("İndirmeler Ekranını Aç", Theme.Success));
+        batchChoices.Add(TuiHelpers.Back());
+
+        var selected = FuzzyPrompt.Show($"{details.Title} • {activeSeason}. Sezon",
+                                        batchChoices,
+                                        searchable: false,
+                                        headerLines:
+                                        [
+                                            $"[grey]Sezon {activeSeason} • Toplam {seasonEpisodes.Count} bölüm[/]"
+                                        ],
+                                        footerHelp: "↑↓ gez • Enter seç • Esc geri");
+
+        if (selected is null || selected.Searchable == "Geri")
+        {
+            return;
+        }
+
+        if (selected.Searchable == "İndirmeler Ekranını Aç")
+        {
+            var downloadsView = _serviceProvider.GetService(typeof(DownloadsView)) as DownloadsView;
+            if (downloadsView is not null)
+            {
+                navigator.Push(downloadsView);
+            }
+
+            return;
+        }
+
+        IReadOnlyList<Episode> targetEpisodes;
+        if (selected.Searchable.StartsWith("Tüm Sezonu", StringComparison.Ordinal))
+        {
+            targetEpisodes = seasonEpisodes;
+        }
+        else if (selected.Searchable.StartsWith("İzlenmeyenleri", StringComparison.Ordinal))
+        {
+            targetEpisodes = unwatchedEpisodes;
+        }
+        else
+        {
+            var minEp = seasonEpisodes.Count > 0 ? seasonEpisodes[0].Number : 1;
+            var maxEp = seasonEpisodes.Count > 0 ? seasonEpisodes[^1].Number : 1;
+            var input = Theme.Ask($"Bölüm aralığı ({minEp}-{maxEp}):", $"{minEp}-{maxEp}");
+            if (!MediaSelection.TryParseEpisodeSelector(input, out var selector, out var parseError)
+                || selector is null)
+            {
+                Toast.Show($"[red]{Markup.Escape(parseError ?? "Geçersiz bölüm aralığı.")}[/]", 2200);
+                return;
+            }
+
+            targetEpisodes = seasonEpisodes.Where(e => selector.Matches(e.Number)).ToList();
+            if (targetEpisodes.Count == 0)
+            {
+                Toast.Show("[yellow]Seçilen aralıkta bölüm bulunamadı.[/]", 2000);
+                return;
+            }
+        }
+
+        var requests = targetEpisodes.Select(ep => new DownloadJobRequest
+        {
+            ProviderName  = _provider!,
+            AnimeId       = _animeId!,
+            AnimeTitle    = details.Title,
+            EpisodeId     = ep.Id,
+            EpisodeTitle  = ep.Title,
+            Season        = ep.Season ?? activeSeason,
+            EpisodeNumber = ep.Number
+        });
+
+        var added = queueService.EnqueueBatch(requests, out var skipped);
+        if (added.Count > 0)
+        {
+            var suffix = skipped > 0 ? $" ({skipped} bölüm zaten kuyruktaydı)" : string.Empty;
+            Toast.Show($"[green]✓[/] {added.Count} bölüm indirme kuyruğuna eklendi{Markup.Escape(suffix)}.", 2500);
+        }
+        else
+        {
+            Toast.Show("[yellow]Seçilen tüm bölümler zaten indirme kuyruğunda.[/]", 2200);
         }
     }
 }
