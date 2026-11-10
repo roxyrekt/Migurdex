@@ -244,19 +244,6 @@ public class EpisodeSourcesView : BaseView
 
         var config = _configService.Config;
 
-        if (_mode == SourceViewMode.Download
-            && config.AutoDownloadBestSource
-            && !_isFallbackMode
-            && await TryAutoDownloadAsync(navigator, provider, animeTitle, episode, config))
-        {
-            return;
-        }
-
-        if (_mode == SourceViewMode.Download && _isFallbackMode)
-        {
-            Toast.Show("[yellow][[!]] Otomatik seçim yapılamadı, manuel liste açılıyor...[/]");
-        }
-
         var scanStats = new StreamScanStats();
         var stream = _cachedSources.Count > 0
                          ? ToAsyncEnumerable(_cachedSources)
@@ -497,44 +484,6 @@ public class EpisodeSourcesView : BaseView
                                       animeId,
                                       animeTitle,
                                       episode);
-    }
-
-    private async Task<bool> TryAutoDownloadAsync(ITuiNavigator navigator,
-        string                                                  provider,
-        string                                                  animeTitle,
-        Episode                                                 episode,
-        CliConfig                                               config)
-    {
-        var pool = _cachedSources.Count > 0
-                       ? DownloadSourceResolver.SelectCandidates(_cachedSources,
-                                                                 DownloadSourceFormat.Auto,
-                                                                 config)
-                       : (await DownloadCandidateResolver.ResolveAsync(
-                                                             _apiClient,
-                                                             provider,
-                                                             episode.Id,
-                                                             null,
-                                                             DownloadSourceFormat.Auto,
-                                                             config,
-                                                             config.DownloadAutoSelectTimeoutSeconds,
-                                                             TuiApplicationCancellation.Token)
-                                                         .ConfigureAwait(false)).Candidates;
-
-        if (pool.Count == 0)
-        {
-            _isFallbackMode = true;
-            return false;
-        }
-
-        if (TryEnqueueDownload(pool[0], provider, _animeId ?? string.Empty, animeTitle, episode))
-        {
-            navigator.Pop();
-            return true;
-        }
-
-        await DownloadSourceAsync(navigator, pool[0], animeTitle, episode);
-        navigator.Pop();
-        return true;
     }
 
     private bool TryEnqueueDownload(

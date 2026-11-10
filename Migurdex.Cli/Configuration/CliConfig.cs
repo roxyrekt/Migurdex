@@ -78,7 +78,6 @@ public class CliConfig
         set => _downloadSpeedLimitKbps = Math.Max(0, value);
     }
 
-    public bool   AutoDownloadBestSource           { get; set; } = false;
     public double DownloadAutoSelectTimeoutSeconds { get; set; } = 5;
 
     public string? OpenAnimeApiKey { get; set; }

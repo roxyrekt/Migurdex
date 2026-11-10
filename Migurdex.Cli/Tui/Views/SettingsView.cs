@@ -90,12 +90,6 @@ public class SettingsView : BaseView
             },
             new()
             {
-                Id          = "AutoDownload",
-                Label       = "Otomatik İndir",
-                ValueGetter = c => c.AutoDownloadBestSource ? "Açık" : "Kapalı"
-            },
-            new()
-            {
                 Id          = "DownloadTimeout",
                 Label       = "İndirme Bekleme",
                 ValueGetter = c => $"{c.DownloadAutoSelectTimeoutSeconds:F1} sn"
@@ -1008,9 +1002,6 @@ public class SettingsView : BaseView
             case "PlayerLogs":
                 config.ShowPlayerLogs = !config.ShowPlayerLogs;
                 break;
-            case "AutoDownload":
-                config.AutoDownloadBestSource = !config.AutoDownloadBestSource;
-                break;
             case "DownloadTimeout":
                 config.DownloadAutoSelectTimeoutSeconds =
                     Theme.Ask("İndirme bekleme süresi (sn):", config.DownloadAutoSelectTimeoutSeconds);
@@ -1689,7 +1680,6 @@ public class SettingsView : BaseView
                 or "Incognito"
                 or "PlayerLogs"
                 or "UpdateCheck"
-                or "AutoDownload"
                 or "DownloadSubtitles"
                 or "DownloadResume"
                 or "DownloadOverwrite"
