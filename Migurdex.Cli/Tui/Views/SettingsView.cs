@@ -73,6 +73,12 @@ public class SettingsView : BaseView
             },
             new()
             {
+                Id          = "DefaultEpisodeAction",
+                Label       = "Bölüm Tıklama",
+                ValueGetter = c => FormatEpisodeActionLabel(c.DefaultEpisodeAction)
+            },
+            new()
+            {
                 Id          = "PlayerLogs",
                 Label       = "Oynatıcı Logları",
                 ValueGetter = c => c.ShowPlayerLogs ? "Açık" : "Kapalı"
@@ -494,6 +500,23 @@ public class SettingsView : BaseView
     {
         return _rpcTitleModes.Contains(mode) ? mode! : "İçerik";
     }
+
+    private static string FormatEpisodeActionLabel(string? action) => action?.ToLowerInvariant() switch
+    {
+        "play"                              => "Doğrudan Oynat",
+        "auto_download" or "download"       => "İndir (Otomatik Seç)",
+        "select_download" or "selectsource" => "İndir (Kaynak Listesinden Seç)",
+        _                                   => "Her Zaman Sor"
+    };
+
+    private static string NextEpisodeAction(string? current) => current?.ToLowerInvariant() switch
+    {
+        "ask"                               => "play",
+        "play"                              => "auto_download",
+        "auto_download" or "download"       => "select_download",
+        "select_download" or "selectsource" => "ask",
+        _                                   => "play"
+    };
 
     private static string ChannelLabel(string? channel)
     {
@@ -969,6 +992,9 @@ public class SettingsView : BaseView
                     config.AutoSelectTimeoutSeconds = 120.0;
                 }
 
+                break;
+            case "DefaultEpisodeAction":
+                config.DefaultEpisodeAction = NextEpisodeAction(config.DefaultEpisodeAction);
                 break;
             case "Rpc":
                 config.EnableDiscordRpc = !config.EnableDiscordRpc;
@@ -1684,6 +1710,7 @@ public class SettingsView : BaseView
                         ? "grey"
                         : "red",
             "ToolUpdateCheck" => value == "Açık" ? "green" : "grey",
+            "DefaultEpisodeAction" => value == "Her Zaman Sor" ? "grey" : "cyan",
             "AniList" or "MyAnimeList" => value.Contains("Süresi dolmuş")
                                               ? "red"
                                               : value.StartsWith("Bağlı (yenilenecek)")

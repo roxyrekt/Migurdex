@@ -14,6 +14,7 @@ public class CliConfig
     public bool         ShowPlayerLogs           { get; set; } = false;
     public bool         AutoSelectBestSource     { get; set; } = false;
     public double       AutoSelectTimeoutSeconds { get; set; } = 5;
+    public string       DefaultEpisodeAction     { get; set; } = "Ask";
     public List<string> DisabledProviders        { get; set; } = [];
 
     public string DownloadDirectory

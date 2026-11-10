@@ -426,6 +426,46 @@ public class AnimeDetailsView : BaseView
                 return;
             }
 
+            var configService = _serviceProvider.GetService(typeof(IConfigurationService)) as IConfigurationService;
+            var actionSetting = configService?.Config.DefaultEpisodeAction?.ToLowerInvariant() ?? "ask";
+
+            if (actionSetting == "play")
+            {
+                var playView = (EpisodeSourcesView) _serviceProvider.GetService(typeof(EpisodeSourcesView))!;
+                playView.SetTarget(_provider,
+                                   _animeId,
+                                   details.Title,
+                                   selectedEp,
+                                   details.Episodes,
+                                   details.PosterUrl,
+                                   mode: SourceViewMode.Play);
+                navigator.Push(playView);
+                return;
+            }
+
+            if (actionSetting is "auto_download" or "download")
+            {
+                if (queueService is not null)
+                {
+                    EnqueueSingleEpisode(queueService, details, selectedEp);
+                    return;
+                }
+            }
+
+            if (actionSetting is "select_download" or "selectsource")
+            {
+                var selectView = (EpisodeSourcesView) _serviceProvider.GetService(typeof(EpisodeSourcesView))!;
+                selectView.SetTarget(_provider,
+                                     _animeId,
+                                     details.Title,
+                                     selectedEp,
+                                     details.Episodes,
+                                     details.PosterUrl,
+                                     mode: SourceViewMode.Download);
+                navigator.Push(selectView);
+                return;
+            }
+
             var actions = new List<FuzzyChoice>
             {
                 Theme.PlayChoice("Oynat")
