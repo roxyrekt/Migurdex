@@ -147,6 +147,7 @@ migurdex play "bleach" --debug               # mpv açmadan çözülen kaynağı
 migurdex continue                            # kaldığın yerden devam
 
 migurdex download "one piece" -e 12
+migurdex download "one piece" -e 1-12        # aralık veya liste (1,3,5) ile toplu indirme
 migurdex download "naruto" -s 2 -p TurkAnime -g FansubAdı -o ~/Videos/Anime
 migurdex download "bleach" -e 1 --format hls --force --no-resume
 migurdex download "bleach" -e 1 --format mp4 --no-subs
@@ -204,8 +205,9 @@ API adresi, AniList/MAL bağlantısı, sağlayıcı açma-kapama ve sıralama, o
 `Esc` / İptal ile çıkarsan değişiklikler uygulanmaz.
 
 `config.json` üzerinden de değiştirilebilen indirme ayarları: `DownloadDirectory`, `YtDlpPath`,
-`DownloadSubtitles`, `DownloadResume`, `DownloadOverwrite`, `AutoDownloadBestSource`,
-`DownloadAutoSelectTimeoutSeconds`. Eski config dosyaları yeni alanlar yoksa da sorunsuz yüklenir.
+`DownloadSubtitles`, `DownloadResume`, `DownloadOverwrite`, `MaxConcurrentDownloads`, `Mp4MaxSegments`,
+`HlsConcurrentFragments`, `DownloadSpeedLimitKbps`, `AutoResumeDownloadsOnStartup`,
+`AutoClearCompletedDownloads`, `DefaultEpisodeAction`, `DownloadAutoSelectTimeoutSeconds`. Eski config dosyaları yeni alanlar yoksa da sorunsuz yüklenir.
 
 ## Güvenlik
 

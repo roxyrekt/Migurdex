@@ -123,9 +123,9 @@ public class EpisodeSourcesView : BaseView
             var row          = rows[i];
             var qualityColor = QualityColor(row.Src.Quality);
             var formatColor  = FormatColor(row.Src.Type);
-            var bitratePart  = row.Bitrate.Length == 0
-                                   ? " " + new string(' ', bitrateW)
-                                   : $" [{qualityColor}]{Markup.Escape(row.Bitrate.PadRight(bitrateW))}[/]";
+            var bitratePart = row.Bitrate.Length == 0
+                                  ? " " + new string(' ', bitrateW)
+                                  : $" [{qualityColor}]{Markup.Escape(row.Bitrate.PadRight(bitrateW))}[/]";
             var codecPart = row.Codec.Length == 0
                                 ? " " + new string(' ', codecW)
                                 : $" [grey]{Markup.Escape(row.Codec.PadRight(codecW))}[/]";
@@ -244,19 +244,6 @@ public class EpisodeSourcesView : BaseView
 
         var config = _configService.Config;
 
-        if (_mode == SourceViewMode.Download
-            && config.AutoDownloadBestSource
-            && !_isFallbackMode
-            && await TryAutoDownloadAsync(navigator, provider, animeTitle, episode, config))
-        {
-            return;
-        }
-
-        if (_mode == SourceViewMode.Download && _isFallbackMode)
-        {
-            Toast.Show("[yellow][[!]] Otomatik seçim yapılamadı, manuel liste açılıyor...[/]");
-        }
-
         var scanStats = new StreamScanStats();
         var stream = _cachedSources.Count > 0
                          ? ToAsyncEnumerable(_cachedSources)
@@ -264,14 +251,16 @@ public class EpisodeSourcesView : BaseView
                                      .Where(src => src.Type != VideoType.Embed);
 
         if (_mode == SourceViewMode.Play
-            && config.AutoSelectBestSource && _cachedSources.Count == 0 && !_isFallbackMode)
+            && config.AutoSelectBestSource
+            && _cachedSources.Count == 0
+            && !_isFallbackMode)
         {
             AnsiConsole.Clear();
             Theme.WriteHeader($"{animeTitle}", $"Bölüm {episode.Number} • otomatik seçim");
             AnsiConsole.MarkupLine("[cyan]Kaynaklar taranıyor...[/] [grey](Esc: vazgeç)[/]");
 
             var resolvedSources = new List<VideoSource>();
-            var cts             = CancellationTokenSource.CreateLinkedTokenSource(
+            var cts = CancellationTokenSource.CreateLinkedTokenSource(
                 TuiApplicationCancellation.Token);
             var userCancelled = false;
 
@@ -391,11 +380,11 @@ public class EpisodeSourcesView : BaseView
                         $"[green]✓{exactTag}:[/] {Markup.Escape(bestSource.Hoster ?? "Bilinmeyen")} [grey]({Markup.Escape(bestSource.DisplayLabel)} • {bestSource.Type})[/]");
 
                     await PlaySelectedSourceAsync(navigator,
-                                                    bestSource,
-                                                    provider,
-                                                    animeId,
-                                                    animeTitle,
-                                                    episode);
+                                                  bestSource,
+                                                  provider,
+                                                  animeId,
+                                                  animeTitle,
+                                                  episode);
                     return;
                 }
             }
@@ -471,6 +460,12 @@ public class EpisodeSourcesView : BaseView
 
         if (_mode == SourceViewMode.Download)
         {
+            if (TryEnqueueDownload(selectedSource, provider, animeId, animeTitle, episode))
+            {
+                navigator.Pop();
+                return;
+            }
+
             var downloadResult = await DownloadSourceAsync(navigator,
                                                            selectedSource,
                                                            animeTitle,
@@ -491,44 +486,62 @@ public class EpisodeSourcesView : BaseView
                                       episode);
     }
 
-    private async Task<bool> TryAutoDownloadAsync(ITuiNavigator navigator,
-        string                                                     provider,
-        string                                                     animeTitle,
-        Episode                                                    episode,
-        CliConfig                                                  config)
+    private bool TryEnqueueDownload(
+        VideoSource selectedSource,
+        string      provider,
+        string      animeId,
+        string      animeTitle,
+        Episode     episode)
     {
-        var pool = _cachedSources.Count > 0
-                                     ? DownloadSourceResolver.SelectCandidates(_cachedSources,
-                                                                               DownloadSourceFormat.Auto,
-                                                                               config)
-                                     : (await DownloadCandidateResolver.ResolveAsync(
-                                             _apiClient,
-                                             provider,
-                                             episode.Id,
-                                             null,
-                                             DownloadSourceFormat.Auto,
-                                             config,
-                                             config.DownloadAutoSelectTimeoutSeconds,
-                                             TuiApplicationCancellation.Token)
-                                         .ConfigureAwait(false)).Candidates;
-
-        if (pool.Count == 0)
+        if (!DownloadSourceResolver.IsDirectDownloadable(selectedSource))
         {
-            _isFallbackMode = true;
             return false;
         }
 
-        await DownloadSourceAsync(navigator, pool[0], animeTitle, episode);
-        navigator.Pop();
+        var queueService = _serviceProvider.GetService(typeof(IDownloadQueueService)) as IDownloadQueueService;
+        if (queueService is null)
+        {
+            return false;
+        }
+
+        var config = _configService.Config;
+        queueService.Enqueue(new DownloadJobRequest
+                             {
+                                 ProviderName      = provider,
+                                 AnimeId           = animeId,
+                                 AnimeTitle        = animeTitle,
+                                 EpisodeId         = episode.Id,
+                                 EpisodeTitle      = episode.Title,
+                                 Season            = episode.Season ?? 1,
+                                 EpisodeNumber     = episode.Number,
+                                 PreferredGroup    = selectedSource.Group,
+                                 Source            = selectedSource,
+                                 OutputDirectory   = config.DownloadDirectory,
+                                 Overwrite         = config.DownloadOverwrite,
+                                 Resume            = config.DownloadResume,
+                                 DownloadSubtitles = config.DownloadSubtitles
+                             },
+                             out var alreadyExisted);
+
+        var epRef = TuiHelpers.FormatEpisodeRef(episode);
+        if (alreadyExisted)
+        {
+            Toast.Show($"[yellow]! {Markup.Escape(epRef)} zaten indirme kuyruğunda.[/]", 2000);
+        }
+        else
+        {
+            Toast.Show($"[green]✓[/] {Markup.Escape(epRef)} indirme kuyruğuna eklendi.", 2000);
+        }
+
         return true;
     }
 
     private async Task PlaySelectedSourceAsync(ITuiNavigator navigator,
-        VideoSource                                                       selectedSource,
-        string                                                            provider,
-        string                                                            animeId,
-        string                                                            animeTitle,
-        Episode                                                           episode)
+        VideoSource                                          selectedSource,
+        string                                               provider,
+        string                                               animeId,
+        string                                               animeTitle,
+        Episode                                              episode)
     {
         if (selectedSource.Subtitles != null)
         {
@@ -537,7 +550,9 @@ public class EpisodeSourcesView : BaseView
             {
                 if (lockedSub.Url == "migurdex://openanime_sub_locked")
                 {
-                    Toast.Show("[yellow]! OpenAnime altyazısı kilitli: Discord anahtarı gerekli (Ayarlar'dan ekleyin).[/]", 3500);
+                    Toast.Show(
+                        "[yellow]! OpenAnime altyazısı kilitli: Discord anahtarı gerekli (Ayarlar'dan ekleyin).[/]",
+                        3500);
                 }
                 else
                 {
@@ -546,8 +561,8 @@ public class EpisodeSourcesView : BaseView
 
                 // Oynatıcıya sahte şema göndermemek için listeden temizle
                 selectedSource.Subtitles = selectedSource.Subtitles
-                    .Where(s => !s.Url.StartsWith("migurdex://openanime_sub_"))
-                    .ToList();
+                                                         .Where(s => !s.Url.StartsWith("migurdex://openanime_sub_"))
+                                                         .ToList();
                 if (selectedSource.Subtitles.Count == 0)
                 {
                     selectedSource.Subtitles = null;
@@ -580,12 +595,12 @@ public class EpisodeSourcesView : BaseView
             return rejected;
         }
 
-        var config            = _configService.Config;
-        var progressTracker   = new DownloadProgressTracker();
-        var userCancelled     = false;
-        DownloadResult?       result           = null;
+        var                   config          = _configService.Config;
+        var                   progressTracker = new DownloadProgressTracker();
+        var                   userCancelled   = false;
+        DownloadResult?       result          = null;
         string?               unexpectedError = null;
-        Task<DownloadResult>? downloadTask     = null;
+        Task<DownloadResult>? downloadTask    = null;
         using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(
             TuiApplicationCancellation.Token);
 
@@ -593,20 +608,20 @@ public class EpisodeSourcesView : BaseView
         {
             using var modal = TuiApplicationCancellation.BeginModal(cancellation);
             downloadTask = _downloadService.DownloadAsync(
-                                                    new DownloadRequest
-                                                    {
-                                                        Source            = selectedSource,
-                                                        OutputDirectory   = config.DownloadDirectory,
-                                                        AnimeTitle        = animeTitle,
-                                                        EpisodeTitle      = episode.Title,
-                                                        Season            = episode.Season ?? 1,
-                                                        EpisodeNumber     = episode.Number,
-                                                        Overwrite         = config.DownloadOverwrite,
-                                                        Resume            = config.DownloadResume,
-                                                        DownloadSubtitles = config.DownloadSubtitles,
-                                                        Progress          = progressTracker
-                                                    },
-                                                    cancellation.Token);
+                new DownloadRequest
+                {
+                    Source            = selectedSource,
+                    OutputDirectory   = config.DownloadDirectory,
+                    AnimeTitle        = animeTitle,
+                    EpisodeTitle      = episode.Title,
+                    Season            = episode.Season ?? 1,
+                    EpisodeNumber     = episode.Number,
+                    Overwrite         = config.DownloadOverwrite,
+                    Resume            = config.DownloadResume,
+                    DownloadSubtitles = config.DownloadSubtitles,
+                    Progress          = progressTracker
+                },
+                cancellation.Token);
             await AnsiConsole.Progress()
                              .AutoClear(false)
                              .HideCompleted(false)
@@ -663,7 +678,7 @@ public class EpisodeSourcesView : BaseView
     }
 
     private static async Task AbortDownloadAsync(
-        Task<DownloadResult>? downloadTask,
+        Task<DownloadResult>?   downloadTask,
         CancellationTokenSource cancellation)
     {
         if (downloadTask is null)
@@ -726,10 +741,10 @@ public class EpisodeSourcesView : BaseView
 
         // Tek seçenekli bilgi ekranı: filtre satırı gizli, footer ekrana göre sadeleştirilmiş.
         FuzzyPrompt.Show(title,
-                          [TuiHelpers.Back()],
-                          headerLines: headers,
-                          footerHelp: "Enter devam • Esc geri",
-                          searchable: false);
+                         [TuiHelpers.Back()],
+                         headerLines: headers,
+                         footerHelp: "Enter devam • Esc geri",
+                         searchable: false);
 
         return Task.CompletedTask;
     }
@@ -740,7 +755,7 @@ public class EpisodeSourcesView : BaseView
         if (progress is null)
         {
             task.IsIndeterminate = true;
-            task.Description      = "Hazırlanıyor • Esc: iptal";
+            task.Description     = "Hazırlanıyor • Esc: iptal";
             return;
         }
 
@@ -766,20 +781,20 @@ public class EpisodeSourcesView : BaseView
             if (progress.Percent is not null)
             {
                 task.IsIndeterminate = false;
-                task.MaxValue         = 100;
-                task.Value            = Math.Clamp(progress.Percent.Value, 0, 100);
+                task.MaxValue        = 100;
+                task.Value           = Math.Clamp(progress.Percent.Value, 0, 100);
             }
             else if (progress is { FragmentsTotal: > 0, FragmentsDone: not null })
             {
                 task.IsIndeterminate = false;
-                task.MaxValue         = progress.FragmentsTotal.Value;
-                task.Value            = Math.Min(progress.FragmentsDone.Value, progress.FragmentsTotal.Value);
+                task.MaxValue        = progress.FragmentsTotal.Value;
+                task.Value           = Math.Min(progress.FragmentsDone.Value, progress.FragmentsTotal.Value);
             }
             else if (progress.TotalBytes is > 0)
             {
                 task.IsIndeterminate = false;
-                task.MaxValue         = progress.TotalBytes.Value;
-                task.Value            = Math.Min(progress.BytesDownloaded, progress.TotalBytes.Value);
+                task.MaxValue        = progress.TotalBytes.Value;
+                task.Value           = Math.Min(progress.BytesDownloaded, progress.TotalBytes.Value);
             }
             else
             {
@@ -789,7 +804,7 @@ public class EpisodeSourcesView : BaseView
             var speed = tracker.CurrentSpeed;
             if (speed > 0)
             {
-                detail += $" • {FormatBytes((long)speed)}/s";
+                detail += $" • {FormatBytes((long) speed)}/s";
                 var eta = tracker.CurrentEta;
                 if (eta is not null)
                 {
@@ -802,14 +817,14 @@ public class EpisodeSourcesView : BaseView
         }
 
         task.IsIndeterminate = true;
-        task.Description      = $"{stage} • Esc: iptal";
+        task.Description     = $"{stage} • Esc: iptal";
     }
 
     private static string FormatBytes(long bytes)
     {
         string[] units = ["B", "KiB", "MiB", "GiB", "TiB"];
-        double value   = Math.Max(0, bytes);
-        var    unit    = 0;
+        double   value = Math.Max(0, bytes);
+        var      unit  = 0;
         while (value >= 1024 && unit < units.Length - 1)
         {
             value /= 1024;
@@ -823,9 +838,9 @@ public class EpisodeSourcesView : BaseView
 
     private sealed class DownloadProgressTracker : IProgress<DownloadProgress>
     {
-        private readonly Lock _sync = new();
+        private readonly Lock                _sync  = new();
         private readonly DownloadSpeedometer _speed = new();
-        private          DownloadProgress? _current;
+        private          DownloadProgress?   _current;
 
         public DownloadProgress? Current
         {

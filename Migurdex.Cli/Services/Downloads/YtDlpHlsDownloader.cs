@@ -39,7 +39,7 @@ public sealed class YtDlpHlsDownloader : IHlsDownloader
         RegexOptions.Compiled | RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
 
     private readonly IExternalProcessRunner _processRunner;
-    private readonly HlsDownloadOptions      _options;
+    private readonly HlsDownloadOptions     _options;
 
     public YtDlpHlsDownloader(IExternalProcessRunner processRunner)
         : this(processRunner, new HlsDownloadOptions())
@@ -48,7 +48,7 @@ public sealed class YtDlpHlsDownloader : IHlsDownloader
 
     public YtDlpHlsDownloader(
         IExternalProcessRunner processRunner,
-        HlsDownloadOptions      options)
+        HlsDownloadOptions     options)
     {
         _processRunner = processRunner ?? throw new ArgumentNullException(nameof(processRunner));
         _options       = options ?? throw new ArgumentNullException(nameof(options));
@@ -56,16 +56,16 @@ public sealed class YtDlpHlsDownloader : IHlsDownloader
 
     public YtDlpHlsDownloader(
         IExternalProcessRunner processRunner,
-        string                  executable  = "yt-dlp",
-        int                     maxAttempts = 3,
-        TimeSpan?               retryDelay  = null,
-        int                     concurrentFragments = 5)
+        string                 executable          = "yt-dlp",
+        int                    maxAttempts         = 3,
+        TimeSpan?              retryDelay          = null,
+        int                    concurrentFragments = 5)
         : this(processRunner,
                new HlsDownloadOptions
                {
-                   Executable   = executable,
-                   MaxAttempts = maxAttempts,
-                   RetryDelay  = retryDelay ?? TimeSpan.FromSeconds(1),
+                   Executable          = executable,
+                   MaxAttempts         = maxAttempts,
+                   RetryDelay          = retryDelay ?? TimeSpan.FromSeconds(1),
                    ConcurrentFragments = concurrentFragments
                })
     {
@@ -74,9 +74,9 @@ public sealed class YtDlpHlsDownloader : IHlsDownloader
     public async Task<MediaDownloadResult> DownloadAsync(
         VideoSource                  source,
         DownloadPath                 destination,
-        bool                         overwrite           = false,
-        IProgress<DownloadProgress>? progress           = null,
-        CancellationToken             cancellationToken = default)
+        bool                         overwrite         = false,
+        IProgress<DownloadProgress>? progress          = null,
+        CancellationToken            cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(source);
         ArgumentNullException.ThrowIfNull(destination);
@@ -102,47 +102,47 @@ public sealed class YtDlpHlsDownloader : IHlsDownloader
         DownloadPathBuilder.EnsureFullPathBudget(lockIdentity,
                                                  DownloadPathBuilder.TemporarySuffixUtf8Bytes);
         using var targetLock = await AcquireTargetLockAsync(lockIdentity, cancellationToken)
-                                             .ConfigureAwait(false);
+                                   .ConfigureAwait(false);
         EnsureNoMediaConflict(destination, overwrite);
 
         var jobDirectory = Path.Combine(destination.AnimeDirectory,
-                                       ".migurdex-job-" + Guid.NewGuid().ToString("N"));
+                                        ".migurdex-job-" + Guid.NewGuid().ToString("N"));
         DownloadPathBuilder.EnsureFullPathBudget(jobDirectory, reservedSuffixBytes: 64);
         Directory.CreateDirectory(jobDirectory);
         var inputPath = Path.Combine(jobDirectory, ".migurdex-input.txt");
 
         try
         {
-            var maxAttempts = Math.Clamp(_options.MaxAttempts, 1, 5);
-            ExternalProcessResult? lastResult = null;
-            string? lastError = null;
-            var attemptWarnings = new List<string>();
+            var                    maxAttempts     = Math.Clamp(_options.MaxAttempts, 1, 5);
+            ExternalProcessResult? lastResult      = null;
+            string?                lastError       = null;
+            var                    attemptWarnings = new List<string>();
 
             for (var attempt = 1; attempt <= maxAttempts; attempt++)
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 DeleteGeneratedFiles(jobDirectory);
                 await File.WriteAllTextAsync(inputPath,
-                                            sourceUri.AbsoluteUri + Environment.NewLine,
-                                            cancellationToken)
+                                             sourceUri.AbsoluteUri + Environment.NewLine,
+                                             cancellationToken)
                           .ConfigureAwait(false);
                 Report(progress, DownloadStage.Requesting, 0, null);
 
-                var startInfo = BuildStartInfo(source, jobDirectory, inputPath);
-                var heartbeat = new HlsProgressHeartbeat();
-                var attemptErrors = new List<string>();
+                var                   startInfo     = BuildStartInfo(source, jobDirectory, inputPath);
+                var                   heartbeat     = new HlsProgressHeartbeat();
+                var                   attemptErrors = new List<string>();
                 ExternalProcessResult result;
                 try
                 {
                     result = await _processRunner.RunAsync(
-                                                    startInfo,
-                                                    line =>
-                                                    {
-                                                        CaptureErrorLine(line, attemptErrors);
-                                                        heartbeat.Report(line, progress);
-                                                    },
-                                                    cancellationToken)
-                                              .ConfigureAwait(false);
+                                                     startInfo,
+                                                     line =>
+                                                     {
+                                                         CaptureErrorLine(line, attemptErrors);
+                                                         heartbeat.Report(line, progress);
+                                                     },
+                                                     cancellationToken)
+                                                 .ConfigureAwait(false);
                     cancellationToken.ThrowIfCancellationRequested();
                 }
                 catch (ConcurrentDownloadException)
@@ -193,7 +193,8 @@ public sealed class YtDlpHlsDownloader : IHlsDownloader
 
                 if (attempt < maxAttempts)
                 {
-                    attemptWarnings.Add($"Deneme {attempt}/{maxAttempts} başarısız ({ShortCause(lastError)}); tekrar deneniyor.");
+                    attemptWarnings.Add(
+                        $"Deneme {attempt}/{maxAttempts} başarısız ({ShortCause(lastError)}); tekrar deneniyor.");
                     var delay = _options.RetryDelay < TimeSpan.Zero
                                     ? TimeSpan.Zero
                                     : _options.RetryDelay;
@@ -242,7 +243,7 @@ public sealed class YtDlpHlsDownloader : IHlsDownloader
         try
         {
             return await DownloadTargetLock.AcquireAsync(lockIdentity, cancellationToken)
-                                         .ConfigureAwait(false);
+                                           .ConfigureAwait(false);
         }
         catch (ConcurrentDownloadException exception)
         {
@@ -255,9 +256,14 @@ public sealed class YtDlpHlsDownloader : IHlsDownloader
         string      jobDirectory,
         string      inputPath)
     {
+        var executable = _options.ExecutableSelector?.Invoke() ?? _options.Executable;
+        var ffmpegPath = _options.FfmpegPathSelector?.Invoke() ?? _options.FfmpegPath;
+        var fragments  = _options.ConcurrentFragmentsSelector?.Invoke() ?? _options.ConcurrentFragments;
+        var speedLimit = _options.SpeedLimitKbpsSelector?.Invoke() ?? _options.SpeedLimitKbps;
+
         var startInfo = new ProcessStartInfo
         {
-            FileName               = string.IsNullOrWhiteSpace(_options.Executable) ? "yt-dlp" : _options.Executable,
+            FileName               = string.IsNullOrWhiteSpace(executable) ? "yt-dlp" : executable,
             UseShellExecute        = false,
             CreateNoWindow         = true,
             RedirectStandardOutput = true,
@@ -280,13 +286,19 @@ public sealed class YtDlpHlsDownloader : IHlsDownloader
         startInfo.ArgumentList.Add("--output");
         startInfo.ArgumentList.Add("media.%(ext)s");
         startInfo.ArgumentList.Add("--concurrent-fragments");
-        startInfo.ArgumentList.Add(Math.Clamp(_options.ConcurrentFragments, 1, 16)
-                                      .ToString(CultureInfo.InvariantCulture));
+        startInfo.ArgumentList.Add(Math.Clamp(fragments, 1, 16)
+                                       .ToString(CultureInfo.InvariantCulture));
 
-        if (!string.IsNullOrWhiteSpace(_options.FfmpegPath))
+        if (speedLimit > 0)
+        {
+            startInfo.ArgumentList.Add("--limit-rate");
+            startInfo.ArgumentList.Add($"{speedLimit.ToString(CultureInfo.InvariantCulture)}K");
+        }
+
+        if (!string.IsNullOrWhiteSpace(ffmpegPath))
         {
             startInfo.ArgumentList.Add("--ffmpeg-location");
-            startInfo.ArgumentList.Add(_options.FfmpegPath);
+            startInfo.ArgumentList.Add(ffmpegPath);
         }
 
         // yt-dlp'ye global --add-header yalnız güvenli allowlist ile verilir.
@@ -302,10 +314,10 @@ public sealed class YtDlpHlsDownloader : IHlsDownloader
 
     private sealed class HlsProgressHeartbeat
     {
-        private long _bytes;
-        private long? _total;
+        private long    _bytes;
+        private long?   _total;
         private string? _track;
-        private int _trackCount;
+        private int     _trackCount;
 
         public void Report(string line, IProgress<DownloadProgress>? progress)
         {
@@ -341,14 +353,25 @@ public sealed class YtDlpHlsDownloader : IHlsDownloader
 
             var bytesMatch = ProgressBytesRegex.Match(line);
             if (bytesMatch.Success
-                && TryParseSize(bytesMatch.Groups["current"].Value, bytesMatch.Groups["currentUnit"].Value,
+                && TryParseSize(bytesMatch.Groups["current"].Value,
+                                bytesMatch.Groups["currentUnit"].Value,
                                 out var current)
-                && TryParseSize(bytesMatch.Groups["total"].Value, bytesMatch.Groups["totalUnit"].Value,
+                && TryParseSize(bytesMatch.Groups["total"].Value,
+                                bytesMatch.Groups["totalUnit"].Value,
                                 out var total))
             {
                 _bytes = current;
                 _total = total;
-                progress.Report(new DownloadProgress(DownloadStage.Downloading, current, total, speed, fragDone, fragTotal, eta, null, _track, _trackCount > 1));
+                progress.Report(new DownloadProgress(DownloadStage.Downloading,
+                                                     current,
+                                                     total,
+                                                     speed,
+                                                     fragDone,
+                                                     fragTotal,
+                                                     eta,
+                                                     null,
+                                                     _track,
+                                                     _trackCount > 1));
                 return;
             }
 
@@ -361,17 +384,36 @@ public sealed class YtDlpHlsDownloader : IHlsDownloader
             {
                 var totalMatch = ProgressTotalRegex.Match(line);
                 if (totalMatch.Success
-                    && TryParseSize(totalMatch.Groups["value"].Value, totalMatch.Groups["unit"].Value,
+                    && TryParseSize(totalMatch.Groups["value"].Value,
+                                    totalMatch.Groups["unit"].Value,
                                     out var percentTotal))
                 {
-                    var downloaded = (long)Math.Round(percent / 100 * percentTotal);
+                    var downloaded = (long) Math.Round(percent / 100 * percentTotal);
                     _bytes = downloaded;
                     _total = percentTotal;
-                    progress.Report(new DownloadProgress(DownloadStage.Downloading, downloaded, percentTotal, speed, fragDone, fragTotal, eta, percent, _track, _trackCount > 1));
+                    progress.Report(new DownloadProgress(DownloadStage.Downloading,
+                                                         downloaded,
+                                                         percentTotal,
+                                                         speed,
+                                                         fragDone,
+                                                         fragTotal,
+                                                         eta,
+                                                         percent,
+                                                         _track,
+                                                         _trackCount > 1));
                     return;
                 }
 
-                progress.Report(new DownloadProgress(DownloadStage.Downloading, _bytes, _total, speed, fragDone, fragTotal, eta, percent, _track, _trackCount > 1));
+                progress.Report(new DownloadProgress(DownloadStage.Downloading,
+                                                     _bytes,
+                                                     _total,
+                                                     speed,
+                                                     fragDone,
+                                                     fragTotal,
+                                                     eta,
+                                                     percent,
+                                                     _track,
+                                                     _trackCount > 1));
                 return;
             }
 
@@ -385,7 +427,16 @@ public sealed class YtDlpHlsDownloader : IHlsDownloader
 
             if (line.Contains("[download]", StringComparison.OrdinalIgnoreCase))
             {
-                progress.Report(new DownloadProgress(DownloadStage.Downloading, _bytes, _total, speed, fragDone, fragTotal, eta, null, _track, _trackCount > 1));
+                progress.Report(new DownloadProgress(DownloadStage.Downloading,
+                                                     _bytes,
+                                                     _total,
+                                                     speed,
+                                                     fragDone,
+                                                     fragTotal,
+                                                     eta,
+                                                     null,
+                                                     _track,
+                                                     _trackCount > 1));
             }
         }
 
@@ -393,8 +444,14 @@ public sealed class YtDlpHlsDownloader : IHlsDownloader
         {
             var match = ProgressEtaRegex.Match(line);
             if (!match.Success
-                || !int.TryParse(match.Groups["minutes"].Value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var minutes)
-                || !int.TryParse(match.Groups["seconds"].Value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var seconds)
+                || !int.TryParse(match.Groups["minutes"].Value,
+                                 NumberStyles.Integer,
+                                 CultureInfo.InvariantCulture,
+                                 out var minutes)
+                || !int.TryParse(match.Groups["seconds"].Value,
+                                 NumberStyles.Integer,
+                                 CultureInfo.InvariantCulture,
+                                 out var seconds)
                 || seconds is < 0 or > 59
                 || minutes < 0)
             {
@@ -403,7 +460,10 @@ public sealed class YtDlpHlsDownloader : IHlsDownloader
 
             var hours = 0;
             if (match.Groups["hours"].Success
-                && !int.TryParse(match.Groups["hours"].Value, NumberStyles.Integer, CultureInfo.InvariantCulture, out hours))
+                && !int.TryParse(match.Groups["hours"].Value,
+                                 NumberStyles.Integer,
+                                 CultureInfo.InvariantCulture,
+                                 out hours))
             {
                 return null;
             }
@@ -447,8 +507,14 @@ public sealed class YtDlpHlsDownloader : IHlsDownloader
         {
             var match = ProgressFragRegex.Match(line);
             if (!match.Success
-                || !int.TryParse(match.Groups["done"].Value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var done)
-                || !int.TryParse(match.Groups["total"].Value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var total)
+                || !int.TryParse(match.Groups["done"].Value,
+                                 NumberStyles.Integer,
+                                 CultureInfo.InvariantCulture,
+                                 out var done)
+                || !int.TryParse(match.Groups["total"].Value,
+                                 NumberStyles.Integer,
+                                 CultureInfo.InvariantCulture,
+                                 out var total)
                 || done < 0
                 || total <= 0)
             {
@@ -484,12 +550,12 @@ public sealed class YtDlpHlsDownloader : IHlsDownloader
 
         var multiplier = unit.ToLowerInvariant() switch
         {
-            "b"    => 1D,
-            "kib"  => 1024D,
-            "mib"  => 1024D * 1024,
-            "gib"  => 1024D * 1024 * 1024,
-            "tib"  => 1024D * 1024 * 1024 * 1024,
-            _      => 0D
+            "b"   => 1D,
+            "kib" => 1024D,
+            "mib" => 1024D * 1024,
+            "gib" => 1024D * 1024 * 1024,
+            "tib" => 1024D * 1024 * 1024 * 1024,
+            _     => 0D
         };
         if (multiplier <= 0 || !double.IsFinite(number))
         {
@@ -502,7 +568,7 @@ public sealed class YtDlpHlsDownloader : IHlsDownloader
             return false;
         }
 
-        bytes = (long)result;
+        bytes = (long) result;
         return true;
     }
 
@@ -511,8 +577,8 @@ public sealed class YtDlpHlsDownloader : IHlsDownloader
         DownloadPath                 destination,
         bool                         overwrite,
         IProgress<DownloadProgress>? progress,
-        CancellationToken             cancellationToken,
-        IReadOnlyList<string>?        warnings = null)
+        CancellationToken            cancellationToken,
+        IReadOnlyList<string>?       warnings = null)
     {
         cancellationToken.ThrowIfCancellationRequested();
         var extension = Path.GetExtension(outputPath);
@@ -620,8 +686,8 @@ public sealed class YtDlpHlsDownloader : IHlsDownloader
         if (!string.IsNullOrWhiteSpace(result.StandardOutput))
         {
             candidates.AddRange(result.StandardOutput.Split(['\r', '\n'],
-                                                          StringSplitOptions.RemoveEmptyEntries
-                                                          | StringSplitOptions.TrimEntries));
+                                                            StringSplitOptions.RemoveEmptyEntries
+                                                            | StringSplitOptions.TrimEntries));
         }
 
         foreach (var candidate in candidates)
@@ -700,8 +766,8 @@ public sealed class YtDlpHlsDownloader : IHlsDownloader
                                               FileOptions.SequentialScan);
             var buffer = new byte[512];
             var read   = stream.Read(buffer, 0, buffer.Length);
-            var text   = System.Text.Encoding.UTF8.GetString(buffer, 0, read)
-                              .TrimStart('\uFEFF', ' ', '\r', '\n', '\t');
+            var text = System.Text.Encoding.UTF8.GetString(buffer, 0, read)
+                             .TrimStart('\uFEFF', ' ', '\r', '\n', '\t');
             return !text.StartsWith("<", StringComparison.Ordinal)
                    && !text.StartsWith("{", StringComparison.Ordinal)
                    && !text.StartsWith("[", StringComparison.Ordinal)
@@ -742,14 +808,14 @@ public sealed class YtDlpHlsDownloader : IHlsDownloader
         }
 
         var conflict = Directory.EnumerateFiles(destination.AnimeDirectory, "*", SearchOption.TopDirectoryOnly)
-                                   .Where(IsMediaFile)
-                                   .FirstOrDefault(path =>
-                                   {
-                                       var name = Path.GetFileNameWithoutExtension(path);
-                                       return name.Equals(destination.FileStem, StringComparison.OrdinalIgnoreCase)
-                                              || name.StartsWith(destination.FileStem + ".",
-                                                                StringComparison.OrdinalIgnoreCase);
-                                   });
+                                .Where(IsMediaFile)
+                                .FirstOrDefault(path =>
+                                {
+                                    var name = Path.GetFileNameWithoutExtension(path);
+                                    return name.Equals(destination.FileStem, StringComparison.OrdinalIgnoreCase)
+                                           || name.StartsWith(destination.FileStem + ".",
+                                                              StringComparison.OrdinalIgnoreCase);
+                                });
         if (conflict is not null)
         {
             throw new HlsDownloadException("Video hedefi zaten var; overwrite kapalı.");
@@ -812,9 +878,9 @@ public sealed class YtDlpHlsDownloader : IHlsDownloader
 
     private static void Report(
         IProgress<DownloadProgress>? progress,
-        DownloadStage                 stage,
-        long                          bytes,
-        long?                         total)
+        DownloadStage                stage,
+        long                         bytes,
+        long?                        total)
     {
         progress?.Report(new DownloadProgress(stage, bytes, total));
     }

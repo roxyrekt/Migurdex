@@ -16,7 +16,7 @@ public sealed class Mp4Downloader : IMp4Downloader
     private const long ParallelThresholdBytes = 8L * 1024 * 1024;
     private const long ParallelBytesPerConnection = 16L * 1024 * 1024;
     private const int ParallelMinSegments = 2;
-    private const int ParallelMaxSegments = 4;
+    private const int ParallelMaxSegments = 16;
 
     private static readonly Regex ContentRangeRegex = new(
         @"^bytes\s+(\d+)-(\d+)/(\d+|\*)\s*$",
@@ -28,25 +28,28 @@ public sealed class Mp4Downloader : IMp4Downloader
 
     private readonly IDownloadHttpClientFactory? _clientFactory;
     private readonly HttpClient?                  _fixedClient;
+    private readonly Mp4DownloadOptions           _options;
 
     public Mp4Downloader()
         : this(new DownloadHttpClientFactory())
     {
     }
 
-    public Mp4Downloader(IDownloadHttpClientFactory clientFactory)
+    public Mp4Downloader(IDownloadHttpClientFactory clientFactory, Mp4DownloadOptions? options = null)
     {
         _clientFactory = clientFactory ?? throw new ArgumentNullException(nameof(clientFactory));
+        _options       = options ?? new Mp4DownloadOptions();
     }
 
-    public Mp4Downloader(HttpMessageHandler handler)
-        : this(new HttpMessageHandlerDownloadClientFactory(handler))
+    public Mp4Downloader(HttpMessageHandler handler, Mp4DownloadOptions? options = null)
+        : this(new HttpMessageHandlerDownloadClientFactory(handler), options)
     {
     }
 
-    public Mp4Downloader(HttpClient client)
+    public Mp4Downloader(HttpClient client, Mp4DownloadOptions? options = null)
     {
         _fixedClient = client ?? throw new ArgumentNullException(nameof(client));
+        _options     = options ?? new Mp4DownloadOptions();
     }
 
     public static string GetResumePartPath(string destinationPath, VideoSource source)
@@ -344,8 +347,10 @@ public sealed class Mp4Downloader : IMp4Downloader
                 lastKnownTotal   = total;
                 Report(progress, DownloadStage.Downloading, downloaded, total);
 
-                var buffer         = new byte[BufferSize];
-                var lastReportTime = Stopwatch.GetTimestamp();
+                var buffer              = new byte[BufferSize];
+                var lastReportTime      = Stopwatch.GetTimestamp();
+                var rateWindowTimestamp = Stopwatch.GetTimestamp();
+                var rateWindowBytes     = 0L;
                 while (true)
                 {
                     cancellationToken.ThrowIfCancellationRequested();
@@ -377,6 +382,13 @@ public sealed class Mp4Downloader : IMp4Downloader
                               .ConfigureAwait(false);
                     downloaded += read;
                     lastKnownBytes = downloaded;
+
+                    await ThrottleIfNeededAsync(read,
+                                                ResolveSpeedLimitBytesPerSecond(1),
+                                                ref rateWindowTimestamp,
+                                                ref rateWindowBytes,
+                                                cancellationToken)
+                        .ConfigureAwait(false);
 
                     if (ShouldReport(lastReportTime, downloaded, total))
                     {
@@ -557,15 +569,71 @@ public sealed class Mp4Downloader : IMp4Downloader
         Mp4ResumeMetadata.Delete(metadataPath);
     }
 
-    private static int ComputeSegmentCount(long total)
+    private int ComputeSegmentCount(long total)
     {
         if (total < ParallelThresholdBytes)
         {
             return 0;
         }
 
+        var maxSegments = ResolveMaxSegments();
+        if (maxSegments < ParallelMinSegments)
+        {
+            return 0;
+        }
+
         var count = (int)(total / ParallelBytesPerConnection);
-        return (int)Math.Clamp(count, ParallelMinSegments, ParallelMaxSegments);
+        return (int)Math.Clamp(count, ParallelMinSegments, maxSegments);
+    }
+
+    private int ResolveMaxSegments()
+    {
+        var configured = _options.MaxSegmentsSelector?.Invoke() ?? _options.MaxSegments;
+        return Math.Clamp(configured, 1, ParallelMaxSegments);
+    }
+
+    private long ResolveSpeedLimitBytesPerSecond(int activeSegments)
+    {
+        var kbps = _options.SpeedLimitKbpsSelector?.Invoke() ?? _options.SpeedLimitKbps;
+        if (kbps <= 0)
+        {
+            return 0;
+        }
+
+        var totalBytesPerSec = (long)kbps * 1024L;
+        return Math.Max(16 * 1024L, totalBytesPerSec / Math.Max(1, activeSegments));
+    }
+
+    private static ValueTask ThrottleIfNeededAsync(
+        int               bytesRead,
+        long              maxBytesPerSecond,
+        ref long          windowStartTimestamp,
+        ref long          windowBytes,
+        CancellationToken cancellationToken)
+    {
+        if (maxBytesPerSecond <= 0 || bytesRead <= 0)
+        {
+            return ValueTask.CompletedTask;
+        }
+
+        windowBytes += bytesRead;
+        var elapsedMs = Stopwatch.GetElapsedTime(windowStartTimestamp).TotalMilliseconds;
+        var targetMs  = windowBytes * 1000.0 / maxBytesPerSecond;
+        var delayMs   = targetMs - elapsedMs;
+
+        if (elapsedMs >= 1000.0 && delayMs <= 0)
+        {
+            windowStartTimestamp = Stopwatch.GetTimestamp();
+            windowBytes          = 0;
+            return ValueTask.CompletedTask;
+        }
+
+        if (delayMs >= 15.0)
+        {
+            return new ValueTask(Task.Delay(TimeSpan.FromMilliseconds(Math.Min(delayMs, 2000.0)), cancellationToken));
+        }
+
+        return ValueTask.CompletedTask;
     }
 
     private static bool TryGetParallelTotal(HttpResponseMessage response, out long total)
@@ -1078,8 +1146,11 @@ public sealed class Mp4Downloader : IMp4Downloader
             throw new DownloadException("Video parçası indirme sırasında değişti.");
         }
 
-        var buffer = new byte[BufferSize];
-        var remaining = expectedRemaining;
+        var buffer              = new byte[BufferSize];
+        var remaining           = expectedRemaining;
+        var segmentCount        = Math.Max(1, manifest.SegmentCount ?? 1);
+        var rateWindowTimestamp = Stopwatch.GetTimestamp();
+        var rateWindowBytes     = 0L;
         while (remaining > 0)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -1094,6 +1165,13 @@ public sealed class Mp4Downloader : IMp4Downloader
             remaining -= read;
             addBytes(read);
             reportAggregated();
+
+            await ThrottleIfNeededAsync(read,
+                                        ResolveSpeedLimitBytesPerSecond(segmentCount),
+                                        ref rateWindowTimestamp,
+                                        ref rateWindowBytes,
+                                        cancellationToken)
+                .ConfigureAwait(false);
         }
 
         await file.FlushAsync(cancellationToken).ConfigureAwait(false);

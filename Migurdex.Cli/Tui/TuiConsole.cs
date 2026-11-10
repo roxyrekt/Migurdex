@@ -27,7 +27,24 @@ internal static class TuiConsole
         }
     }
 
+    public static int WindowWidth
+    {
+        get
+        {
+            try
+            {
+                var width = Console.WindowWidth;
+                return width > 0 ? width : DefaultWindowWidth;
+            }
+            catch
+            {
+                return DefaultWindowWidth;
+            }
+        }
+    }
+
     private const int DefaultWindowHeight = 40;
+    private const int DefaultWindowWidth  = 100;
 
     public static bool WaitForKey()
     {

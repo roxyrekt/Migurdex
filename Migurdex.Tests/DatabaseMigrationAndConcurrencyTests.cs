@@ -149,6 +149,49 @@ public sealed class DatabaseMigrationAndConcurrencyTests
     }
 
     [Fact]
+    public void InitializeDatabase_UpgradesLegacyDownloadJobsTable()
+    {
+        var dir    = NewTempDir();
+        var dbPath = Path.Combine(dir, "migurdex.db");
+
+        using (var con = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={dbPath}"))
+        {
+            con.Open();
+            using var cmd = con.CreateCommand();
+            cmd.CommandText = """
+                                  CREATE TABLE download_jobs (
+                                      id TEXT PRIMARY KEY,
+                                      provider_name TEXT NOT NULL,
+                                      anime_id TEXT NOT NULL,
+                                      anime_title TEXT NOT NULL,
+                                      episode_id TEXT NOT NULL,
+                                      state TEXT NOT NULL DEFAULT 'queued'
+                                  );
+                              """;
+            cmd.ExecuteNonQuery();
+        }
+
+        var db   = new MigurdexDatabase(dir);
+        var jobs = db.GetDownloadJobs();
+        Assert.Empty(jobs);
+
+        var newJob = new DownloadJobEntry
+        {
+            Id           = "job-migrated",
+            ProviderName = "AniHub",
+            AnimeId      = "anime-1",
+            AnimeTitle   = "Anime Title",
+            EpisodeId    = "ep-1",
+            Status       = Migurdex.Shared.Enums.DownloadJobStatus.Queued
+        };
+
+        db.UpsertDownloadJob(newJob);
+        var loaded = db.GetDownloadJob("job-migrated");
+        Assert.NotNull(loaded);
+        Assert.Equal("Anime Title", loaded.AnimeTitle);
+    }
+
+    [Fact]
     public void Automatic_Migration_From_Legacy_Json_Files()
     {
         var dir = NewTempDir();

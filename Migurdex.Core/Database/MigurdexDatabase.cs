@@ -1,5 +1,6 @@
 using Microsoft.Data.Sqlite;
 using Migurdex.Core.Services.Turnstile;
+using Migurdex.Shared.Enums;
 using Migurdex.Shared.Models;
 using System.Globalization;
 using System.Text.Json;
@@ -121,6 +122,9 @@ public class MigurdexDatabase
 
             cmd.CommandText = "PRAGMA journal_mode = WAL;";
             cmd.ExecuteNonQuery();
+
+            EnsureDownloadJobsSchema(connection);
+
             cmd.CommandText = """
                                   CREATE TABLE IF NOT EXISTS watch_history (
                                       provider_name           TEXT NOT NULL,
@@ -199,10 +203,77 @@ public class MigurdexDatabase
                                       source                  TEXT NOT NULL DEFAULT '',
                                       updated_at_utc          TEXT NOT NULL
                                   );
+
+                                  CREATE TABLE IF NOT EXISTS download_jobs (
+                                      id                      TEXT PRIMARY KEY,
+                                      provider_name           TEXT NOT NULL,
+                                      anime_id                TEXT NOT NULL,
+                                      anime_title             TEXT NOT NULL,
+                                      episode_id              TEXT NOT NULL,
+                                      episode_title           TEXT NOT NULL DEFAULT '',
+                                      season                  INTEGER NOT NULL DEFAULT 1,
+                                      episode_number          REAL NOT NULL DEFAULT 1,
+                                      preferred_group         TEXT,
+                                      preferred_format        TEXT NOT NULL DEFAULT 'Auto',
+                                      source_json             TEXT,
+                                      output_directory        TEXT NOT NULL,
+                                      media_path              TEXT,
+                                      subtitle_paths_json     TEXT,
+                                      warnings_json           TEXT,
+                                      status                  TEXT NOT NULL,
+                                      bytes_downloaded        INTEGER NOT NULL DEFAULT 0,
+                                      total_bytes             INTEGER,
+                                      fragments_done          INTEGER,
+                                      fragments_total         INTEGER,
+                                      percent                 REAL,
+                                      error_message           TEXT,
+                                      overwrite               INTEGER NOT NULL DEFAULT 0,
+                                      resume_enabled          INTEGER NOT NULL DEFAULT 1,
+                                      download_subtitles      INTEGER NOT NULL DEFAULT 1,
+                                      priority                INTEGER NOT NULL DEFAULT 0,
+                                      created_at_utc          TEXT NOT NULL,
+                                      updated_at_utc          TEXT NOT NULL
+                                  );
+                                  CREATE INDEX IF NOT EXISTS idx_download_jobs_status_priority ON download_jobs(status, priority DESC, created_at_utc ASC);
+                                  CREATE INDEX IF NOT EXISTS idx_download_jobs_episode ON download_jobs(provider_name, anime_id, episode_id);
                               """;
 
             cmd.ExecuteNonQuery();
             RestrictDbFilePermissions();
+        }
+    }
+
+    private static void EnsureDownloadJobsSchema(SqliteConnection connection)
+    {
+        try
+        {
+            using var checkCmd = connection.CreateCommand();
+            checkCmd.CommandText = "PRAGMA table_info(download_jobs);";
+            using var reader          = checkCmd.ExecuteReader();
+            var       hasTable        = false;
+            var       hasStatusColumn = false;
+            while (reader.Read())
+            {
+                hasTable = true;
+                var name = reader.GetString(1);
+                if (string.Equals(name, "status", StringComparison.OrdinalIgnoreCase))
+                {
+                    hasStatusColumn = true;
+                }
+            }
+
+            reader.Close();
+
+            if (hasTable && !hasStatusColumn)
+            {
+                using var dropCmd = connection.CreateCommand();
+                dropCmd.CommandText = "DROP TABLE IF EXISTS download_jobs;";
+                dropCmd.ExecuteNonQuery();
+            }
+        }
+        catch
+        {
+            // ignored
         }
     }
 
@@ -243,30 +314,30 @@ public class MigurdexDatabase
                         if (entries is { Count: > 0 })
                         {
                             using var connection = CreateConnection();
-                            using var tx = connection.BeginTransaction();
-                            using var cmd = connection.CreateCommand();
+                            using var tx         = connection.BeginTransaction();
+                            using var cmd        = connection.CreateCommand();
                             cmd.Transaction = tx;
                             cmd.CommandText = """
-                                INSERT INTO watch_history (
-                                    provider_name, anime_id, episode_id, anime_title, episode_title,
-                                    season, episode_number, last_position_seconds, total_duration_seconds,
-                                    is_completed, poster_url, last_watched_at_utc
-                                ) VALUES (
-                                    $provider, $animeId, $episodeId, $animeTitle, $episodeTitle,
-                                    $season, $episodeNumber, $lastPos, $totalDur,
-                                    $completed, $posterUrl, $lastWatched
-                                )
-                                ON CONFLICT(provider_name, anime_id, episode_id) DO UPDATE SET
-                                    anime_title = excluded.anime_title,
-                                    episode_title = COALESCE(excluded.episode_title, watch_history.episode_title),
-                                    season = excluded.season,
-                                    episode_number = excluded.episode_number,
-                                    last_position_seconds = excluded.last_position_seconds,
-                                    total_duration_seconds = excluded.total_duration_seconds,
-                                    is_completed = excluded.is_completed,
-                                    poster_url = COALESCE(excluded.poster_url, watch_history.poster_url),
-                                    last_watched_at_utc = excluded.last_watched_at_utc;
-                            """;
+                                                  INSERT INTO watch_history (
+                                                      provider_name, anime_id, episode_id, anime_title, episode_title,
+                                                      season, episode_number, last_position_seconds, total_duration_seconds,
+                                                      is_completed, poster_url, last_watched_at_utc
+                                                  ) VALUES (
+                                                      $provider, $animeId, $episodeId, $animeTitle, $episodeTitle,
+                                                      $season, $episodeNumber, $lastPos, $totalDur,
+                                                      $completed, $posterUrl, $lastWatched
+                                                  )
+                                                  ON CONFLICT(provider_name, anime_id, episode_id) DO UPDATE SET
+                                                      anime_title = excluded.anime_title,
+                                                      episode_title = COALESCE(excluded.episode_title, watch_history.episode_title),
+                                                      season = excluded.season,
+                                                      episode_number = excluded.episode_number,
+                                                      last_position_seconds = excluded.last_position_seconds,
+                                                      total_duration_seconds = excluded.total_duration_seconds,
+                                                      is_completed = excluded.is_completed,
+                                                      poster_url = COALESCE(excluded.poster_url, watch_history.poster_url),
+                                                      last_watched_at_utc = excluded.last_watched_at_utc;
+                                              """;
                             foreach (var entry in entries)
                             {
                                 if (entry is null)
@@ -275,6 +346,7 @@ public class MigurdexDatabase
                                 BindWatchHistory(cmd, entry);
                                 cmd.ExecuteNonQuery();
                             }
+
                             tx.Commit();
                         }
 
@@ -298,17 +370,17 @@ public class MigurdexDatabase
                         if (favs is { Count: > 0 })
                         {
                             using var connection = CreateConnection();
-                            using var tx = connection.BeginTransaction();
-                            using var cmd = connection.CreateCommand();
+                            using var tx         = connection.BeginTransaction();
+                            using var cmd        = connection.CreateCommand();
                             cmd.Transaction = tx;
                             cmd.CommandText = """
-                                INSERT INTO favorites (provider_name, anime_id, anime_title, poster_url, added_at_utc)
-                                VALUES ($provider, $animeId, $animeTitle, $posterUrl, $addedAt)
-                                ON CONFLICT(provider_name, anime_id) DO UPDATE SET
-                                    anime_title = excluded.anime_title,
-                                    poster_url = COALESCE(excluded.poster_url, favorites.poster_url),
-                                    added_at_utc = excluded.added_at_utc;
-                            """;
+                                                  INSERT INTO favorites (provider_name, anime_id, anime_title, poster_url, added_at_utc)
+                                                  VALUES ($provider, $animeId, $animeTitle, $posterUrl, $addedAt)
+                                                  ON CONFLICT(provider_name, anime_id) DO UPDATE SET
+                                                      anime_title = excluded.anime_title,
+                                                      poster_url = COALESCE(excluded.poster_url, favorites.poster_url),
+                                                      added_at_utc = excluded.added_at_utc;
+                                              """;
                             foreach (var fav in favs)
                             {
                                 if (fav is null)
@@ -317,6 +389,7 @@ public class MigurdexDatabase
                                 BindFavorite(cmd, fav);
                                 cmd.ExecuteNonQuery();
                             }
+
                             tx.Commit();
                         }
 
@@ -386,7 +459,8 @@ public class MigurdexDatabase
                     {
                         Dictionary<string, TrackerMappingEntry>? mappings;
                         using (var fs = File.OpenRead(mappingsPath))
-                            mappings = JsonSerializer.Deserialize<Dictionary<string, TrackerMappingEntry>>(fs, _jsonOpts);
+                            mappings =
+                                JsonSerializer.Deserialize<Dictionary<string, TrackerMappingEntry>>(fs, _jsonOpts);
                         if (mappings is { Count: > 0 })
                         {
                             foreach (var kvp in mappings)
@@ -1172,6 +1246,354 @@ public class MigurdexDatabase
     private static string NormalizeHost(string host)
     {
         return TurnstileDetector.NormalizeHost(host);
+    }
+
+#endregion
+
+#region Download Jobs
+
+    public void UpsertDownloadJob(DownloadJobEntry job)
+    {
+        ArgumentNullException.ThrowIfNull(job);
+
+        using var connection = CreateConnection();
+        using var cmd        = connection.CreateCommand();
+
+        cmd.CommandText = """
+                              INSERT INTO download_jobs (
+                                  id, provider_name, anime_id, anime_title, episode_id, episode_title,
+                                  season, episode_number, preferred_group, preferred_format, source_json,
+                                  output_directory, media_path, subtitle_paths_json, warnings_json,
+                                  status, bytes_downloaded, total_bytes, fragments_done, fragments_total,
+                                  percent, error_message, overwrite, resume_enabled, download_subtitles,
+                                  priority, created_at_utc, updated_at_utc
+                              ) VALUES (
+                                  $id, $provider, $animeId, $animeTitle, $episodeId, $episodeTitle,
+                                  $season, $episodeNumber, $preferredGroup, $preferredFormat, $sourceJson,
+                                  $outputDir, $mediaPath, $subtitlePathsJson, $warningsJson,
+                                  $status, $bytesDownloaded, $totalBytes, $fragmentsDone, $fragmentsTotal,
+                                  $percent, $errorMessage, $overwrite, $resumeEnabled, $downloadSubtitles,
+                                  $priority, $createdAt, $updatedAt
+                              )
+                              ON CONFLICT(id) DO UPDATE SET
+                                  provider_name       = excluded.provider_name,
+                                  anime_id            = excluded.anime_id,
+                                  anime_title         = excluded.anime_title,
+                                  episode_id          = excluded.episode_id,
+                                  episode_title       = excluded.episode_title,
+                                  season              = excluded.season,
+                                  episode_number      = excluded.episode_number,
+                                  preferred_group     = excluded.preferred_group,
+                                  preferred_format    = excluded.preferred_format,
+                                  source_json         = excluded.source_json,
+                                  output_directory    = excluded.output_directory,
+                                  media_path          = excluded.media_path,
+                                  subtitle_paths_json = excluded.subtitle_paths_json,
+                                  warnings_json       = excluded.warnings_json,
+                                  status              = excluded.status,
+                                  bytes_downloaded    = excluded.bytes_downloaded,
+                                  total_bytes         = excluded.total_bytes,
+                                  fragments_done      = excluded.fragments_done,
+                                  fragments_total     = excluded.fragments_total,
+                                  percent             = excluded.percent,
+                                  error_message       = excluded.error_message,
+                                  overwrite           = excluded.overwrite,
+                                  resume_enabled      = excluded.resume_enabled,
+                                  download_subtitles  = excluded.download_subtitles,
+                                  priority            = excluded.priority,
+                                  updated_at_utc      = excluded.updated_at_utc;
+                          """;
+
+        BindDownloadJob(cmd, job);
+        cmd.ExecuteNonQuery();
+    }
+
+    public IReadOnlyList<DownloadJobEntry> GetDownloadJobs()
+    {
+        using var connection = CreateConnection();
+        using var cmd        = connection.CreateCommand();
+
+        cmd.CommandText = """
+                              SELECT
+                                  id, provider_name, anime_id, anime_title, episode_id, episode_title,
+                                  season, episode_number, preferred_group, preferred_format, source_json,
+                                  output_directory, media_path, subtitle_paths_json, warnings_json,
+                                  status, bytes_downloaded, total_bytes, fragments_done, fragments_total,
+                                  percent, error_message, overwrite, resume_enabled, download_subtitles,
+                                  priority, created_at_utc, updated_at_utc
+                              FROM download_jobs
+                              ORDER BY priority DESC, created_at_utc ASC
+                          """;
+
+        var       list   = new List<DownloadJobEntry>();
+        using var reader = cmd.ExecuteReader();
+        while (reader.Read())
+        {
+            list.Add(ReadDownloadJob(reader));
+        }
+
+        return list;
+    }
+
+    public DownloadJobEntry? GetDownloadJob(string id)
+    {
+        if (string.IsNullOrWhiteSpace(id))
+        {
+            return null;
+        }
+
+        using var connection = CreateConnection();
+        using var cmd        = connection.CreateCommand();
+
+        cmd.CommandText = """
+                              SELECT
+                                  id, provider_name, anime_id, anime_title, episode_id, episode_title,
+                                  season, episode_number, preferred_group, preferred_format, source_json,
+                                  output_directory, media_path, subtitle_paths_json, warnings_json,
+                                  status, bytes_downloaded, total_bytes, fragments_done, fragments_total,
+                                  percent, error_message, overwrite, resume_enabled, download_subtitles,
+                                  priority, created_at_utc, updated_at_utc
+                              FROM download_jobs
+                              WHERE id = $id
+                              LIMIT 1
+                          """;
+        cmd.Parameters.AddWithValue("$id", id.Trim());
+
+        using var reader = cmd.ExecuteReader();
+        return reader.Read() ? ReadDownloadJob(reader) : null;
+    }
+
+    public DownloadJobEntry? FindActiveOrPendingDownloadJob(string providerName, string animeId, string episodeId)
+    {
+        if (string.IsNullOrWhiteSpace(providerName)
+            || string.IsNullOrWhiteSpace(animeId)
+            || string.IsNullOrWhiteSpace(episodeId))
+        {
+            return null;
+        }
+
+        using var connection = CreateConnection();
+        using var cmd        = connection.CreateCommand();
+
+        cmd.CommandText = """
+                              SELECT
+                                  id, provider_name, anime_id, anime_title, episode_id, episode_title,
+                                  season, episode_number, preferred_group, preferred_format, source_json,
+                                  output_directory, media_path, subtitle_paths_json, warnings_json,
+                                  status, bytes_downloaded, total_bytes, fragments_done, fragments_total,
+                                  percent, error_message, overwrite, resume_enabled, download_subtitles,
+                                  priority, created_at_utc, updated_at_utc
+                              FROM download_jobs
+                              WHERE provider_name = $provider
+                                AND anime_id = $animeId
+                                AND episode_id = $episodeId
+                                AND status IN ('Queued', 'Resolving', 'Downloading', 'Subtitle', 'Finalizing', 'Paused')
+                              ORDER BY created_at_utc DESC
+                              LIMIT 1
+                          """;
+        cmd.Parameters.AddWithValue("$provider", providerName.Trim());
+        cmd.Parameters.AddWithValue("$animeId", animeId.Trim());
+        cmd.Parameters.AddWithValue("$episodeId", episodeId.Trim());
+
+        using var reader = cmd.ExecuteReader();
+        return reader.Read() ? ReadDownloadJob(reader) : null;
+    }
+
+    public bool DeleteDownloadJob(string id)
+    {
+        if (string.IsNullOrWhiteSpace(id))
+        {
+            return false;
+        }
+
+        using var connection = CreateConnection();
+        using var cmd        = connection.CreateCommand();
+
+        cmd.CommandText = "DELETE FROM download_jobs WHERE id = $id";
+        cmd.Parameters.AddWithValue("$id", id.Trim());
+        return cmd.ExecuteNonQuery() > 0;
+    }
+
+    public int ClearCompletedDownloadJobs()
+    {
+        using var connection = CreateConnection();
+        using var cmd        = connection.CreateCommand();
+
+        cmd.CommandText = "DELETE FROM download_jobs WHERE status IN ('Completed', 'Cancelled')";
+        return cmd.ExecuteNonQuery();
+    }
+
+    public int ClearFailedDownloadJobs()
+    {
+        using var connection = CreateConnection();
+        using var cmd        = connection.CreateCommand();
+
+        cmd.CommandText = "DELETE FROM download_jobs WHERE status IN ('Failed', 'Cancelled')";
+        return cmd.ExecuteNonQuery();
+    }
+
+    public int ClearAllDownloadJobs()
+    {
+        using var connection = CreateConnection();
+        using var cmd        = connection.CreateCommand();
+
+        cmd.CommandText = "DELETE FROM download_jobs;";
+        return cmd.ExecuteNonQuery();
+    }
+
+    public int RecoverInterruptedDownloadJobs(DownloadJobStatus targetStatus = DownloadJobStatus.Queued)
+    {
+        using var connection = CreateConnection();
+        using var cmd        = connection.CreateCommand();
+
+        cmd.CommandText = """
+                              UPDATE download_jobs
+                              SET status = $targetStatus,
+                                  updated_at_utc = $updatedAt
+                              WHERE status IN ('Resolving', 'Downloading', 'Subtitle', 'Finalizing')
+                          """;
+        cmd.Parameters.AddWithValue("$targetStatus", targetStatus.ToString());
+        cmd.Parameters.AddWithValue("$updatedAt", DateTime.UtcNow.ToString("o", CultureInfo.InvariantCulture));
+        return cmd.ExecuteNonQuery();
+    }
+
+    private static void BindDownloadJob(SqliteCommand cmd, DownloadJobEntry job)
+    {
+        cmd.Parameters.AddWithValue("$id", job.Id);
+        cmd.Parameters.AddWithValue("$provider", job.ProviderName ?? string.Empty);
+        cmd.Parameters.AddWithValue("$animeId", job.AnimeId ?? string.Empty);
+        cmd.Parameters.AddWithValue("$animeTitle", job.AnimeTitle ?? string.Empty);
+        cmd.Parameters.AddWithValue("$episodeId", job.EpisodeId ?? string.Empty);
+        cmd.Parameters.AddWithValue("$episodeTitle", job.EpisodeTitle ?? string.Empty);
+        cmd.Parameters.AddWithValue("$season", job.Season);
+        cmd.Parameters.AddWithValue("$episodeNumber", job.EpisodeNumber);
+        cmd.Parameters.AddWithValue("$preferredGroup",
+                                    string.IsNullOrWhiteSpace(job.PreferredGroup)
+                                        ? DBNull.Value
+                                        : job.PreferredGroup.Trim());
+        cmd.Parameters.AddWithValue("$preferredFormat",
+                                    string.IsNullOrWhiteSpace(job.PreferredFormat) ? "Auto" : job.PreferredFormat);
+        cmd.Parameters.AddWithValue("$sourceJson",
+                                    job.Source is null
+                                        ? DBNull.Value
+                                        : JsonSerializer.Serialize(job.Source, _jsonOpts));
+        cmd.Parameters.AddWithValue("$outputDir", job.OutputDirectory ?? string.Empty);
+        cmd.Parameters.AddWithValue("$mediaPath",
+                                    string.IsNullOrWhiteSpace(job.MediaPath) ? DBNull.Value : job.MediaPath);
+        cmd.Parameters.AddWithValue("$subtitlePathsJson",
+                                    job.SubtitlePaths is { Count: > 0 }
+                                        ? JsonSerializer.Serialize(job.SubtitlePaths, _jsonOpts)
+                                        : DBNull.Value);
+        cmd.Parameters.AddWithValue("$warningsJson",
+                                    job.Warnings is { Count: > 0 }
+                                        ? JsonSerializer.Serialize(job.Warnings, _jsonOpts)
+                                        : DBNull.Value);
+        cmd.Parameters.AddWithValue("$status", job.Status.ToString());
+        cmd.Parameters.AddWithValue("$bytesDownloaded", job.BytesDownloaded);
+        cmd.Parameters.AddWithValue("$totalBytes", job.TotalBytes.HasValue ? job.TotalBytes.Value : DBNull.Value);
+        cmd.Parameters.AddWithValue("$fragmentsDone",
+                                    job.FragmentsDone.HasValue ? job.FragmentsDone.Value : DBNull.Value);
+        cmd.Parameters.AddWithValue("$fragmentsTotal",
+                                    job.FragmentsTotal.HasValue ? job.FragmentsTotal.Value : DBNull.Value);
+        cmd.Parameters.AddWithValue("$percent", job.Percent.HasValue ? job.Percent.Value : DBNull.Value);
+        cmd.Parameters.AddWithValue("$errorMessage",
+                                    string.IsNullOrWhiteSpace(job.ErrorMessage) ? DBNull.Value : job.ErrorMessage);
+        cmd.Parameters.AddWithValue("$overwrite", job.Overwrite ? 1 : 0);
+        cmd.Parameters.AddWithValue("$resumeEnabled", job.ResumeEnabled ? 1 : 0);
+        cmd.Parameters.AddWithValue("$downloadSubtitles", job.DownloadSubtitles ? 1 : 0);
+        cmd.Parameters.AddWithValue("$priority", job.Priority);
+        cmd.Parameters.AddWithValue("$createdAt",
+                                    job.CreatedAtUtc.ToUniversalTime().ToString("o", CultureInfo.InvariantCulture));
+        cmd.Parameters.AddWithValue("$updatedAt",
+                                    job.UpdatedAtUtc.ToUniversalTime().ToString("o", CultureInfo.InvariantCulture));
+    }
+
+    private static DownloadJobEntry ReadDownloadJob(SqliteDataReader reader)
+    {
+        var sourceJson        = reader.IsDBNull(10) ? null : reader.GetString(10);
+        var subtitlePathsJson = reader.IsDBNull(13) ? null : reader.GetString(13);
+        var warningsJson      = reader.IsDBNull(14) ? null : reader.GetString(14);
+        var statusRaw         = reader.IsDBNull(15) ? "Queued" : reader.GetString(15);
+
+        VideoSource? source = null;
+        if (!string.IsNullOrWhiteSpace(sourceJson))
+        {
+            try
+            {
+                source = JsonSerializer.Deserialize<VideoSource>(sourceJson, _jsonOpts);
+            }
+            catch
+            {
+                // ignored
+            }
+        }
+
+        List<string> subtitlePaths = [];
+        if (!string.IsNullOrWhiteSpace(subtitlePathsJson))
+        {
+            try
+            {
+                subtitlePaths = JsonSerializer.Deserialize<List<string>>(subtitlePathsJson, _jsonOpts) ?? [];
+            }
+            catch
+            {
+                // ignored
+            }
+        }
+
+        List<string> warnings = [];
+        if (!string.IsNullOrWhiteSpace(warningsJson))
+        {
+            try
+            {
+                warnings = JsonSerializer.Deserialize<List<string>>(warningsJson, _jsonOpts) ?? [];
+            }
+            catch
+            {
+                // ignored
+            }
+        }
+
+        if (!Enum.TryParse<DownloadJobStatus>(statusRaw, ignoreCase: true, out var status))
+        {
+            status = DownloadJobStatus.Queued;
+        }
+
+        return new DownloadJobEntry
+        {
+            Id                = reader.GetString(0),
+            ProviderName      = reader.GetString(1),
+            AnimeId           = reader.GetString(2),
+            AnimeTitle        = reader.GetString(3),
+            EpisodeId         = reader.GetString(4),
+            EpisodeTitle      = reader.IsDBNull(5) ? string.Empty : reader.GetString(5),
+            Season            = reader.GetInt32(6),
+            EpisodeNumber     = reader.GetDouble(7),
+            PreferredGroup    = reader.IsDBNull(8) ? null : reader.GetString(8),
+            PreferredFormat   = reader.IsDBNull(9) ? "Auto" : reader.GetString(9),
+            Source            = source,
+            OutputDirectory   = reader.GetString(11),
+            MediaPath         = reader.IsDBNull(12) ? null : reader.GetString(12),
+            SubtitlePaths     = subtitlePaths,
+            Warnings          = warnings,
+            Status            = status,
+            BytesDownloaded   = reader.GetInt64(16),
+            TotalBytes        = reader.IsDBNull(17) ? null : reader.GetInt64(17),
+            FragmentsDone     = reader.IsDBNull(18) ? null : reader.GetInt32(18),
+            FragmentsTotal    = reader.IsDBNull(19) ? null : reader.GetInt32(19),
+            Percent           = reader.IsDBNull(20) ? null : reader.GetDouble(20),
+            ErrorMessage      = reader.IsDBNull(21) ? null : reader.GetString(21),
+            Overwrite         = reader.GetInt32(22) == 1,
+            ResumeEnabled     = reader.GetInt32(23) == 1,
+            DownloadSubtitles = reader.GetInt32(24) == 1,
+            Priority          = reader.GetInt32(25),
+            CreatedAtUtc = DateTime.Parse(reader.GetString(26),
+                                          CultureInfo.InvariantCulture,
+                                          DateTimeStyles.AdjustToUniversal),
+            UpdatedAtUtc = DateTime.Parse(reader.GetString(27),
+                                          CultureInfo.InvariantCulture,
+                                          DateTimeStyles.AdjustToUniversal)
+        };
     }
 
 #endregion

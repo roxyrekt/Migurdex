@@ -14,6 +14,7 @@ public class CliConfig
     public bool         ShowPlayerLogs           { get; set; } = false;
     public bool         AutoSelectBestSource     { get; set; } = false;
     public double       AutoSelectTimeoutSeconds { get; set; } = 5;
+    public string       DefaultEpisodeAction     { get; set; } = "Ask";
     public List<string> DisabledProviders        { get; set; } = [];
 
     public string DownloadDirectory
@@ -41,11 +42,42 @@ public class CliConfig
             "migurdex",
             "tools");
 
+    private int _maxConcurrentDownloads = 2;
+    private int _mp4MaxSegments         = 4;
+    private int _hlsConcurrentFragments = 5;
+    private int _downloadSpeedLimitKbps = 0;
+
     public bool DownloadSubtitles { get; set; } = true;
     public bool DownloadResume    { get; set; } = true;
     public bool DownloadOverwrite { get; set; } = false;
 
-    public bool   AutoDownloadBestSource           { get; set; } = false;
+    public bool AutoResumeDownloadsOnStartup { get; set; } = true;
+    public bool AutoClearCompletedDownloads  { get; set; } = false;
+
+    public int MaxConcurrentDownloads
+    {
+        get => Math.Clamp(_maxConcurrentDownloads, 1, 8);
+        set => _maxConcurrentDownloads = Math.Clamp(value, 1, 8);
+    }
+
+    public int Mp4MaxSegments
+    {
+        get => Math.Clamp(_mp4MaxSegments, 1, 16);
+        set => _mp4MaxSegments = Math.Clamp(value, 1, 16);
+    }
+
+    public int HlsConcurrentFragments
+    {
+        get => Math.Clamp(_hlsConcurrentFragments, 1, 16);
+        set => _hlsConcurrentFragments = Math.Clamp(value, 1, 16);
+    }
+
+    public int DownloadSpeedLimitKbps
+    {
+        get => Math.Max(0, _downloadSpeedLimitKbps);
+        set => _downloadSpeedLimitKbps = Math.Max(0, value);
+    }
+
     public double DownloadAutoSelectTimeoutSeconds { get; set; } = 5;
 
     public string? OpenAnimeApiKey { get; set; }
