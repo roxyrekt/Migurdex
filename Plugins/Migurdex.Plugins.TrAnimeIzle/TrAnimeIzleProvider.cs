@@ -2,7 +2,6 @@ using Microsoft.Extensions.Logging;
 using Migurdex.Shared.Enums;
 using Migurdex.Shared.Interfaces;
 using Migurdex.Shared.Models;
-using System.Collections.Concurrent;
 using System.Globalization;
 using System.Net;
 using System.Text;
@@ -13,15 +12,13 @@ namespace Migurdex.Plugins.TrAnimeIzle;
 
 public partial class TrAnimeIzleProvider : IAnimeProvider
 {
-    private const int WatchRequestDelayMs = 50;
+    private const int WatchRequestDelayMs = 100;
 
     private const string UserAgent =
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36";
 
     private const string StubImageUrl =
         "https://pp.userapi.com/c857436/v857436366/6d9e/84dLrNaE_yo.jpg";
-
-    private static readonly TimeSpan CacheTtl = TimeSpan.FromMinutes(10);
 
     private static readonly HashSet<string> UnsupportedProviders = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -31,16 +28,9 @@ public partial class TrAnimeIzleProvider : IAnimeProvider
         "Vudeo"
     };
 
-    private readonly ConcurrentDictionary<string, CacheEntry<EpisodePayload>> _episodeCache =
-        new(StringComparer.OrdinalIgnoreCase);
-
     private readonly HttpClient                   _httpClient;
     private readonly ILogger<TrAnimeIzleProvider> _logger;
-
-    private readonly ConcurrentDictionary<string, CacheEntry<WatchResolution>> _watchCache =
-        new(StringComparer.OrdinalIgnoreCase);
-
-    private readonly SemaphoreSlim _watchSemaphore = new(4, 4);
+    private readonly SemaphoreSlim                _watchSemaphore = new(3, 3);
 
     private volatile string? _latestWidCookie;
 
@@ -296,33 +286,30 @@ public partial class TrAnimeIzleProvider : IAnimeProvider
                 }
 
                 WatchResolution resolution;
-                if (!TryGetCached(_watchCache, video.Id, out resolution))
+                await _watchSemaphore.WaitAsync(cancellationToken).ConfigureAwait(false);
+                try
                 {
-                    await _watchSemaphore.WaitAsync(cancellationToken).ConfigureAwait(false);
-                    try
+                    if (Volatile.Read(ref rateLimited) != 0)
                     {
-                        if (Volatile.Read(ref rateLimited) != 0)
-                        {
-                            return [];
-                        }
-
-                        resolution = await ResolveWatchUrlAsync(video.Id, episodeId, cancellationToken)
-                                         .ConfigureAwait(false);
-                        if (resolution.RateLimited)
-                        {
-                            Interlocked.Exchange(ref rateLimited, 1);
-                            return [];
-                        }
-
-                        if (WatchRequestDelayMs > 0)
-                        {
-                            await Task.Delay(WatchRequestDelayMs, cancellationToken).ConfigureAwait(false);
-                        }
+                        return [];
                     }
-                    finally
+
+                    resolution = await ResolveWatchUrlAsync(video.Id, episodeId, cancellationToken)
+                                     .ConfigureAwait(false);
+                    if (resolution.RateLimited)
                     {
-                        _watchSemaphore.Release();
+                        Interlocked.Exchange(ref rateLimited, 1);
+                        return [];
                     }
+
+                    if (WatchRequestDelayMs > 0)
+                    {
+                        await Task.Delay(WatchRequestDelayMs, cancellationToken).ConfigureAwait(false);
+                    }
+                }
+                finally
+                {
+                    _watchSemaphore.Release();
                 }
 
                 if (string.IsNullOrWhiteSpace(resolution.Url))
@@ -578,11 +565,6 @@ public partial class TrAnimeIzleProvider : IAnimeProvider
             return null;
         }
 
-        if (TryGetCached(_episodeCache, key, out var cached))
-        {
-            return cached;
-        }
-
         var       url = $"{BaseUrl}/api/episode/{Uri.EscapeDataString(key)}";
         using var doc = await GetJsonAsync(url, cancellationToken).ConfigureAwait(false);
         if (doc is null)
@@ -615,20 +597,13 @@ public partial class TrAnimeIzleProvider : IAnimeProvider
             }
         }
 
-        var payload = new EpisodePayload(videos);
-        SetCached(_episodeCache, key, payload, 200);
-        return payload;
+        return new EpisodePayload(videos);
     }
 
     private async Task<WatchResolution> ResolveWatchUrlAsync(string videoId,
         string                                                      episodeId,
         CancellationToken                                           cancellationToken)
     {
-        if (TryGetCached(_watchCache, videoId, out var cached))
-        {
-            return cached;
-        }
-
         using var request =
             new HttpRequestMessage(HttpMethod.Get, $"{BaseUrl}/api/watch/{Uri.EscapeDataString(videoId)}");
         request.Headers.TryAddWithoutValidation("Referer", $"{BaseUrl}/{episodeId.TrimStart('/')}");
@@ -662,14 +637,9 @@ public partial class TrAnimeIzleProvider : IAnimeProvider
         }
 
         var rawUrl = (await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false)).Trim();
-        if (string.IsNullOrWhiteSpace(rawUrl))
-        {
-            return new WatchResolution(null, wid, false);
-        }
-
-        var resolution = new WatchResolution(rawUrl, wid, false);
-        SetCached(_watchCache, videoId, resolution, 500);
-        return resolution;
+        return string.IsNullOrWhiteSpace(rawUrl)
+                   ? new WatchResolution(null, wid, false)
+                   : new WatchResolution(rawUrl, wid, false);
     }
 
     private async Task<List<VideoSource>> BuildVideoSourcesAsync(EpisodeVideo video,
@@ -1241,50 +1211,6 @@ public partial class TrAnimeIzleProvider : IAnimeProvider
         return count > 0 ? total : null;
     }
 
-    private static bool TryGetCached<T>(ConcurrentDictionary<string, CacheEntry<T>> cache,
-        string                                                                      key,
-        out T                                                                       value)
-    {
-        if (cache.TryGetValue(key, out var entry))
-        {
-            if (DateTimeOffset.UtcNow <= entry.ExpiresAt)
-            {
-                value = entry.Value;
-                return true;
-            }
-
-            cache.TryRemove(key, out _);
-        }
-
-        value = default!;
-        return false;
-    }
-
-    private static void SetCached<T>(ConcurrentDictionary<string, CacheEntry<T>> cache,
-        string                                                                   key,
-        T                                                                        value,
-        int                                                                      maxSize)
-    {
-        if (cache.Count >= maxSize)
-        {
-            var now = DateTimeOffset.UtcNow;
-            foreach (var kv in cache)
-            {
-                if (now > kv.Value.ExpiresAt)
-                {
-                    cache.TryRemove(kv.Key, out _);
-                }
-            }
-
-            if (cache.Count >= maxSize)
-            {
-                cache.Clear();
-            }
-        }
-
-        cache[key] = new CacheEntry<T>(value, DateTimeOffset.UtcNow.Add(CacheTtl));
-    }
-
     private static string? TryGetString(JsonElement obj, string prop)
     {
         return obj.TryGetProperty(prop, out var el) && el.ValueKind == JsonValueKind.String
@@ -1381,8 +1307,6 @@ public partial class TrAnimeIzleProvider : IAnimeProvider
 
     [GeneratedRegex(@"CODECS=""([^""]+)""", RegexOptions.IgnoreCase)]
     private static partial Regex CodecsRegex();
-
-    private sealed record CacheEntry<T>(T Value, DateTimeOffset ExpiresAt);
 
     private sealed record EpisodeSummary(
         string  Slug,
