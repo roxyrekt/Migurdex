@@ -15,27 +15,28 @@ public sealed class HlsDownloaderTests
         try
         {
             var destination = new DownloadPathBuilder().Build(root,
-                                                                  "Anime",
-                                                                  "Episode",
-                                                                  1,
-                                                                  1);
+                                                              "Anime",
+                                                              "Episode",
+                                                              1,
+                                                              1);
             Directory.CreateDirectory(destination.AnimeDirectory);
             var source = new VideoSource
             {
-                Url = "https://origin.example/master.m3u8?token=secret",
+                Url  = "https://origin.example/master.m3u8?token=secret",
                 Type = VideoType.M3U8,
                 Headers = new Dictionary<string, string>
                 {
-                    ["Referer"] = "https://origin.example/page",
+                    ["Referer"]       = "https://origin.example/page",
+                    ["Cookie"]        = "wid=abc123",
                     ["Authorization"] = "Bearer secret",
-                    ["X-Api-Key"] = "secret-key"
+                    ["X-Api-Key"]     = "secret-key"
                 }
             };
-            ProcessStartInfo? captured = null;
-            string? batchContents = null;
+            ProcessStartInfo? captured      = null;
+            string?           batchContents = null;
             var runner = new FakeProcessRunner((startInfo, _) =>
             {
-                captured = startInfo;
+                captured      = startInfo;
                 batchContents = File.ReadAllText(ValueAfter(startInfo.ArgumentList, "--batch-file"));
                 var jobDirectory = ValueAfter(startInfo.ArgumentList, "--paths");
                 Directory.CreateDirectory(jobDirectory);
@@ -43,20 +44,21 @@ public sealed class HlsDownloaderTests
                 return Task.FromResult(new ExternalProcessResult(0));
             });
             var downloader = new YtDlpHlsDownloader(runner,
-                                                      "yt-dlp",
-                                                      maxAttempts: 1,
-                                                      retryDelay: TimeSpan.Zero);
+                                                    "yt-dlp",
+                                                    1,
+                                                    TimeSpan.Zero);
 
             var result = await downloader.DownloadAsync(
-                source,
-                destination,
-                cancellationToken: TestContext.Current.CancellationToken);
+                             source,
+                             destination,
+                             cancellationToken: TestContext.Current.CancellationToken);
 
             Assert.NotNull(captured);
             Assert.Contains("--no-config", captured!.ArgumentList);
             Assert.Contains("--no-playlist", captured.ArgumentList);
             Assert.Contains("--add-header", captured.ArgumentList);
             Assert.Contains("Referer: https://origin.example/page", captured.ArgumentList);
+            Assert.Contains("Cookie: wid=abc123", captured.ArgumentList);
             Assert.Contains("--progress", captured.ArgumentList);
             // --print, [download] Destination satırlarını bastırıp track takibini kör eder.
             Assert.DoesNotContain("--print", captured.ArgumentList);
@@ -68,7 +70,8 @@ public sealed class HlsDownloaderTests
             Assert.Equal(source.Url, batchContents?.Trim());
             Assert.EndsWith(".webm", result.OutputPath, StringComparison.OrdinalIgnoreCase);
             Assert.DoesNotContain("secret-token", result.OutputPath, StringComparison.OrdinalIgnoreCase);
-            Assert.Equal("hls-media", await File.ReadAllTextAsync(result.OutputPath, TestContext.Current.CancellationToken));
+            Assert.Equal("hls-media",
+                         await File.ReadAllTextAsync(result.OutputPath, TestContext.Current.CancellationToken));
             Assert.Empty(Directory.GetDirectories(root, ".migurdex-job-*", SearchOption.TopDirectoryOnly));
         }
         finally
@@ -99,14 +102,14 @@ public sealed class HlsDownloaderTests
             var progress = new RecordingProgress();
 
             var result = await new YtDlpHlsDownloader(runner, maxAttempts: 1, retryDelay: TimeSpan.Zero)
-                .DownloadAsync(new VideoSource
-                    {
-                        Url = "https://origin.example/master.m3u8",
-                        Type = VideoType.M3U8
-                    },
-                    destination,
-                    progress: progress,
-                    cancellationToken: TestContext.Current.CancellationToken);
+                             .DownloadAsync(new VideoSource
+                                            {
+                                                Url  = "https://origin.example/master.m3u8",
+                                                Type = VideoType.M3U8
+                                            },
+                                            destination,
+                                            progress: progress,
+                                            cancellationToken: TestContext.Current.CancellationToken);
 
             Assert.EndsWith(".mp4", result.OutputPath, StringComparison.OrdinalIgnoreCase);
             Assert.Contains(progress.Items,
@@ -158,15 +161,17 @@ public sealed class HlsDownloaderTests
             });
 
             await Assert.ThrowsAsync<HlsDownloadException>(() => new YtDlpHlsDownloader(runner,
-                                                                                                maxAttempts: 1,
-                                                                                                retryDelay: TimeSpan.Zero)
-                .DownloadAsync(new VideoSource
-                    {
-                        Url = "https://origin.example/master.m3u8",
-                        Type = VideoType.M3U8
-                    },
-                    destination,
-                    cancellationToken: TestContext.Current.CancellationToken));
+                                                                   maxAttempts: 1,
+                                                                   retryDelay: TimeSpan.Zero)
+                                                               .DownloadAsync(new VideoSource
+                                                                              {
+                                                                                  Url =
+                                                                                      "https://origin.example/master.m3u8",
+                                                                                  Type = VideoType.M3U8
+                                                                              },
+                                                                              destination,
+                                                                              cancellationToken: TestContext.Current
+                                                                                  .CancellationToken));
             Assert.Empty(Directory.GetFiles(root, "*.html", SearchOption.AllDirectories));
         }
         finally
@@ -185,7 +190,7 @@ public sealed class HlsDownloaderTests
             Directory.CreateDirectory(destination.AnimeDirectory);
             var firstStarted = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
             var releaseFirst = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-            var calls = 0;
+            var calls        = 0;
             var runner = new FakeProcessRunner(async (startInfo, cancellationToken) =>
             {
                 var call = Interlocked.Increment(ref calls);
@@ -202,24 +207,24 @@ public sealed class HlsDownloaderTests
             });
             var first = new YtDlpHlsDownloader(runner, maxAttempts: 1, retryDelay: TimeSpan.Zero)
                 .DownloadAsync(new VideoSource
-                    {
-                        Url = "https://origin.example/one.m3u8",
-                        Type = VideoType.M3U8
-                    },
-                    destination,
-                    overwrite: true,
-                    cancellationToken: TestContext.Current.CancellationToken);
+                               {
+                                   Url  = "https://origin.example/one.m3u8",
+                                   Type = VideoType.M3U8
+                               },
+                               destination,
+                               true,
+                               cancellationToken: TestContext.Current.CancellationToken);
             await firstStarted.Task.WaitAsync(TimeSpan.FromSeconds(2), TestContext.Current.CancellationToken);
 
             var second = new YtDlpHlsDownloader(runner, maxAttempts: 1, retryDelay: TimeSpan.Zero)
                 .DownloadAsync(new VideoSource
-                    {
-                        Url = "https://origin.example/two.m3u8",
-                        Type = VideoType.M3U8
-                    },
-                    destination,
-                    overwrite: true,
-                    cancellationToken: TestContext.Current.CancellationToken);
+                               {
+                                   Url  = "https://origin.example/two.m3u8",
+                                   Type = VideoType.M3U8
+                               },
+                               destination,
+                               true,
+                               cancellationToken: TestContext.Current.CancellationToken);
             await Task.Delay(100, TestContext.Current.CancellationToken);
             Assert.Equal(1, Volatile.Read(ref calls));
 
@@ -260,19 +265,20 @@ public sealed class HlsDownloaderTests
             var result = await new YtDlpHlsDownloader(runner,
                                                       maxAttempts: 2,
                                                       retryDelay: TimeSpan.Zero)
-                .DownloadAsync(
-                    new VideoSource
-                    {
-                        Url = "https://origin.example/master.m3u8",
-                        Type = VideoType.M3U8
-                    },
-                    destination,
-                    cancellationToken: TestContext.Current.CancellationToken);
+                             .DownloadAsync(
+                                 new VideoSource
+                                 {
+                                     Url  = "https://origin.example/master.m3u8",
+                                     Type = VideoType.M3U8
+                                 },
+                                 destination,
+                                 cancellationToken: TestContext.Current.CancellationToken);
 
             Assert.Equal(2, calls);
             Assert.EndsWith(".mkv", result.OutputPath, StringComparison.OrdinalIgnoreCase);
-            Assert.Equal("retried", await File.ReadAllTextAsync(result.OutputPath,
-                                                                  TestContext.Current.CancellationToken));
+            Assert.Equal("retried",
+                         await File.ReadAllTextAsync(result.OutputPath,
+                                                     TestContext.Current.CancellationToken));
         }
         finally
         {
@@ -302,7 +308,7 @@ public sealed class HlsDownloaderTests
                 .DownloadAsync(
                     new VideoSource
                     {
-                        Url = "https://origin.example/master.m3u8",
+                        Url  = "https://origin.example/master.m3u8",
                         Type = VideoType.M3U8
                     },
                     destination,
@@ -326,25 +332,30 @@ public sealed class HlsDownloaderTests
         try
         {
             var destination = new DownloadPathBuilder().Build(root, "Anime", "Episode", 1, 1);
-            var calls = 0;
+            var calls       = 0;
             var runner = new FakeProcessRunner((_, _) =>
             {
                 calls++;
                 return Task.FromResult(new ExternalProcessResult(
-                    1,
-                    standardError: "ffmpeg: command not found; https://secret-token.example"));
+                                           1,
+                                           standardError: "ffmpeg: command not found; https://secret-token.example"));
             });
 
             var exception = await Assert.ThrowsAsync<HlsDownloadException>(() =>
-                new YtDlpHlsDownloader(runner, maxAttempts: 3, retryDelay: TimeSpan.Zero)
-                    .DownloadAsync(
-                        new VideoSource
-                        {
-                            Url = "https://origin.example/master.m3u8",
-                            Type = VideoType.M3U8
-                        },
-                        destination,
-                        cancellationToken: TestContext.Current.CancellationToken));
+                                                                               new YtDlpHlsDownloader(
+                                                                                       runner,
+                                                                                       maxAttempts: 3,
+                                                                                       retryDelay: TimeSpan.Zero)
+                                                                                   .DownloadAsync(
+                                                                                       new VideoSource
+                                                                                       {
+                                                                                           Url =
+                                                                                               "https://origin.example/master.m3u8",
+                                                                                           Type = VideoType.M3U8
+                                                                                       },
+                                                                                       destination,
+                                                                                       cancellationToken: TestContext
+                                                                                           .Current.CancellationToken));
 
             Assert.Equal(1, calls);
             Assert.Contains("ffmpeg", exception.Message, StringComparison.OrdinalIgnoreCase);
@@ -365,18 +376,22 @@ public sealed class HlsDownloaderTests
             var destination = new DownloadPathBuilder().Build(root, "Anime", "Episode", 1, 1);
             var source = new VideoSource
             {
-                Url = "https://origin.example/secret-token.m3u8",
+                Url  = "https://origin.example/secret-token.m3u8",
                 Type = VideoType.M3U8
             };
             var runner = new FakeProcessRunner((_, _) =>
-                Task.FromException<ExternalProcessResult>(
-                    new ExternalProcessStartException("process failed")));
+                                                   Task.FromException<ExternalProcessResult>(
+                                                       new ExternalProcessStartException("process failed")));
 
             var exception = await Assert.ThrowsAsync<HlsDownloadException>(() =>
-                new YtDlpHlsDownloader(runner, maxAttempts: 1, retryDelay: TimeSpan.Zero)
-                    .DownloadAsync(source,
-                                    destination,
-                                    cancellationToken: TestContext.Current.CancellationToken));
+                                                                               new YtDlpHlsDownloader(
+                                                                                       runner,
+                                                                                       maxAttempts: 1,
+                                                                                       retryDelay: TimeSpan.Zero)
+                                                                                   .DownloadAsync(source,
+                                                                                       destination,
+                                                                                       cancellationToken: TestContext
+                                                                                           .Current.CancellationToken));
 
             Assert.Contains("yt-dlp", exception.Message, StringComparison.OrdinalIgnoreCase);
             Assert.DoesNotContain("secret-token", exception.Message, StringComparison.Ordinal);
@@ -412,13 +427,13 @@ public sealed class HlsDownloaderTests
             });
 
             var result = await new YtDlpHlsDownloader(runner, maxAttempts: 2, retryDelay: TimeSpan.Zero)
-                .DownloadAsync(new VideoSource
-                    {
-                        Url = "https://origin.example/master.m3u8",
-                        Type = VideoType.M3U8
-                    },
-                    destination,
-                    cancellationToken: TestContext.Current.CancellationToken);
+                             .DownloadAsync(new VideoSource
+                                            {
+                                                Url  = "https://origin.example/master.m3u8",
+                                                Type = VideoType.M3U8
+                                            },
+                                            destination,
+                                            cancellationToken: TestContext.Current.CancellationToken);
 
             Assert.Equal(2, calls);
             Assert.EndsWith(".mp4", result.OutputPath, StringComparison.OrdinalIgnoreCase);
@@ -446,22 +461,24 @@ public sealed class HlsDownloaderTests
                 var jobDirectory = ValueAfter(startInfo.ArgumentList, "--paths");
                 Directory.CreateDirectory(jobDirectory);
                 File.WriteAllText(Path.Combine(jobDirectory, "media.mp4"), "hls-media");
-                onStandardOutput?.Invoke("[download] Destination: /home/roxy/Downloads/Migurdex/One Piece/.migurdex-job-abc123/master.f5471.mp4");
+                onStandardOutput?.Invoke(
+                    "[download] Destination: /home/roxy/Downloads/Migurdex/One Piece/.migurdex-job-abc123/master.f5471.mp4");
                 onStandardOutput?.Invoke("[download]  50.0% of 10.00MiB at 1.00MiB/s ETA 00:05 (frag 5/10)");
-                onStandardOutput?.Invoke("[download] Destination: /home/roxy/Downloads/Migurdex/One Piece/.migurdex-job-abc123/master.faud2-English.mp4");
+                onStandardOutput?.Invoke(
+                    "[download] Destination: /home/roxy/Downloads/Migurdex/One Piece/.migurdex-job-abc123/master.faud2-English.mp4");
                 return Task.FromResult(new ExternalProcessResult(0));
             });
             var progress = new RecordingProgress();
 
             var result = await new YtDlpHlsDownloader(runner, maxAttempts: 1, retryDelay: TimeSpan.Zero)
-                .DownloadAsync(new VideoSource
-                    {
-                        Url = "https://origin.example/master.m3u8",
-                        Type = VideoType.M3U8
-                    },
-                    destination,
-                    progress: progress,
-                    cancellationToken: TestContext.Current.CancellationToken);
+                             .DownloadAsync(new VideoSource
+                                            {
+                                                Url  = "https://origin.example/master.m3u8",
+                                                Type = VideoType.M3U8
+                                            },
+                                            destination,
+                                            progress: progress,
+                                            cancellationToken: TestContext.Current.CancellationToken);
 
             Assert.EndsWith(".mp4", result.OutputPath, StringComparison.OrdinalIgnoreCase);
             Assert.Contains(progress.Items,
@@ -492,14 +509,19 @@ public sealed class HlsDownloaderTests
             });
 
             var exception = await Assert.ThrowsAsync<HlsDownloadException>(() =>
-                new YtDlpHlsDownloader(runner, maxAttempts: 2, retryDelay: TimeSpan.Zero)
-                    .DownloadAsync(new VideoSource
-                        {
-                            Url = "https://origin.example/master.m3u8",
-                            Type = VideoType.M3U8
-                        },
-                        destination,
-                        cancellationToken: TestContext.Current.CancellationToken));
+                                                                               new YtDlpHlsDownloader(
+                                                                                       runner,
+                                                                                       maxAttempts: 2,
+                                                                                       retryDelay: TimeSpan.Zero)
+                                                                                   .DownloadAsync(new VideoSource
+                                                                                       {
+                                                                                           Url =
+                                                                                               "https://origin.example/master.m3u8",
+                                                                                           Type = VideoType.M3U8
+                                                                                       },
+                                                                                       destination,
+                                                                                       cancellationToken: TestContext
+                                                                                           .Current.CancellationToken));
 
             Assert.Contains("404", exception.Message, StringComparison.Ordinal);
             Assert.DoesNotContain("cdn.example", exception.Message, StringComparison.Ordinal);
@@ -525,7 +547,8 @@ public sealed class HlsDownloaderTests
 
     private sealed class FakeProcessRunner : IExternalProcessRunner
     {
-        private readonly Func<ProcessStartInfo, Action<string>?, CancellationToken, Task<ExternalProcessResult>> _handler;
+        private readonly Func<ProcessStartInfo, Action<string>?, CancellationToken, Task<ExternalProcessResult>>
+            _handler;
 
         public FakeProcessRunner(Func<ProcessStartInfo, CancellationToken, Task<ExternalProcessResult>> handler)
             : this((startInfo, _, cancellationToken) => handler(startInfo, cancellationToken))
