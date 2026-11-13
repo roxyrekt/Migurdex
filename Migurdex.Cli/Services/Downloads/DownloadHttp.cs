@@ -1,5 +1,5 @@
+using System.Buffers.Binary;
 using System.Net;
-using System.Net.Http;
 using System.Security.Cryptography;
 using System.Text;
 
@@ -10,8 +10,8 @@ public sealed class DownloadHttpClientFactory : IDownloadHttpClientFactory
     private static readonly SocketsHttpHandler _sharedHandler = new()
     {
         AllowAutoRedirect = false,
-        UseCookies         = false,
-        UseProxy           = true
+        UseCookies        = false,
+        UseProxy          = true
     };
 
     public HttpClient CreateClient()
@@ -61,6 +61,7 @@ internal static class DownloadHttp
         {
             "Accept",
             "Accept-Language",
+            "Cookie",
             "Origin",
             "Referer",
             "User-Agent"
@@ -77,10 +78,10 @@ internal static class DownloadHttp
         };
 
     public static async Task<HttpResponseMessage> SendWithRedirectsAsync(
-        HttpClient                    client,
-        Uri                           initialUri,
+        HttpClient                           client,
+        Uri                                  initialUri,
         IReadOnlyDictionary<string, string>? headers,
-        CancellationToken             cancellationToken)
+        CancellationToken                    cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(client);
         ValidateHttpUri(initialUri);
@@ -95,7 +96,7 @@ internal static class DownloadHttp
             var response = await client.SendAsync(request,
                                                   HttpCompletionOption.ResponseHeadersRead,
                                                   cancellationToken)
-                                   .ConfigureAwait(false);
+                                       .ConfigureAwait(false);
 
             if (!IsRedirect(response.StatusCode))
             {
@@ -127,7 +128,7 @@ internal static class DownloadHttp
                 requestHeaders = FilterCrossOriginHeaders(requestHeaders);
             }
 
-            currentUri    = nextUri;
+            currentUri = nextUri;
             redirectCount++;
         }
     }
@@ -168,8 +169,8 @@ internal static class DownloadHttp
 
     public static Dictionary<string, string> CopySubtitleFallbackHeaders(
         IEnumerable<KeyValuePair<string, string>>? headers,
-        Uri?                              sourceUri,
-        Uri                               subtitleUri)
+        Uri?                                       sourceUri,
+        Uri                                        subtitleUri)
     {
         var filtered = FilterAllowedHeaders(headers, _subtitleFallbackSafeHeaders);
         var result   = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
@@ -200,7 +201,7 @@ internal static class DownloadHttp
     }
 
     public static string CreateSourceFingerprint(
-        string?                                      sourceUrl,
+        string?                                    sourceUrl,
         IEnumerable<KeyValuePair<string, string>>? headers)
     {
         var normalizedHeaders = CopyHeaders(headers);
@@ -209,7 +210,7 @@ internal static class DownloadHttp
         using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
         AppendHashField(hash, sourceUrl?.Trim() ?? string.Empty);
         foreach (var (name, value) in normalizedHeaders.OrderBy(item => item.Key,
-                                                                    StringComparer.OrdinalIgnoreCase))
+                                                                StringComparer.OrdinalIgnoreCase))
         {
             AppendHashField(hash, name.Trim());
             AppendHashField(hash, value);
@@ -226,7 +227,7 @@ internal static class DownloadHttp
         }
 
         return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(value)))
-                          .ToLowerInvariant();
+                      .ToLowerInvariant();
     }
 
     public static bool IsHtml(HttpResponseMessage response)
@@ -242,9 +243,9 @@ internal static class DownloadHttp
         // 200 ile dönerse (CDN engelleri, hata proxy'leri) dosya bozuk video olarak kaydedilirdi.
         // Content-Type yoksa gerçek medya sunucularına güvenilir; bilinen medya türleri serbest bırakılır.
         var mediaType = response.Content.Headers.ContentType?.MediaType
-                            ?.Split(';', StringSplitOptions.TrimEntries)[0]
-                            .Trim()
-                            .ToLowerInvariant();
+                                ?.Split(';', StringSplitOptions.TrimEntries)[0]
+                                .Trim()
+                                .ToLowerInvariant();
         if (string.IsNullOrEmpty(mediaType)
             || mediaType is "application/octet-stream" or "application/binary")
         {
@@ -282,8 +283,8 @@ internal static class DownloadHttp
     }
 
     private static HttpRequestMessage CreateRequest(
-        Uri                                    uri,
-        IReadOnlyDictionary<string, string>    headers)
+        Uri                                 uri,
+        IReadOnlyDictionary<string, string> headers)
     {
         var request = new HttpRequestMessage(HttpMethod.Get, uri);
         foreach (var header in headers)
@@ -323,9 +324,9 @@ internal static class DownloadHttp
 
     private static void AppendHashField(IncrementalHash hash, string value)
     {
-        var bytes = Encoding.UTF8.GetBytes(value);
+        var        bytes  = Encoding.UTF8.GetBytes(value);
         Span<byte> length = stackalloc byte[4];
-        System.Buffers.Binary.BinaryPrimitives.WriteInt32LittleEndian(length, bytes.Length);
+        BinaryPrimitives.WriteInt32LittleEndian(length, bytes.Length);
         hash.AppendData(length);
         hash.AppendData(bytes);
     }
@@ -333,9 +334,9 @@ internal static class DownloadHttp
     private static bool IsRedirect(HttpStatusCode statusCode)
     {
         return statusCode is HttpStatusCode.MovedPermanently
-            or HttpStatusCode.Found
-            or HttpStatusCode.SeeOther
-            or HttpStatusCode.TemporaryRedirect
-            or HttpStatusCode.PermanentRedirect;
+                             or HttpStatusCode.Found
+                             or HttpStatusCode.SeeOther
+                             or HttpStatusCode.TemporaryRedirect
+                             or HttpStatusCode.PermanentRedirect;
     }
 }

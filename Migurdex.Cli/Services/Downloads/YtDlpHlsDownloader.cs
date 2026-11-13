@@ -3,6 +3,7 @@ using Migurdex.Shared.Models;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.Globalization;
+using System.Text;
 using System.Text.RegularExpressions;
 
 namespace Migurdex.Cli.Services.Downloads;
@@ -38,8 +39,13 @@ public sealed class YtDlpHlsDownloader : IHlsDownloader
         @"^\[download\]\s+Destination:\s*(?<path>.+?)\s*$",
         RegexOptions.Compiled | RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
 
+    private static readonly Regex ErrorUrlScrubRegex = new(
+        @"https?://\S+",
+        RegexOptions.Compiled | RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+
+    private readonly HlsDownloadOptions _options;
+
     private readonly IExternalProcessRunner _processRunner;
-    private readonly HlsDownloadOptions     _options;
 
     public YtDlpHlsDownloader(IExternalProcessRunner processRunner)
         : this(processRunner, new HlsDownloadOptions())
@@ -107,7 +113,7 @@ public sealed class YtDlpHlsDownloader : IHlsDownloader
 
         var jobDirectory = Path.Combine(destination.AnimeDirectory,
                                         ".migurdex-job-" + Guid.NewGuid().ToString("N"));
-        DownloadPathBuilder.EnsureFullPathBudget(jobDirectory, reservedSuffixBytes: 64);
+        DownloadPathBuilder.EnsureFullPathBudget(jobDirectory, 64);
         Directory.CreateDirectory(jobDirectory);
         var inputPath = Path.Combine(jobDirectory, ".migurdex-input.txt");
 
@@ -144,10 +150,6 @@ public sealed class YtDlpHlsDownloader : IHlsDownloader
                                                      cancellationToken)
                                                  .ConfigureAwait(false);
                     cancellationToken.ThrowIfCancellationRequested();
-                }
-                catch (ConcurrentDownloadException)
-                {
-                    throw;
                 }
                 catch (ExternalProcessStartException)
                 {
@@ -302,7 +304,7 @@ public sealed class YtDlpHlsDownloader : IHlsDownloader
         }
 
         // yt-dlp'ye global --add-header yalnız güvenli allowlist ile verilir.
-        // Cookie/Authorization/API-key benzeri başlıklar dış sürece hiç taşınmaz.
+        // Authorization/API-key benzeri başlıklar dış sürece taşınmaz.
         var transferHeaders = DownloadHttp.CopyExternalProcessHeaders(source.Headers);
         transferHeaders.TryAdd("Accept", "*/*");
 
@@ -313,231 +315,6 @@ public sealed class YtDlpHlsDownloader : IHlsDownloader
         }
 
         return startInfo;
-    }
-
-    private sealed class HlsProgressHeartbeat
-    {
-        private long    _bytes;
-        private long?   _total;
-        private string? _track;
-        private int     _trackCount;
-
-        public void Report(string line, IProgress<DownloadProgress>? progress)
-        {
-            if (string.IsNullOrWhiteSpace(line) || progress is null)
-            {
-                return;
-            }
-
-            var destination = ProgressDestinationRegex.Match(line);
-            if (destination.Success)
-            {
-                var name = TrackName(destination.Groups["path"].Value);
-                if (!string.IsNullOrWhiteSpace(name)
-                    && !string.Equals(name, _track, StringComparison.Ordinal))
-                {
-                    _track = name;
-                    _trackCount++;
-                    _bytes = 0;
-                    _total = null;
-                    progress.Report(new DownloadProgress(DownloadStage.Downloading,
-                                                         0,
-                                                         null,
-                                                         track: _track,
-                                                         isAudioTrack: _trackCount > 1));
-                }
-
-                return;
-            }
-
-            var speed = TryParseSpeed(line);
-            var (fragDone, fragTotal) = TryParseFrags(line);
-            var eta = TryParseEta(line);
-
-            var bytesMatch = ProgressBytesRegex.Match(line);
-            if (bytesMatch.Success
-                && TryParseSize(bytesMatch.Groups["current"].Value,
-                                bytesMatch.Groups["currentUnit"].Value,
-                                out var current)
-                && TryParseSize(bytesMatch.Groups["total"].Value,
-                                bytesMatch.Groups["totalUnit"].Value,
-                                out var total))
-            {
-                _bytes = current;
-                _total = total;
-                progress.Report(new DownloadProgress(DownloadStage.Downloading,
-                                                     current,
-                                                     total,
-                                                     speed,
-                                                     fragDone,
-                                                     fragTotal,
-                                                     eta,
-                                                     null,
-                                                     _track,
-                                                     _trackCount > 1));
-                return;
-            }
-
-            var percentMatch = ProgressPercentRegex.Match(line);
-            if (percentMatch.Success
-                && double.TryParse(percentMatch.Groups["value"].Value,
-                                   NumberStyles.Float,
-                                   CultureInfo.InvariantCulture,
-                                   out var percent))
-            {
-                var totalMatch = ProgressTotalRegex.Match(line);
-                if (totalMatch.Success
-                    && TryParseSize(totalMatch.Groups["value"].Value,
-                                    totalMatch.Groups["unit"].Value,
-                                    out var percentTotal))
-                {
-                    var downloaded = (long) Math.Round(percent / 100 * percentTotal);
-                    _bytes = downloaded;
-                    _total = percentTotal;
-                    progress.Report(new DownloadProgress(DownloadStage.Downloading,
-                                                         downloaded,
-                                                         percentTotal,
-                                                         speed,
-                                                         fragDone,
-                                                         fragTotal,
-                                                         eta,
-                                                         percent,
-                                                         _track,
-                                                         _trackCount > 1));
-                    return;
-                }
-
-                progress.Report(new DownloadProgress(DownloadStage.Downloading,
-                                                     _bytes,
-                                                     _total,
-                                                     speed,
-                                                     fragDone,
-                                                     fragTotal,
-                                                     eta,
-                                                     percent,
-                                                     _track,
-                                                     _trackCount > 1));
-                return;
-            }
-
-            if (line.Contains("[Merger]", StringComparison.OrdinalIgnoreCase)
-                || line.Contains("[ExtractAudio", StringComparison.OrdinalIgnoreCase)
-                || line.Contains("[Fixup", StringComparison.OrdinalIgnoreCase))
-            {
-                progress.Report(new DownloadProgress(DownloadStage.Finalizing, 0, null));
-                return;
-            }
-
-            if (line.Contains("[download]", StringComparison.OrdinalIgnoreCase))
-            {
-                progress.Report(new DownloadProgress(DownloadStage.Downloading,
-                                                     _bytes,
-                                                     _total,
-                                                     speed,
-                                                     fragDone,
-                                                     fragTotal,
-                                                     eta,
-                                                     null,
-                                                     _track,
-                                                     _trackCount > 1));
-            }
-        }
-
-        private static TimeSpan? TryParseEta(string line)
-        {
-            var match = ProgressEtaRegex.Match(line);
-            if (!match.Success
-                || !int.TryParse(match.Groups["minutes"].Value,
-                                 NumberStyles.Integer,
-                                 CultureInfo.InvariantCulture,
-                                 out var minutes)
-                || !int.TryParse(match.Groups["seconds"].Value,
-                                 NumberStyles.Integer,
-                                 CultureInfo.InvariantCulture,
-                                 out var seconds)
-                || seconds is < 0 or > 59
-                || minutes < 0)
-            {
-                return null;
-            }
-
-            var hours = 0;
-            if (match.Groups["hours"].Success
-                && !int.TryParse(match.Groups["hours"].Value,
-                                 NumberStyles.Integer,
-                                 CultureInfo.InvariantCulture,
-                                 out hours))
-            {
-                return null;
-            }
-
-            try
-            {
-                return new TimeSpan(hours, minutes, seconds);
-            }
-            catch (ArgumentOutOfRangeException)
-            {
-                return null;
-            }
-        }
-
-        private static string? TrackName(string path)
-        {
-            if (string.IsNullOrWhiteSpace(path))
-            {
-                return null;
-            }
-
-            string name;
-            try
-            {
-                name = Path.GetFileName(path.Trim());
-            }
-            catch
-            {
-                return null;
-            }
-
-            if (string.IsNullOrWhiteSpace(name))
-            {
-                return null;
-            }
-
-            return name.Length > 48 ? name[..48] + "…" : name;
-        }
-
-        private static (int? Done, int? Total) TryParseFrags(string line)
-        {
-            var match = ProgressFragRegex.Match(line);
-            if (!match.Success
-                || !int.TryParse(match.Groups["done"].Value,
-                                 NumberStyles.Integer,
-                                 CultureInfo.InvariantCulture,
-                                 out var done)
-                || !int.TryParse(match.Groups["total"].Value,
-                                 NumberStyles.Integer,
-                                 CultureInfo.InvariantCulture,
-                                 out var total)
-                || done < 0
-                || total <= 0)
-            {
-                return (null, null);
-            }
-
-            return (done, total);
-        }
-
-        private static double? TryParseSpeed(string line)
-        {
-            var match = ProgressSpeedRegex.Match(line);
-            if (!match.Success
-                || !TryParseSize(match.Groups["value"].Value, match.Groups["unit"].Value, out var bytes))
-            {
-                return null;
-            }
-
-            return bytes;
-        }
     }
 
     private static bool TryParseSize(string value, string unit, out long bytes)
@@ -622,10 +399,6 @@ public sealed class YtDlpHlsDownloader : IHlsDownloader
         Report(progress, DownloadStage.Completed, bytes, bytes);
         return new MediaDownloadResult(finalPath, bytes, bytes, false, warnings);
     }
-
-    private static readonly Regex ErrorUrlScrubRegex = new(
-        @"https?://\S+",
-        RegexOptions.Compiled | RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
 
     private static void CaptureErrorLine(string line, List<string> sink)
     {
@@ -769,8 +542,8 @@ public sealed class YtDlpHlsDownloader : IHlsDownloader
                                               FileOptions.SequentialScan);
             var buffer = new byte[512];
             var read   = stream.Read(buffer, 0, buffer.Length);
-            var text = System.Text.Encoding.UTF8.GetString(buffer, 0, read)
-                             .TrimStart('\uFEFF', ' ', '\r', '\n', '\t');
+            var text = Encoding.UTF8.GetString(buffer, 0, read)
+                               .TrimStart('\uFEFF', ' ', '\r', '\n', '\t');
             return !text.StartsWith("<", StringComparison.Ordinal)
                    && !text.StartsWith("{", StringComparison.Ordinal)
                    && !text.StartsWith("[", StringComparison.Ordinal)
@@ -886,5 +659,229 @@ public sealed class YtDlpHlsDownloader : IHlsDownloader
         long?                        total)
     {
         progress?.Report(new DownloadProgress(stage, bytes, total));
+    }
+
+    private sealed class HlsProgressHeartbeat
+    {
+        private long    _bytes;
+        private long?   _total;
+        private string? _track;
+        private int     _trackCount;
+
+        public void Report(string line, IProgress<DownloadProgress>? progress)
+        {
+            if (string.IsNullOrWhiteSpace(line) || progress is null)
+            {
+                return;
+            }
+
+            var destination = ProgressDestinationRegex.Match(line);
+            if (destination.Success)
+            {
+                var name = TrackName(destination.Groups["path"].Value);
+                if (!string.IsNullOrWhiteSpace(name)
+                    && !string.Equals(name, _track, StringComparison.Ordinal))
+                {
+                    _track = name;
+                    _trackCount++;
+                    _bytes = 0;
+                    _total = null;
+                    progress.Report(new DownloadProgress(DownloadStage.Downloading,
+                                                         0,
+                                                         track: _track,
+                                                         isAudioTrack: _trackCount > 1));
+                }
+
+                return;
+            }
+
+            var speed = TryParseSpeed(line);
+            var (fragDone, fragTotal) = TryParseFrags(line);
+            var eta = TryParseEta(line);
+
+            var bytesMatch = ProgressBytesRegex.Match(line);
+            if (bytesMatch.Success
+                && TryParseSize(bytesMatch.Groups["current"].Value,
+                                bytesMatch.Groups["currentUnit"].Value,
+                                out var current)
+                && TryParseSize(bytesMatch.Groups["total"].Value,
+                                bytesMatch.Groups["totalUnit"].Value,
+                                out var total))
+            {
+                _bytes = current;
+                _total = total;
+                progress.Report(new DownloadProgress(DownloadStage.Downloading,
+                                                     current,
+                                                     total,
+                                                     speed,
+                                                     fragDone,
+                                                     fragTotal,
+                                                     eta,
+                                                     null,
+                                                     _track,
+                                                     _trackCount > 1));
+                return;
+            }
+
+            var percentMatch = ProgressPercentRegex.Match(line);
+            if (percentMatch.Success
+                && double.TryParse(percentMatch.Groups["value"].Value,
+                                   NumberStyles.Float,
+                                   CultureInfo.InvariantCulture,
+                                   out var percent))
+            {
+                var totalMatch = ProgressTotalRegex.Match(line);
+                if (totalMatch.Success
+                    && TryParseSize(totalMatch.Groups["value"].Value,
+                                    totalMatch.Groups["unit"].Value,
+                                    out var percentTotal))
+                {
+                    var downloaded = (long) Math.Round(percent / 100 * percentTotal);
+                    _bytes = downloaded;
+                    _total = percentTotal;
+                    progress.Report(new DownloadProgress(DownloadStage.Downloading,
+                                                         downloaded,
+                                                         percentTotal,
+                                                         speed,
+                                                         fragDone,
+                                                         fragTotal,
+                                                         eta,
+                                                         percent,
+                                                         _track,
+                                                         _trackCount > 1));
+                    return;
+                }
+
+                progress.Report(new DownloadProgress(DownloadStage.Downloading,
+                                                     _bytes,
+                                                     _total,
+                                                     speed,
+                                                     fragDone,
+                                                     fragTotal,
+                                                     eta,
+                                                     percent,
+                                                     _track,
+                                                     _trackCount > 1));
+                return;
+            }
+
+            if (line.Contains("[Merger]", StringComparison.OrdinalIgnoreCase)
+                || line.Contains("[ExtractAudio", StringComparison.OrdinalIgnoreCase)
+                || line.Contains("[Fixup", StringComparison.OrdinalIgnoreCase))
+            {
+                progress.Report(new DownloadProgress(DownloadStage.Finalizing, 0));
+                return;
+            }
+
+            if (line.Contains("[download]", StringComparison.OrdinalIgnoreCase))
+            {
+                progress.Report(new DownloadProgress(DownloadStage.Downloading,
+                                                     _bytes,
+                                                     _total,
+                                                     speed,
+                                                     fragDone,
+                                                     fragTotal,
+                                                     eta,
+                                                     null,
+                                                     _track,
+                                                     _trackCount > 1));
+            }
+        }
+
+        private static TimeSpan? TryParseEta(string line)
+        {
+            var match = ProgressEtaRegex.Match(line);
+            if (!match.Success
+                || !int.TryParse(match.Groups["minutes"].Value,
+                                 NumberStyles.Integer,
+                                 CultureInfo.InvariantCulture,
+                                 out var minutes)
+                || !int.TryParse(match.Groups["seconds"].Value,
+                                 NumberStyles.Integer,
+                                 CultureInfo.InvariantCulture,
+                                 out var seconds)
+                || seconds is < 0 or > 59
+                || minutes < 0)
+            {
+                return null;
+            }
+
+            var hours = 0;
+            if (match.Groups["hours"].Success
+                && !int.TryParse(match.Groups["hours"].Value,
+                                 NumberStyles.Integer,
+                                 CultureInfo.InvariantCulture,
+                                 out hours))
+            {
+                return null;
+            }
+
+            try
+            {
+                return new TimeSpan(hours, minutes, seconds);
+            }
+            catch (ArgumentOutOfRangeException)
+            {
+                return null;
+            }
+        }
+
+        private static string? TrackName(string path)
+        {
+            if (string.IsNullOrWhiteSpace(path))
+            {
+                return null;
+            }
+
+            string name;
+            try
+            {
+                name = Path.GetFileName(path.Trim());
+            }
+            catch
+            {
+                return null;
+            }
+
+            if (string.IsNullOrWhiteSpace(name))
+            {
+                return null;
+            }
+
+            return name.Length > 48 ? name[..48] + "…" : name;
+        }
+
+        private static (int? Done, int? Total) TryParseFrags(string line)
+        {
+            var match = ProgressFragRegex.Match(line);
+            if (!match.Success
+                || !int.TryParse(match.Groups["done"].Value,
+                                 NumberStyles.Integer,
+                                 CultureInfo.InvariantCulture,
+                                 out var done)
+                || !int.TryParse(match.Groups["total"].Value,
+                                 NumberStyles.Integer,
+                                 CultureInfo.InvariantCulture,
+                                 out var total)
+                || done < 0
+                || total <= 0)
+            {
+                return (null, null);
+            }
+
+            return (done, total);
+        }
+
+        private static double? TryParseSpeed(string line)
+        {
+            var match = ProgressSpeedRegex.Match(line);
+            if (!match.Success
+                || !TryParseSize(match.Groups["value"].Value, match.Groups["unit"].Value, out var bytes))
+            {
+                return null;
+            }
+
+            return bytes;
+        }
     }
 }
