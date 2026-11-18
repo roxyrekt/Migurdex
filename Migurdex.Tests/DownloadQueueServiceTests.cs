@@ -73,7 +73,8 @@ public sealed class DownloadQueueServiceTests
             {
                 MaxConcurrentDownloads = 2
             };
-            var dlSvc = new FakeDownloadService(tempDir);
+            var gate  = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var dlSvc = new FakeDownloadService(tempDir, gate.Task);
 
             await using var queue = new DownloadQueueService(db, dlSvc, config);
 
@@ -147,6 +148,7 @@ public sealed class DownloadQueueServiceTests
             Assert.Equal(1, skippedCount);
             Assert.Single(batch);
 
+            gate.SetResult();
             await queue.WaitForIdleAsync(TestContext.Current.CancellationToken);
 
             var summary = queue.GetSummary();
