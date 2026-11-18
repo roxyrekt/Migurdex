@@ -42,17 +42,22 @@ public partial class TauVideoExtractor : IExtractor
             }
 
             var tauId = tauIdMatch.Groups[1].Value;
+            var vid   = ExtractQueryParam(url, "vid");
 
-            var tauApiUrl = $"https://tau-video.xyz/api/video/{tauId}";
-            var embedUrl  = $"https://tau-video.xyz/embed/{tauId}";
+            var tauApiUrl = string.IsNullOrEmpty(vid)
+                                ? $"https://tau-video.xyz/api/video/{tauId}"
+                                : $"https://tau-video.xyz/api/video/{tauId}?vid={Uri.EscapeDataString(vid)}";
+            var embedUrl = string.IsNullOrEmpty(vid)
+                               ? $"https://tau-video.xyz/embed/{tauId}"
+                               : $"https://tau-video.xyz/embed/{tauId}?vid={Uri.EscapeDataString(vid)}";
 
             _logger.LogDebug("resolving Tau Video: {ApiUrl}", tauApiUrl);
 
-            var request = new HttpRequestMessage(HttpMethod.Get, tauApiUrl);
+            using var request = new HttpRequestMessage(HttpMethod.Get, tauApiUrl);
             request.Headers.Add("Referer", embedUrl);
             request.Headers.Add("Accept", "application/json");
 
-            var response = await _httpClient.SendAsync(request, cancellationToken);
+            using var response = await _httpClient.SendAsync(request, cancellationToken);
             if (!response.IsSuccessStatusCode)
             {
                 _logger.LogWarning("tau API failed for: {ApiUrl}", tauApiUrl);
@@ -68,8 +73,12 @@ public partial class TauVideoExtractor : IExtractor
                 return sources;
             }
 
-            using var doc = JsonDocument.Parse(responseJson);
-            if (doc.RootElement.TryGetProperty("urls", out var urlsProp) && urlsProp.ValueKind == JsonValueKind.Array)
+            using var doc  = JsonDocument.Parse(responseJson);
+            var       root = doc.RootElement;
+
+            var subtitles = ParseSubtitles(root);
+
+            if (root.TryGetProperty("urls", out var urlsProp) && urlsProp.ValueKind == JsonValueKind.Array)
             {
                 foreach (var item in urlsProp.EnumerateArray())
                 {
@@ -80,15 +89,33 @@ public partial class TauVideoExtractor : IExtractor
                     {
                         sources.Add(new VideoSource
                         {
-                            Url     = streamUrl,
-                            Quality = label,
-                            Type = streamUrl.Contains(".m3u8")
+                            Url       = streamUrl,
+                            Quality   = label,
+                            Subtitles = subtitles.Count > 0 ? subtitles : null,
+                            Type = streamUrl.Contains(".m3u8", StringComparison.OrdinalIgnoreCase)
                                        ? VideoType.M3U8
-                                       : streamUrl.Contains(".mp4")
+                                       : streamUrl.Contains(".mp4", StringComparison.OrdinalIgnoreCase)
                                            ? VideoType.Mp4
                                            : VideoType.Embed
                         });
                     }
+                }
+            }
+
+            if (sources.Count == 0
+                && root.TryGetProperty("hls", out var hlsProp)
+                && hlsProp.ValueKind == JsonValueKind.String)
+            {
+                var hlsUrl = hlsProp.GetString();
+                if (!string.IsNullOrWhiteSpace(hlsUrl))
+                {
+                    sources.Add(new VideoSource
+                    {
+                        Url       = hlsUrl.Trim(),
+                        Quality   = "Auto",
+                        Subtitles = subtitles.Count > 0 ? subtitles : null,
+                        Type      = VideoType.M3U8
+                    });
                 }
             }
         }
@@ -98,6 +125,124 @@ public partial class TauVideoExtractor : IExtractor
         }
 
         return sources;
+    }
+
+    private static string? ExtractQueryParam(string url, string paramName)
+    {
+        var qIdx = url.IndexOf('?');
+        if (qIdx < 0 || qIdx >= url.Length - 1)
+        {
+            return null;
+        }
+
+        var query = url[(qIdx + 1)..];
+        var hashIdx = query.IndexOf('#');
+        if (hashIdx >= 0)
+        {
+            query = query[..hashIdx];
+        }
+
+        foreach (var pair in query.Split('&', StringSplitOptions.RemoveEmptyEntries))
+        {
+            var eqIdx = pair.IndexOf('=');
+            if (eqIdx <= 0)
+            {
+                continue;
+            }
+
+            var key = Uri.UnescapeDataString(pair[..eqIdx]);
+            if (string.Equals(key, paramName, StringComparison.OrdinalIgnoreCase))
+            {
+                var val = Uri.UnescapeDataString(pair[(eqIdx + 1)..]).Trim();
+                return string.IsNullOrEmpty(val) ? null : val;
+            }
+        }
+
+        return null;
+    }
+
+    private static List<Subtitle> ParseSubtitles(JsonElement root)
+    {
+        var list = new List<Subtitle>();
+        if (!root.TryGetProperty("subs", out var subsProp) || subsProp.ValueKind != JsonValueKind.Array)
+        {
+            return list;
+        }
+
+        foreach (var item in subsProp.EnumerateArray())
+        {
+            if (item.ValueKind != JsonValueKind.Object)
+            {
+                continue;
+            }
+
+            var subUrl = item.TryGetProperty("url", out var urlProp) && urlProp.ValueKind == JsonValueKind.String
+                             ? urlProp.GetString()
+                             : null;
+
+            if (string.IsNullOrWhiteSpace(subUrl)
+                && item.TryGetProperty("originalUrl", out var origProp)
+                && origProp.ValueKind == JsonValueKind.String)
+            {
+                subUrl = origProp.GetString();
+            }
+
+            if (string.IsNullOrWhiteSpace(subUrl) && item.TryGetProperty("id", out var idProp))
+            {
+                var subId = idProp.ValueKind switch
+                {
+                    JsonValueKind.Number => idProp.GetRawText(),
+                    JsonValueKind.String => idProp.GetString()?.Trim(),
+                    _                    => null
+                };
+
+                if (!string.IsNullOrWhiteSpace(subId))
+                {
+                    subUrl = $"https://tau-video.xyz/vtt/{Uri.EscapeDataString(subId)}";
+                }
+            }
+
+            if (string.IsNullOrWhiteSpace(subUrl))
+            {
+                continue;
+            }
+
+            var trimmedUrl = subUrl.Trim();
+            if (list.Any(s => string.Equals(s.Url, trimmedUrl, StringComparison.OrdinalIgnoreCase)))
+            {
+                continue;
+            }
+
+            var label = item.TryGetProperty("name", out var nameProp) && nameProp.ValueKind == JsonValueKind.String
+                            ? nameProp.GetString()?.Trim()
+                            : null;
+            var language = item.TryGetProperty("language", out var langProp)
+                           && langProp.ValueKind == JsonValueKind.String
+                               ? langProp.GetString()?.Trim()
+                               : null;
+
+            list.Add(new Subtitle
+            {
+                Url      = trimmedUrl,
+                Label    = string.IsNullOrWhiteSpace(label) ? null : label,
+                Language = string.IsNullOrWhiteSpace(language) ? "" : language,
+                Format   = ResolveSubtitleFormat(trimmedUrl)
+            });
+        }
+
+        return list;
+    }
+
+    private static string? ResolveSubtitleFormat(string url)
+    {
+        var cleanUrl = url.Split('?', '#')[0];
+        var ext      = Path.GetExtension(cleanUrl).TrimStart('.').ToLowerInvariant();
+        if (ext is "ass" or "ssa" or "srt" or "vtt")
+        {
+            return ext;
+        }
+
+        return url.Contains("/vtt/", StringComparison.OrdinalIgnoreCase) ? "vtt" : null;
     }
 
     [GeneratedRegex(@"/(?:embed|api/video)/([^/?]+)")]
