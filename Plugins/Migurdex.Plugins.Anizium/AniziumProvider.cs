@@ -21,7 +21,7 @@ public class AniziumProvider : IAnimeProvider
     private const string TokenKey     = "hlxjl1c2w281ax473rt1ofgrvhyjvi";
 
     private const string BrowserUserAgent =
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36";
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36";
 
     private static readonly TimeZoneInfo _istanbulTimeZone = ResolveIstanbulTimeZone();
 
@@ -32,8 +32,12 @@ public class AniziumProvider : IAnimeProvider
 
     public AniziumProvider(ISharedBridge bridge, ILogger<AniziumProvider> logger)
     {
-        _httpClient = bridge.CreateHttpClient(o => o.Emulation = BrowserEmulation.Chrome135);
-        _logger     = logger;
+        _httpClient = bridge.CreateHttpClient(o =>
+        {
+            o.Emulation          = BrowserEmulation.Chrome147;
+            o.SkipDefaultHeaders = true;
+        });
+        _logger = logger;
     }
 
     private string ApiUrl     => _useDeFallback ? DeApiUrl : CoApiUrl;
@@ -385,14 +389,18 @@ public class AniziumProvider : IAnimeProvider
 
     private async Task<HttpResponseMessage?> SendApiGetAsync(string pathAndQuery, CancellationToken cancellationToken)
     {
+        var wasDeFallback = _useDeFallback;
         var response = await SendSingleApiGetAsync(ApiUrl, BaseUrl, SiteParam, pathAndQuery, cancellationToken)
                            .ConfigureAwait(false);
 
-        if (!_useDeFallback && response.StatusCode == HttpStatusCode.Forbidden)
+        if (!wasDeFallback && response.StatusCode == HttpStatusCode.Forbidden)
         {
             response.Dispose();
-            _useDeFallback = true;
-            _logger.LogInformation("Anizium .co returned 403 Forbidden, falling back to anizium.de");
+            if (!_useDeFallback)
+            {
+                _useDeFallback = true;
+                _logger.LogInformation("Anizium .co returned 403 Forbidden, falling back to anizium.de");
+            }
 
             response = await SendSingleApiGetAsync(DeApiUrl, DeBaseUrl, "world", pathAndQuery, cancellationToken)
                            .ConfigureAwait(false);
