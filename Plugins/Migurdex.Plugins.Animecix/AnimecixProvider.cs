@@ -856,6 +856,24 @@ public class AnimecixProvider : IAnimeProvider
                 continue;
             }
 
+            if (embedUrl.Contains("tau-video.xyz", StringComparison.OrdinalIgnoreCase)
+                && !embedUrl.Contains("vid=", StringComparison.OrdinalIgnoreCase)
+                && video.TryGetProperty("id", out var videoIdProp))
+            {
+                var videoId = videoIdProp.ValueKind switch
+                {
+                    JsonValueKind.Number => videoIdProp.GetRawText(),
+                    JsonValueKind.String => videoIdProp.GetString()?.Trim(),
+                    _                    => null
+                };
+
+                if (!string.IsNullOrWhiteSpace(videoId))
+                {
+                    var sep = embedUrl.Contains('?') ? '&' : '?';
+                    embedUrl = $"{embedUrl}{sep}vid={Uri.EscapeDataString(videoId)}";
+                }
+            }
+
             sources.Add(new VideoSource
             {
                 Url     = embedUrl,
