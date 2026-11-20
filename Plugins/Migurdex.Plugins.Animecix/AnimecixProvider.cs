@@ -39,11 +39,8 @@ public class AnimecixProvider : IAnimeProvider
         try
         {
             var url = $"{BaseUrl}/secure/search/{Uri.EscapeDataString(query)}?limit=24&type=undefined&provider=null";
-            var response = await GetWithAuthAsync(url, cancellationToken);
-            if (!response.IsSuccessStatusCode)
-            {
-                return [];
-            }
+            using var response = await GetWithAuthAsync(url, cancellationToken);
+            response.EnsureSuccessStatusCode();
 
             var json = await response.Content.ReadAsStringAsync(cancellationToken);
             if (string.IsNullOrEmpty(json))
@@ -177,11 +174,15 @@ public class AnimecixProvider : IAnimeProvider
 
             return results;
         }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
         catch (Exception ex)
         {
             _logger.LogError(ex, "search failed for query: {Query}", query);
 
-            return [];
+            throw;
         }
     }
 
@@ -189,17 +190,14 @@ public class AnimecixProvider : IAnimeProvider
     {
         try
         {
-            var detailsUrl = $"{BaseUrl}/secure/titles/{animeId}?seasonNumber=1&page=1&perPage=200";
-            var response   = await GetWithAuthAsync(detailsUrl, cancellationToken);
-            if (!response.IsSuccessStatusCode)
-            {
-                return new AnimeDetails();
-            }
+            var       detailsUrl = $"{BaseUrl}/secure/titles/{animeId}?seasonNumber=1&page=1&perPage=200";
+            using var response   = await GetWithAuthAsync(detailsUrl, cancellationToken);
+            response.EnsureSuccessStatusCode();
 
             var detailsJson = await response.Content.ReadAsStringAsync(cancellationToken);
             if (string.IsNullOrEmpty(detailsJson))
             {
-                return new AnimeDetails();
+                throw new InvalidOperationException($"AnimeciX boş detay yanıtı döndü: {animeId}");
             }
 
             using var doc     = JsonDocument.Parse(detailsJson);
@@ -476,6 +474,10 @@ public class AnimecixProvider : IAnimeProvider
                                                               }
                                                           }
                                                       }
+                                                      catch (OperationCanceledException)
+                                                      {
+                                                          throw;
+                                                      }
                                                       catch (Exception ex)
                                                       {
                                                           _logger.LogError(ex,
@@ -486,6 +488,10 @@ public class AnimecixProvider : IAnimeProvider
 
                         await Task.WhenAll(pageTasks);
                     }
+                }
+                catch (OperationCanceledException)
+                {
+                    throw;
                 }
                 catch (Exception ex)
                 {
@@ -523,11 +529,15 @@ public class AnimecixProvider : IAnimeProvider
 
             return details;
         }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
         catch (Exception ex)
         {
             _logger.LogError(ex, "getDetailsAsync failed for anime: {AnimeId}", animeId);
 
-            return new AnimeDetails();
+            throw;
         }
     }
 
@@ -577,26 +587,24 @@ public class AnimecixProvider : IAnimeProvider
             }
 
             var url = $"{BaseUrl}/secure/episode-videos-points?titleId={titleId}&episode={episode}&season={season}";
-            var epResponse = await GetWithAuthAsync(url, cancellationToken);
-            if (epResponse.IsSuccessStatusCode)
+            using var epResponse = await GetWithAuthAsync(url, cancellationToken);
+            epResponse.EnsureSuccessStatusCode();
+            var epJson = await epResponse.Content.ReadAsStringAsync(cancellationToken);
+            if (!string.IsNullOrEmpty(epJson))
             {
-                var epJson = await epResponse.Content.ReadAsStringAsync(cancellationToken);
-                if (!string.IsNullOrEmpty(epJson))
+                using var epDoc = JsonDocument.Parse(epJson);
+                if (epDoc.RootElement.TryGetProperty("videos", out var videosArray)
+                    && videosArray.ValueKind == JsonValueKind.Array)
                 {
-                    using var epDoc = JsonDocument.Parse(epJson);
-                    if (epDoc.RootElement.TryGetProperty("videos", out var videosArray)
-                        && videosArray.ValueKind == JsonValueKind.Array)
-                    {
-                        ExtractGroupsFromVideos(videosArray, groups);
-                    }
+                    ExtractGroupsFromVideos(videosArray, groups);
                 }
             }
 
             // Fallback for movies if season 1 episode 1 query returned 0 videos
             if (groups.Count == 0 && !isMovie && (season == "1" || season == "0") && (episode == "1" || episode == "0"))
             {
-                var detailsUrl = $"{BaseUrl}/secure/titles/{titleId}";
-                var response   = await GetWithAuthAsync(detailsUrl, cancellationToken);
+                var       detailsUrl = $"{BaseUrl}/secure/titles/{titleId}";
+                using var response   = await GetWithAuthAsync(detailsUrl, cancellationToken);
                 if (response.IsSuccessStatusCode)
                 {
                     var json = await response.Content.ReadAsStringAsync(cancellationToken);
@@ -615,11 +623,15 @@ public class AnimecixProvider : IAnimeProvider
 
             return groups;
         }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
         catch (Exception ex)
         {
             _logger.LogError(ex, "getGroupsAsync failed for {EpisodeId}", episodeId);
 
-            return [];
+            throw;
         }
     }
 
@@ -675,19 +687,17 @@ public class AnimecixProvider : IAnimeProvider
             }
 
             var tvUrl = $"{BaseUrl}/secure/episode-videos-points?titleId={titleId}&episode={episode}&season={season}";
-            var tvResponse = await GetWithAuthAsync(tvUrl, cancellationToken);
+            using var tvResponse = await GetWithAuthAsync(tvUrl, cancellationToken);
+            tvResponse.EnsureSuccessStatusCode();
 
-            if (tvResponse.IsSuccessStatusCode)
+            var tvJson = await tvResponse.Content.ReadAsStringAsync(cancellationToken);
+            if (!string.IsNullOrEmpty(tvJson))
             {
-                var tvJson = await tvResponse.Content.ReadAsStringAsync(cancellationToken);
-                if (!string.IsNullOrEmpty(tvJson))
+                using var tvDoc = JsonDocument.Parse(tvJson);
+                if (tvDoc.RootElement.TryGetProperty("videos", out var tvVideos)
+                    && tvVideos.ValueKind == JsonValueKind.Array)
                 {
-                    using var tvDoc = JsonDocument.Parse(tvJson);
-                    if (tvDoc.RootElement.TryGetProperty("videos", out var tvVideos)
-                        && tvVideos.ValueKind == JsonValueKind.Array)
-                    {
-                        ParseVideosJson(tvVideos, sources, group);
-                    }
+                    ParseVideosJson(tvVideos, sources, group);
                 }
             }
 
@@ -697,8 +707,8 @@ public class AnimecixProvider : IAnimeProvider
                 && (season == "1" || season == "0")
                 && (episode == "1" || episode == "0"))
             {
-                var detailsUrl = $"{BaseUrl}/secure/titles/{titleId}";
-                var response   = await GetWithAuthAsync(detailsUrl, cancellationToken);
+                var       detailsUrl = $"{BaseUrl}/secure/titles/{titleId}";
+                using var response   = await GetWithAuthAsync(detailsUrl, cancellationToken);
                 if (response.IsSuccessStatusCode)
                 {
                     var json = await response.Content.ReadAsStringAsync(cancellationToken);
@@ -718,11 +728,15 @@ public class AnimecixProvider : IAnimeProvider
 
             return sources;
         }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
         catch (Exception ex)
         {
             _logger.LogError(ex, "getVideoSourcesAsync failed for {EpisodeId}", episodeId);
 
-            return [];
+            throw;
         }
     }
 
@@ -901,8 +915,8 @@ public class AnimecixProvider : IAnimeProvider
 
         try
         {
-            var url      = $"{BaseUrl}/secure/translators";
-            var response = await GetWithAuthAsync(url, cancellationToken);
+            var       url      = $"{BaseUrl}/secure/translators";
+            using var response = await GetWithAuthAsync(url, cancellationToken);
             if (response.IsSuccessStatusCode)
             {
                 var json = await response.Content.ReadAsStringAsync(cancellationToken);
@@ -939,18 +953,20 @@ public class AnimecixProvider : IAnimeProvider
                         }
                     }
                 }
+
+                lock (_translatorsLock)
+                {
+                    _translatorsLoaded = true;
+                }
             }
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "failed to load translators map");
-        }
-        finally
-        {
-            lock (_translatorsLock)
-            {
-                _translatorsLoaded = true;
-            }
         }
     }
 

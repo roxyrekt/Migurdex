@@ -4,15 +4,16 @@ using Migurdex.Shared.Interfaces;
 using Migurdex.Shared.Models;
 using System.Collections.Concurrent;
 using System.Globalization;
+using System.Net;
 using System.Text.Json;
 
 namespace Migurdex.Plugins.Animim;
 
 public class AnimimProvider : IAnimeProvider
 {
+    private readonly ConcurrentDictionary<string, string> _fansubCache = new();
     private readonly HttpClient                           _httpClient;
     private readonly ILogger<AnimimProvider>              _logger;
-    private readonly ConcurrentDictionary<string, string> _fansubCache = new();
 
     public AnimimProvider(ISharedBridge bridge)
     {
@@ -33,12 +34,9 @@ public class AnimimProvider : IAnimeProvider
     {
         try
         {
-            var url      = $"{BaseUrl}/api/search?q={Uri.EscapeDataString(query)}";
-            var response = await _httpClient.GetAsync(url, cancellationToken);
-            if (!response.IsSuccessStatusCode)
-            {
-                return [];
-            }
+            var       url      = $"{BaseUrl}/api/search?q={Uri.EscapeDataString(query)}";
+            using var response = await _httpClient.GetAsync(url, cancellationToken);
+            response.EnsureSuccessStatusCode();
 
             var       json = await response.Content.ReadAsStringAsync(cancellationToken);
             using var doc  = JsonDocument.Parse(json);
@@ -100,10 +98,14 @@ public class AnimimProvider : IAnimeProvider
 
             return results;
         }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
         catch (Exception ex)
         {
             _logger.LogError(ex, "SearchAsync failed for query: {Query}", query);
-            return [];
+            throw;
         }
     }
 
@@ -111,12 +113,9 @@ public class AnimimProvider : IAnimeProvider
     {
         try
         {
-            var animeUrl  = $"{BaseUrl}/api/animes/{animeId}";
-            var animeResp = await _httpClient.GetAsync(animeUrl, cancellationToken);
-            if (!animeResp.IsSuccessStatusCode)
-            {
-                return new AnimeDetails();
-            }
+            var       animeUrl  = $"{BaseUrl}/api/animes/{animeId}";
+            using var animeResp = await _httpClient.GetAsync(animeUrl, cancellationToken);
+            animeResp.EnsureSuccessStatusCode();
 
             var       animeJson = await animeResp.Content.ReadAsStringAsync(cancellationToken);
             using var animeDoc  = JsonDocument.Parse(animeJson);
@@ -169,8 +168,13 @@ public class AnimimProvider : IAnimeProvider
                 });
             }
 
-            var epUrl  = $"{BaseUrl}/api/episodes?animeId={animeId}";
-            var epResp = await _httpClient.GetAsync(epUrl, cancellationToken);
+            var       epUrl  = $"{BaseUrl}/api/episodes?animeId={animeId}";
+            using var epResp = await _httpClient.GetAsync(epUrl, cancellationToken);
+            if (epResp.StatusCode != HttpStatusCode.NotFound)
+            {
+                epResp.EnsureSuccessStatusCode();
+            }
+
             if (epResp.IsSuccessStatusCode)
             {
                 var       epJson = await epResp.Content.ReadAsStringAsync(cancellationToken);
@@ -230,10 +234,14 @@ public class AnimimProvider : IAnimeProvider
 
             return details;
         }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
         catch (Exception ex)
         {
             _logger.LogError(ex, "GetDetailsAsync failed for animeId: {AnimeId}", animeId);
-            return new AnimeDetails();
+            throw;
         }
     }
 
@@ -241,12 +249,9 @@ public class AnimimProvider : IAnimeProvider
     {
         try
         {
-            var url      = $"{BaseUrl}/api/episodes/{episodeId}";
-            var response = await _httpClient.GetAsync(url, cancellationToken);
-            if (!response.IsSuccessStatusCode)
-            {
-                return [];
-            }
+            var       url      = $"{BaseUrl}/api/episodes/{episodeId}";
+            using var response = await _httpClient.GetAsync(url, cancellationToken);
+            response.EnsureSuccessStatusCode();
 
             var       json = await response.Content.ReadAsStringAsync(cancellationToken);
             using var doc  = JsonDocument.Parse(json);
@@ -275,10 +280,14 @@ public class AnimimProvider : IAnimeProvider
 
             return groups.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
         }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
         catch (Exception ex)
         {
             _logger.LogError(ex, "GetGroupsAsync failed for episodeId: {EpisodeId}", episodeId);
-            return [];
+            throw;
         }
     }
 
@@ -288,12 +297,9 @@ public class AnimimProvider : IAnimeProvider
     {
         try
         {
-            var url      = $"{BaseUrl}/api/episodes/{episodeId}";
-            var response = await _httpClient.GetAsync(url, cancellationToken);
-            if (!response.IsSuccessStatusCode)
-            {
-                return [];
-            }
+            var       url      = $"{BaseUrl}/api/episodes/{episodeId}";
+            using var response = await _httpClient.GetAsync(url, cancellationToken);
+            response.EnsureSuccessStatusCode();
 
             var       json = await response.Content.ReadAsStringAsync(cancellationToken);
             using var doc  = JsonDocument.Parse(json);
@@ -339,10 +345,14 @@ public class AnimimProvider : IAnimeProvider
 
             return sources;
         }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
         catch (Exception ex)
         {
             _logger.LogError(ex, "GetVideoSourcesAsync failed for episodeId: {EpisodeId}", episodeId);
-            return [];
+            throw;
         }
     }
 
@@ -355,8 +365,8 @@ public class AnimimProvider : IAnimeProvider
 
         try
         {
-            var url      = $"{BaseUrl}/api/fansubs/{fanSubId}";
-            var response = await _httpClient.GetAsync(url, cancellationToken);
+            var       url      = $"{BaseUrl}/api/fansubs/{fanSubId}";
+            using var response = await _httpClient.GetAsync(url, cancellationToken);
             if (response.IsSuccessStatusCode)
             {
                 var       json = await response.Content.ReadAsStringAsync(cancellationToken);
@@ -373,14 +383,16 @@ public class AnimimProvider : IAnimeProvider
                 }
             }
         }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Failed to resolve fansub name for {FanSubId}", fanSubId);
         }
 
-        var fallback = fanSubId.Length > 8 ? fanSubId[..8] : fanSubId;
-        _fansubCache[fanSubId] = fallback;
-        return fallback;
+        return fanSubId.Length > 8 ? fanSubId[..8] : fanSubId;
     }
 
     private static void AddSourceIfValid(List<VideoSource> sources,

@@ -76,11 +76,15 @@ public partial class AniHubProvider : IAnimeProvider
                    })
                    .ToList();
         }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
         catch (Exception ex)
         {
             _logger.LogError(ex, "search failed for query: {Query}", query);
 
-            return [];
+            throw;
         }
     }
 
@@ -135,6 +139,10 @@ public partial class AniHubProvider : IAnimeProvider
 
             return details;
         }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
         catch (Exception ex)
         {
             _logger.LogError(ex, "failed to get details for {AnimeId}", animeId);
@@ -179,18 +187,15 @@ public partial class AniHubProvider : IAnimeProvider
                 return [];
             }
 
-            var tokenResponse = await _httpClient.PostAsJsonAsync(
-                                    $"{ApiBase}/v1/video-tokens",
-                                    new
-                                    {
-                                        masterPlaylistKey = playback.MasterPlaylistKey
-                                    },
-                                    cancellationToken);
+            using var tokenResponse = await _httpClient.PostAsJsonAsync(
+                                          $"{ApiBase}/v1/video-tokens",
+                                          new
+                                          {
+                                              masterPlaylistKey = playback.MasterPlaylistKey
+                                          },
+                                          cancellationToken);
 
-            if (!tokenResponse.IsSuccessStatusCode)
-            {
-                return [];
-            }
+            tokenResponse.EnsureSuccessStatusCode();
 
             var tokenEnvelope =
                 await tokenResponse.Content.ReadFromJsonAsync<AniHubEnvelope<AniHubTokenData>>(cancellationToken);
@@ -225,11 +230,15 @@ public partial class AniHubProvider : IAnimeProvider
                 }
             ];
         }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
         catch (Exception ex)
         {
             _logger.LogError(ex, "failed to get video sources for episode {EpisodeId}", episodeId);
 
-            return [];
+            throw;
         }
     }
 
@@ -254,6 +263,10 @@ public partial class AniHubProvider : IAnimeProvider
             }
 
             return maxHeight > 0 ? $"{maxHeight}p" : "Auto";
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
         }
         catch (Exception ex)
         {

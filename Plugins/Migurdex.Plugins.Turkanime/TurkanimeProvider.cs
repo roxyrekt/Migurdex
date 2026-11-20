@@ -2,6 +2,8 @@ using Microsoft.Extensions.Logging;
 using Migurdex.Shared.Enums;
 using Migurdex.Shared.Interfaces;
 using Migurdex.Shared.Models;
+using System.Globalization;
+using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
@@ -15,11 +17,11 @@ public partial class TurkanimeProvider : IAnimeProvider
     private const string TursoAuthToken =
         "eyJhbGciOiJFZERTQSIsInR5cCI6IkpXVCJ9.eyJhIjoicm8iLCJpYXQiOjE3OTAwOTcwNTgsImlkIjoiMDFhMGMwNmYtYWUwMS03MTNjLWJkZmYtM2IyYTJhNWI3OTg0Iiwia2lkIjoiak9LeUlDamRqTVZjMllyOENLU2tsMUt5Y0NXM3RUSEk3MXZDbVJFU1VJdyIsInJpZCI6ImJjNDc2NTYxLTE1MTgtNDVkYy05NWYxLWI3NTZhOWQ0OTBhNSJ9.wyEqXzBp_B5X57h3ALSugj4jFTTgjtDosQCke1dxswDcKVGeK8-CEu8iJuYO4HROhvG0Hy6GgBaGM6wXZpKMAQ";
 
-    private readonly HttpClient                 _httpClient;
-    private readonly ILogger<TurkanimeProvider> _logger;
-
     private static          List<AnimeCatalogItem>? _catalogCache;
     private static readonly SemaphoreSlim           _catalogLock = new(1, 1);
+
+    private readonly HttpClient                 _httpClient;
+    private readonly ILogger<TurkanimeProvider> _logger;
 
     public TurkanimeProvider(ISharedBridge bridge, ILogger<TurkanimeProvider> logger)
     {
@@ -120,10 +122,14 @@ public partial class TurkanimeProvider : IAnimeProvider
 
             return await SearchViaAniListAsync(q, cancellationToken);
         }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
         catch (Exception ex)
         {
             _logger.LogError(ex, "TurkAnime search failed for query: {Query}", query);
-            return [];
+            throw;
         }
     }
 
@@ -219,6 +225,10 @@ public partial class TurkanimeProvider : IAnimeProvider
             details.Episodes = details.Episodes.OrderBy(e => e.Number).ToList();
             return details;
         }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to get details for anime {AnimeId}", animeId);
@@ -248,10 +258,14 @@ public partial class TurkanimeProvider : IAnimeProvider
 
             return groups;
         }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to get fansub groups for episode {EpisodeId}", episodeId);
-            return ["Varsayılan"];
+            throw;
         }
     }
 
@@ -297,19 +311,23 @@ public partial class TurkanimeProvider : IAnimeProvider
 
                 sources.Add(new VideoSource
                 {
-                    Hoster  = serverName,
-                    Url     = cleanUrl,
-                    Group   = string.IsNullOrWhiteSpace(fansub) ? "Varsayılan" : fansub,
-                    Type    = VideoType.Embed
+                    Hoster = serverName,
+                    Url    = cleanUrl,
+                    Group  = string.IsNullOrWhiteSpace(fansub) ? "Varsayılan" : fansub,
+                    Type   = VideoType.Embed
                 });
             }
 
             return sources;
         }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to get video sources for episode {EpisodeId}", episodeId);
-            return [];
+            throw;
         }
     }
 
@@ -409,6 +427,10 @@ public partial class TurkanimeProvider : IAnimeProvider
                    .OrderBy(r => RankFallbackMatch(r.Title, usedCandidates))
                    .ThenBy(r => r.Id, StringComparer.OrdinalIgnoreCase)
                    .ToList();
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
         }
         catch (Exception ex)
         {
@@ -600,9 +622,9 @@ public partial class TurkanimeProvider : IAnimeProvider
                                                 ParseJsonList(r.GetValueOrDefault("synonyms_json", "")),
                                                 ParseJsonList(r.GetValueOrDefault("genres_json", "")),
                                                 double.TryParse(r.GetValueOrDefault("score", ""),
-                                                                System.Globalization.NumberStyles.Any,
-                                                                System.Globalization.CultureInfo
-                                                                      .InvariantCulture,
+                                                                NumberStyles.Any,
+                                                                CultureInfo
+                                                                    .InvariantCulture,
                                                                 out var sc)
                                                     ? sc
                                                     : null,
@@ -613,6 +635,10 @@ public partial class TurkanimeProvider : IAnimeProvider
 
                 _logger.LogInformation("TurkAnime catalog initialized with {Count} animes.", _catalogCache.Count);
             }
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
         }
         catch (Exception ex)
         {
@@ -657,15 +683,11 @@ public partial class TurkanimeProvider : IAnimeProvider
         };
 
         using var request = new HttpRequestMessage(HttpMethod.Post, TursoEndpoint);
-        request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", TursoAuthToken);
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", TursoAuthToken);
         request.Content = new StringContent(JsonSerializer.Serialize(payload), Encoding.UTF8, "application/json");
 
         using var response = await _httpClient.SendAsync(request, ct);
-        if (!response.IsSuccessStatusCode)
-        {
-            _logger.LogWarning("Turso query failed with status code: {StatusCode}", response.StatusCode);
-            return [];
-        }
+        response.EnsureSuccessStatusCode();
 
         await using var stream = await response.Content.ReadAsStreamAsync(ct);
         using var       doc    = await JsonDocument.ParseAsync(stream, cancellationToken: ct);

@@ -36,88 +36,83 @@ public partial class AsyaAnimeleriProvider : IAnimeProvider
         try
         {
             var results = new List<SearchResult>();
+            var content = new FormUrlEncodedContent([
+                new KeyValuePair<string, string>(
+                    "action",
+                    "ts_ac_do_search"),
+                new KeyValuePair<string, string>("ts_ac_query", query)
+            ]);
 
-            try
+            using var request = new HttpRequestMessage(HttpMethod.Post, $"{BaseUrl}/wp-admin/admin-ajax.php")
             {
-                var content = new FormUrlEncodedContent([
-                    new KeyValuePair<string, string>(
-                        "action",
-                        "ts_ac_do_search"),
-                    new KeyValuePair<string, string>("ts_ac_query", query)
-                ]);
+                Content = content
+            };
+            request.Headers.Add("X-Requested-With", "XMLHttpRequest");
 
-                var request = new HttpRequestMessage(HttpMethod.Post, $"{BaseUrl}/wp-admin/admin-ajax.php")
-                {
-                    Content = content
-                };
-                request.Headers.Add("X-Requested-With", "XMLHttpRequest");
+            using var response = await _httpClient.SendAsync(request, cancellationToken);
+            response.EnsureSuccessStatusCode();
 
-                var response = await _httpClient.SendAsync(request, cancellationToken);
-                if (response.IsSuccessStatusCode)
+            var json = await response.Content.ReadAsStringAsync(cancellationToken);
+            if (!string.IsNullOrWhiteSpace(json) && json.StartsWith('{'))
+            {
+                using var doc = JsonDocument.Parse(json);
+                if (doc.RootElement.TryGetProperty("series", out var seriesArr)
+                    && seriesArr.ValueKind == JsonValueKind.Array)
                 {
-                    var json = await response.Content.ReadAsStringAsync(cancellationToken);
-                    if (!string.IsNullOrWhiteSpace(json) && json.StartsWith('{'))
+                    foreach (var seriesObj in seriesArr.EnumerateArray())
                     {
-                        using var doc = JsonDocument.Parse(json);
-                        if (doc.RootElement.TryGetProperty("series", out var seriesArr)
-                            && seriesArr.ValueKind == JsonValueKind.Array)
+                        if (seriesObj.TryGetProperty("all", out var allArr)
+                            && allArr.ValueKind == JsonValueKind.Array)
                         {
-                            foreach (var seriesObj in seriesArr.EnumerateArray())
+                            foreach (var item in allArr.EnumerateArray())
                             {
-                                if (seriesObj.TryGetProperty("all", out var allArr)
-                                    && allArr.ValueKind == JsonValueKind.Array)
+                                var title = item.TryGetProperty("post_title", out var tProp)
+                                                ? tProp.GetString() ?? ""
+                                                : "";
+
+                                var link = item.TryGetProperty("post_link", out var lProp)
+                                               ? lProp.GetString() ?? ""
+                                               : "";
+
+                                var image = item.TryGetProperty("post_image", out var iProp)
+                                                ? iProp.GetString() ?? ""
+                                                : "";
+
+                                if (string.IsNullOrEmpty(link))
                                 {
-                                    foreach (var item in allArr.EnumerateArray())
-                                    {
-                                        var title = item.TryGetProperty("post_title", out var tProp)
-                                                        ? tProp.GetString() ?? ""
-                                                        : "";
-
-                                        var link = item.TryGetProperty("post_link", out var lProp)
-                                                       ? lProp.GetString() ?? ""
-                                                       : "";
-
-                                        var image = item.TryGetProperty("post_image", out var iProp)
-                                                        ? iProp.GetString() ?? ""
-                                                        : "";
-
-                                        if (string.IsNullOrEmpty(link))
-                                        {
-                                            continue;
-                                        }
-
-                                        var slug         = ExtractSlug(link);
-                                        var decodedTitle = HttpUtility.HtmlDecode(title);
-                                        results.Add(new SearchResult
-                                        {
-                                            Id           = slug,
-                                            Title        = decodedTitle,
-                                            PosterUrl    = image,
-                                            Url          = link,
-                                            ProviderName = Name,
-                                            Type         = ProviderType.Anime,
-                                            Format = AnimeDetails.IsMovieTitle(decodedTitle)
-                                                         ? ContentFormat.Movie
-                                                         : ContentFormat.Tv
-                                        });
-                                    }
+                                    continue;
                                 }
+
+                                var slug         = ExtractSlug(link);
+                                var decodedTitle = HttpUtility.HtmlDecode(title);
+                                results.Add(new SearchResult
+                                {
+                                    Id           = slug,
+                                    Title        = decodedTitle,
+                                    PosterUrl    = image,
+                                    Url          = link,
+                                    ProviderName = Name,
+                                    Type         = ProviderType.Anime,
+                                    Format = AnimeDetails.IsMovieTitle(decodedTitle)
+                                                 ? ContentFormat.Movie
+                                                 : ContentFormat.Tv
+                                });
                             }
                         }
                     }
                 }
             }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "search failed");
-            }
 
             return [.. results.GroupBy(x => x.Id).Select(g => g.First())];
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "searchAsync failed for query: {Query}", query);
-            return [];
+            throw;
         }
     }
 
@@ -232,10 +227,14 @@ public partial class AsyaAnimeleriProvider : IAnimeProvider
 
             return details;
         }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
         catch (Exception ex)
         {
             _logger.LogError(ex, "getDetailsAsync failed for anime: {AnimeId}", animeId);
-            return new AnimeDetails();
+            throw;
         }
     }
 
@@ -290,10 +289,14 @@ public partial class AsyaAnimeleriProvider : IAnimeProvider
 
             return sources;
         }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
         catch (Exception ex)
         {
             _logger.LogError(ex, "getVideoSourcesAsync failed for episode: {EpisodeId}", episodeId);
-            return [];
+            throw;
         }
     }
 
@@ -331,6 +334,10 @@ public partial class AsyaAnimeleriProvider : IAnimeProvider
                 Type = VideoType.Embed
             });
         }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "failed to process player URL: {Url}", iframeSrc);
@@ -342,7 +349,7 @@ public partial class AsyaAnimeleriProvider : IAnimeProvider
         try
         {
             var apiUrl = $"https://asyaanimeleri.pw/player/index.php?data={hash}&do=getVideo";
-            var request = new HttpRequestMessage(HttpMethod.Post, apiUrl)
+            using var request = new HttpRequestMessage(HttpMethod.Post, apiUrl)
             {
                 Content = new FormUrlEncodedContent([
                     new KeyValuePair<string, string>("hash", hash),
@@ -356,7 +363,7 @@ public partial class AsyaAnimeleriProvider : IAnimeProvider
             request.Headers.Add("Origin", "https://asyaanimeleri.pw");
             request.Headers.Add("Referer", $"https://asyaanimeleri.pw/video/{hash}");
 
-            var response = await _httpClient.SendAsync(request, cancellationToken);
+            using var response = await _httpClient.SendAsync(request, cancellationToken);
             if (!response.IsSuccessStatusCode)
             {
                 return null;
@@ -383,6 +390,10 @@ public partial class AsyaAnimeleriProvider : IAnimeProvider
                     };
                 }
             }
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
         }
         catch (Exception ex)
         {
