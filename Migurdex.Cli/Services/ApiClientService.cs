@@ -301,6 +301,7 @@ public class ApiClientService : IApiClientService
             if (stats is not null)
             {
                 Interlocked.Increment(ref stats.Errors);
+                stats.RecordError(provider ?? string.Empty, apiError);
             }
 
             yield return new StreamedSearchResult
@@ -374,6 +375,7 @@ public class ApiClientService : IApiClientService
                         if (stats is not null)
                         {
                             Interlocked.Increment(ref stats.Errors);
+                            stats.RecordError(err.Provider, err.Error);
                         }
 
                         yield return new StreamedSearchResult
@@ -425,8 +427,15 @@ public class ApiClientService : IApiClientService
     {
         try
         {
-            var url     = $"api/v1/anime/{Uri.EscapeDataString(provider)}/{Uri.EscapeDataString(animeId)}";
-            var details = await _httpClient.GetFromJsonAsync<AnimeDetails>(url, JsonOpts, cancellationToken);
+            var       url      = $"api/v1/anime/{Uri.EscapeDataString(provider)}/{Uri.EscapeDataString(animeId)}";
+            using var response = await _httpClient.GetAsync(url, cancellationToken);
+            if (!response.IsSuccessStatusCode)
+            {
+                var apiError = await ReadApiErrorAsync(response, cancellationToken);
+                return ApiResult<AnimeDetails?>.Fail(null, apiError);
+            }
+
+            var details = await response.Content.ReadFromJsonAsync<AnimeDetails>(JsonOpts, cancellationToken);
             return details is not null
                        ? ApiResult<AnimeDetails?>.Ok(details)
                        : ApiResult<AnimeDetails?>.Fail(null, "Anime detayları alınamadı.");
@@ -481,7 +490,7 @@ public class ApiClientService : IApiClientService
             {
                 envelope = await _httpClient.GetFromJsonAsync<VideoSourcesEnvelope>(url, JsonOpts, cancellationToken);
             }
-            catch (System.Text.Json.JsonException)
+            catch (JsonException)
             {
                 var legacy = await _httpClient.GetFromJsonAsync<List<VideoSource>>(url, JsonOpts, cancellationToken);
 
@@ -520,9 +529,11 @@ public class ApiClientService : IApiClientService
             await _httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
         if (!response.IsSuccessStatusCode)
         {
+            var apiError = await ReadApiErrorAsync(response, cancellationToken);
             if (stats is not null)
             {
                 Interlocked.Increment(ref stats.Errors);
+                stats.RecordError(provider, apiError);
             }
 
             yield break;
@@ -567,9 +578,23 @@ public class ApiClientService : IApiClientService
                 if (string.Equals(evt, "providerError", StringComparison.OrdinalIgnoreCase)
                     || string.Equals(evt, "error", StringComparison.OrdinalIgnoreCase))
                 {
+                    ProviderStreamError? err = null;
+                    try
+                    {
+                        err = JsonSerializer.Deserialize<ProviderStreamError>(data, JsonOpts);
+                    }
+                    catch
+                    {
+                        // ignored
+                    }
+
                     if (stats is not null)
                     {
                         Interlocked.Increment(ref stats.Errors);
+                        if (err is not null)
+                        {
+                            stats.RecordError(err.Provider, err.Error);
+                        }
                     }
 
                     continue;
@@ -794,7 +819,7 @@ public class ApiClientService : IApiClientService
         {
             if (!process.HasExited)
             {
-                process.Kill(entireProcessTree: true);
+                process.Kill(true);
                 process.WaitForExit(2000);
             }
         }
@@ -835,11 +860,14 @@ public class ApiClientService : IApiClientService
         {
             var       body = await response.Content.ReadAsStringAsync(cancellationToken);
             using var doc  = JsonDocument.Parse(body);
-            if (doc.RootElement.TryGetProperty("error", out var err)
-                && err.ValueKind == JsonValueKind.String
-                && !string.IsNullOrWhiteSpace(err.GetString()))
+            foreach (var propName in new[] { "error", "detail", "title" })
             {
-                return err.GetString()!;
+                if (doc.RootElement.TryGetProperty(propName, out var err)
+                    && err.ValueKind == JsonValueKind.String
+                    && !string.IsNullOrWhiteSpace(err.GetString()))
+                {
+                    return err.GetString()!;
+                }
             }
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -851,7 +879,7 @@ public class ApiClientService : IApiClientService
             // ignored
         }
 
-        return $"HTTP {(int)response.StatusCode}";
+        return $"HTTP {(int) response.StatusCode}";
     }
 
     private class ExtractorResponse

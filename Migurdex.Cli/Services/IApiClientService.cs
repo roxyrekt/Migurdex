@@ -110,6 +110,38 @@ public class StreamedSearchResult
 
 public sealed class StreamScanStats
 {
+    private readonly List<string> _errorDetails = [];
+    private readonly Lock         _errorLock    = new();
+
     public int Errors;
     public int Received;
+
+    public void RecordError(string provider, string? error)
+    {
+        var text = string.IsNullOrWhiteSpace(provider)
+                       ? error?.Trim()
+                       : string.IsNullOrWhiteSpace(error)
+                           ? provider.Trim()
+                           : $"{provider.Trim()}: {error.Trim()}";
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            return;
+        }
+
+        lock (_errorLock)
+        {
+            if (!_errorDetails.Contains(text, StringComparer.Ordinal))
+            {
+                _errorDetails.Add(text);
+            }
+        }
+    }
+
+    public IReadOnlyList<string> GetErrorDetailsSnapshot()
+    {
+        lock (_errorLock)
+        {
+            return [.. _errorDetails];
+        }
+    }
 }

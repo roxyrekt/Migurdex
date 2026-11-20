@@ -80,7 +80,7 @@ public partial class TrAnimeIzleProvider : IAnimeProvider
         catch (Exception ex)
         {
             _logger.LogError(ex, "search failed for query: {Query}", query);
-            return [];
+            throw;
         }
     }
 
@@ -99,13 +99,13 @@ public partial class TrAnimeIzleProvider : IAnimeProvider
 
             if (animeDoc is null)
             {
-                return new AnimeDetails();
+                throw new InvalidOperationException($"TrAnimeIzle boş detay yanıtı döndü: {animeId}");
             }
 
             var root = animeDoc.RootElement;
             if (TryGetBool(root, "ageGate") == true)
             {
-                return new AnimeDetails();
+                throw new InvalidOperationException("TrAnimeIzle bu içerik için yaş doğrulaması gerektiriyor.");
             }
 
             var (primary, romaji, english) = ParseTitles(root);
@@ -209,7 +209,7 @@ public partial class TrAnimeIzleProvider : IAnimeProvider
         catch (Exception ex)
         {
             _logger.LogError(ex, "getDetailsAsync failed for: {AnimeId}", animeId);
-            return new AnimeDetails();
+            throw;
         }
     }
 
@@ -243,7 +243,7 @@ public partial class TrAnimeIzleProvider : IAnimeProvider
         catch (Exception ex)
         {
             _logger.LogError(ex, "getGroupsAsync failed for: {EpisodeId}", episodeId);
-            return [];
+            throw;
         }
     }
 
@@ -326,6 +326,13 @@ public partial class TrAnimeIzleProvider : IAnimeProvider
             {
                 sources.AddRange(list);
             }
+
+            if (sources.Count == 0 && Volatile.Read(ref rateLimited) != 0)
+            {
+                throw new HttpRequestException("TrAnimeIzle hız sınırına takıldı.",
+                                               null,
+                                               HttpStatusCode.TooManyRequests);
+            }
         }
         catch (OperationCanceledException)
         {
@@ -334,6 +341,7 @@ public partial class TrAnimeIzleProvider : IAnimeProvider
         catch (Exception ex)
         {
             _logger.LogError(ex, "getVideoSourcesAsync failed for: {EpisodeId}", episodeId);
+            throw;
         }
 
         return sources.GroupBy(x => x.Url, StringComparer.OrdinalIgnoreCase)
@@ -866,11 +874,7 @@ public partial class TrAnimeIzleProvider : IAnimeProvider
         request.Headers.TryAddWithoutValidation("Accept", "application/json");
 
         using var response = await _httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
-        if (!response.IsSuccessStatusCode)
-        {
-            _logger.LogDebug("GET {Url} failed with status {StatusCode}", url, response.StatusCode);
-            return null;
-        }
+        response.EnsureSuccessStatusCode();
 
         var json = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
         if (string.IsNullOrWhiteSpace(json))

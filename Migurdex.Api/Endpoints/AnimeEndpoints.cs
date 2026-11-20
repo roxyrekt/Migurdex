@@ -12,8 +12,9 @@ namespace Migurdex.Api.Endpoints;
 
 public static class AnimeEndpoints
 {
-    private const int MaxQueryLength = 200;
-    private const int MaxIdLength    = 512;
+    private const           int      MaxQueryLength        = 200;
+    private const           int      MaxIdLength           = 512;
+    private static readonly TimeSpan ProviderSearchTimeout = TimeSpan.FromSeconds(20);
 
     public static IEndpointRouteBuilder MapAnimeEndpoints(this IEndpointRouteBuilder app)
     {
@@ -120,9 +121,12 @@ public static class AnimeEndpoints
             var tasks = providersList.Select(async p =>
                                      {
                                          var sw = Stopwatch.StartNew();
+                                         using var timeoutCts =
+                                             CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                                         timeoutCts.CancelAfter(ProviderSearchTimeout);
                                          try
                                          {
-                                             var searchResults = await p.SearchAsync(q, cancellationToken);
+                                             var searchResults = await p.SearchAsync(q, timeoutCts.Token);
                                              logger.LogDebug(
                                                  "search completed for provider {Provider}: {Count} items in {ElapsedMs}ms",
                                                  p.Name,
@@ -149,14 +153,25 @@ public static class AnimeEndpoints
                                                      cancellationToken);
                                              }
                                          }
+                                         catch (OperationCanceledException) when (cancellationToken
+                                                  .IsCancellationRequested)
+                                         {
+                                             throw;
+                                         }
                                          catch (Exception ex)
                                          {
-                                             logger.LogWarning(ex,
+                                             var mappedEx = ex is OperationCanceledException
+                                                            && !cancellationToken.IsCancellationRequested
+                                                                ? new TimeoutException(
+                                                                    $"Sağlayıcı araması zaman aşımına uğradı ({ProviderSearchTimeout.TotalSeconds:0} sn).",
+                                                                    ex)
+                                                                : ex;
+                                             logger.LogWarning(mappedEx,
                                                                "search failed for provider {Provider} query {Query}",
                                                                p.Name,
                                                                q);
                                              var (searchOutcome, searchError) =
-                                                 ProviderErrorMapper.Map(ex, "Upstream arama hatası.");
+                                                 ProviderErrorMapper.Map(mappedEx, "Upstream arama hatası.");
                                              blame.RecordProvider(p.Name,
                                                                   "search",
                                                                   sw.ElapsedMilliseconds,
@@ -200,10 +215,12 @@ public static class AnimeEndpoints
 
         var searchTasks = providersList.Select(async p =>
         {
-            var sw = Stopwatch.StartNew();
+            var       sw         = Stopwatch.StartNew();
+            using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            timeoutCts.CancelAfter(ProviderSearchTimeout);
             try
             {
-                var searchResults = await p.SearchAsync(q, cancellationToken);
+                var searchResults = await p.SearchAsync(q, timeoutCts.Token);
                 logger.LogDebug("search completed for provider {Provider}: {Count} items in {ElapsedMs}ms",
                                 p.Name,
                                 searchResults.Count,
@@ -218,10 +235,19 @@ public static class AnimeEndpoints
                     data     = searchResults
                 };
             }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
             catch (Exception ex)
             {
-                logger.LogWarning(ex, "search failed for provider {Provider} query {Query}", p.Name, q);
-                var (searchOutcome, searchError) = ProviderErrorMapper.Map(ex, "Upstream arama hatası.");
+                var mappedEx = ex is OperationCanceledException && !cancellationToken.IsCancellationRequested
+                                   ? new TimeoutException(
+                                       $"Sağlayıcı araması zaman aşımına uğradı ({ProviderSearchTimeout.TotalSeconds:0} sn).",
+                                       ex)
+                                   : ex;
+                logger.LogWarning(mappedEx, "search failed for provider {Provider} query {Query}", p.Name, q);
+                var (searchOutcome, searchError) = ProviderErrorMapper.Map(mappedEx, "Upstream arama hatası.");
                 blame.RecordProvider(p.Name, "search", sw.ElapsedMilliseconds, searchOutcome);
                 return new
                 {
@@ -515,9 +541,9 @@ public static class AnimeEndpoints
                                                                                     Interlocked.Increment(
                                                                                         ref failedCount);
                                                                                     errors.Add(new DoneErrorItem(
-                                                                                        p.Name,
-                                                                                        "extract",
-                                                                                        reason));
+                                                                                            p.Name,
+                                                                                            "extract",
+                                                                                            reason));
                                                                                     channel.Writer.TryWrite(
                                                                                         new SseEnvelope(
                                                                                             SseHelper
@@ -571,9 +597,9 @@ public static class AnimeEndpoints
                                                                                 src.Url);
                                                                             Interlocked.Increment(ref failedCount);
                                                                             errors.Add(new DoneErrorItem(
-                                                                                p.Name,
-                                                                                "extract",
-                                                                                $"Upstream extractor hatası. [{src.Url}]"));
+                                                                                    p.Name,
+                                                                                    "extract",
+                                                                                    $"Upstream extractor hatası. [{src.Url}]"));
                                                                             channel.Writer.TryWrite(
                                                                                 new SseEnvelope(
                                                                                     SseHelper.EventProviderError,
@@ -659,8 +685,8 @@ public static class AnimeEndpoints
                                                                       if (extracted.Count == 0)
                                                                       {
                                                                           var reason = outcome.Failures.Count > 0
-                                                                              ? $"{outcome.Failures[0].Kind}: {outcome.Failures[0].Detail}"
-                                                                              : "sebep bilinmiyor";
+                                                                                  ? $"{outcome.Failures[0].Kind}: {outcome.Failures[0].Detail}"
+                                                                                  : "sebep bilinmiyor";
                                                                           logger.LogWarning(
                                                                               "embed resolved empty for provider {Provider} url {Url} ({Reason})",
                                                                               provider,

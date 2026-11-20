@@ -43,15 +43,19 @@ public partial class TRAnimeciProvider : IAnimeProvider
 
             if (string.IsNullOrWhiteSpace(content) || content.TrimStart().StartsWith('<'))
             {
-                return [];
+                throw new InvalidOperationException("TRAnimeci arama yanıtı geçersiz veya korumaya takıldı.");
             }
 
             return MapToSearchResults(JsonSerializer.Deserialize<SearchApiResponse>(content, _jsonOptions)?.Data);
         }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
         catch (Exception ex)
         {
             _logger.LogError(ex, "search failed");
-            return [];
+            throw;
         }
     }
 
@@ -70,7 +74,7 @@ public partial class TRAnimeciProvider : IAnimeProvider
 
             if (string.IsNullOrWhiteSpace(content))
             {
-                return new AnimeDetails();
+                throw new InvalidOperationException($"TRAnimeci boş detay yanıtı döndü: {animeId}");
             }
 
             var unescapedContent = UnescapeRscJson(content);
@@ -78,8 +82,7 @@ public partial class TRAnimeciProvider : IAnimeProvider
 
             if (!match.Success)
             {
-                _logger.LogWarning("anime JSON payload could not be extracted for anime: {animeId}", animeId);
-                return new AnimeDetails();
+                throw new InvalidOperationException($"TRAnimeci anime verisi ayrıştırılamadı: {animeId}");
             }
 
             var animeJson = match.Groups[1].Value;
@@ -87,7 +90,7 @@ public partial class TRAnimeciProvider : IAnimeProvider
 
             if (anime is null)
             {
-                return new AnimeDetails();
+                throw new InvalidOperationException($"TRAnimeci anime JSON çözümlenemedi: {animeId}");
             }
 
             var title         = !string.IsNullOrWhiteSpace(anime.Title) ? anime.Title : anime.TitleEnglish ?? "";
@@ -164,10 +167,14 @@ public partial class TRAnimeciProvider : IAnimeProvider
             details.Normalize();
             return details;
         }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
         catch (Exception ex)
         {
             _logger.LogError(ex, "getDetailsAsync failed for anime: {animeId}", animeId);
-            return new AnimeDetails();
+            throw;
         }
     }
 
@@ -320,10 +327,14 @@ public partial class TRAnimeciProvider : IAnimeProvider
 
             return result;
         }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
         catch (Exception ex)
         {
             _logger.LogError(ex, "getVideoSourcesAsync failed for episode: {episodeId}", episodeId);
-            return [];
+            throw;
         }
     }
 
@@ -419,6 +430,7 @@ public partial class TRAnimeciProvider : IAnimeProvider
             if (solved)
             {
                 _logger.LogInformation("WAF challenge solved");
+                response.Dispose();
                 response = await SendRequestAsync(url, referer, cancellationToken);
                 content  = await response.Content.ReadAsStringAsync(cancellationToken);
             }
@@ -429,25 +441,25 @@ public partial class TRAnimeciProvider : IAnimeProvider
             if (!string.IsNullOrEmpty(_vDDoSCookie))
             {
                 _logger.LogInformation("vDDoS-Wy challenge solved: {cookie}", _vDDoSCookie);
+                response.Dispose();
                 response = await SendRequestAsync(url, referer, cancellationToken);
                 content  = await response.Content.ReadAsStringAsync(cancellationToken);
             }
         }
 
-        if (!response.IsSuccessStatusCode || string.IsNullOrWhiteSpace(content))
+        using (response)
         {
-            return null;
+            response.EnsureSuccessStatusCode();
+            return string.IsNullOrWhiteSpace(content) ? null : content;
         }
-
-        return content;
     }
 
     private async Task<bool> SolveWafChallengeAsync(string referer, CancellationToken cancellationToken = default)
     {
         try
         {
-            var mainResp = await SendRequestAsync(BaseUrl, referer, cancellationToken);
-            var html     = await mainResp.Content.ReadAsStringAsync(cancellationToken);
+            using var mainResp = await SendRequestAsync(BaseUrl, referer, cancellationToken);
+            var       html     = await mainResp.Content.ReadAsStringAsync(cancellationToken);
 
             var challengeMatch = ChallengeRegex().Match(html);
             var timestampMatch = TimestampRegex().Match(html);
@@ -470,6 +482,7 @@ public partial class TRAnimeciProvider : IAnimeProvider
 
             while (nonce < 5_000_000)
             {
+                cancellationToken.ThrowIfCancellationRequested();
                 var input     = $"{sessionId}:{challenge}:{timestamp}{nonce}";
                 var hashBytes = SHA256.HashData(Encoding.UTF8.GetBytes(input));
                 var hashHex   = Convert.ToHexString(hashBytes).ToLowerInvariant();
@@ -494,15 +507,19 @@ public partial class TRAnimeciProvider : IAnimeProvider
                 new KeyValuePair<string, string>("timestamp", timestamp)
             ]);
 
-            var request = new HttpRequestMessage(HttpMethod.Post, $"{BaseUrl}/__waf_challenge")
+            using var request = new HttpRequestMessage(HttpMethod.Post, $"{BaseUrl}/__waf_challenge")
             {
                 Content = postContent
             };
             request.Headers.Add("User-Agent", "Mozilla/5.0 (X11; Linux x86_64; rv:152.0) Gecko/20100101 Firefox/152.0");
             request.Headers.Add("Referer", referer);
 
-            var postResp = await _httpClient.SendAsync(request, cancellationToken);
+            using var postResp = await _httpClient.SendAsync(request, cancellationToken);
             return postResp.IsSuccessStatusCode;
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
         }
         catch (Exception ex)
         {

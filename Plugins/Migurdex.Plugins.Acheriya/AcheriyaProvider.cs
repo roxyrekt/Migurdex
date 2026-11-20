@@ -104,10 +104,14 @@ public partial class AcheriyaProvider : IAnimeProvider
 
             return list;
         }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
         catch (Exception ex)
         {
             _logger.LogError(ex, "search failed for query: {Query}", query);
-            return [];
+            throw;
         }
     }
 
@@ -119,14 +123,9 @@ public partial class AcheriyaProvider : IAnimeProvider
             var       url     = $"{BaseUrl}/izle/{slug}";
             using var rootDoc = await FetchRscDataAsync(url, "\"anime\":", cancellationToken);
 
-            if (rootDoc == null)
+            if (rootDoc == null || !rootDoc.RootElement.TryGetProperty("anime", out var animeProp))
             {
-                return new AnimeDetails();
-            }
-
-            if (!rootDoc.RootElement.TryGetProperty("anime", out var animeProp))
-            {
-                return new AnimeDetails();
+                throw new InvalidOperationException($"Acheriya anime verisi bulunamadı: {animeId}");
             }
 
             var title   = animeProp.TryGetProperty("title", out var titleProp) ? titleProp.GetString() ?? slug : slug;
@@ -205,10 +204,14 @@ public partial class AcheriyaProvider : IAnimeProvider
 
             return details;
         }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
         catch (Exception ex)
         {
             _logger.LogError(ex, "failed to get details for: {AnimeId}", animeId);
-            return new AnimeDetails();
+            throw;
         }
     }
 
@@ -228,10 +231,14 @@ public partial class AcheriyaProvider : IAnimeProvider
             var links = ExtractLinksFromEpisodeDetail(rootDoc.RootElement);
             return links.Select(l => l.FansubName).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
         }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
         catch (Exception ex)
         {
             _logger.LogError(ex, "failed to get groups for episode: {EpisodeId}", episodeId);
-            return [];
+            throw;
         }
     }
 
@@ -339,10 +346,14 @@ public partial class AcheriyaProvider : IAnimeProvider
 
             return sources;
         }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
         catch (Exception ex)
         {
             _logger.LogError(ex, "failed to get video sources for: {EpisodeId}", episodeId);
-            return [];
+            throw;
         }
     }
 
