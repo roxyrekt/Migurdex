@@ -3,6 +3,7 @@ using Migurdex.Shared.Enums;
 using Migurdex.Shared.Interfaces;
 using Migurdex.Shared.Models;
 using System.Collections.Concurrent;
+using System.Globalization;
 using System.Net;
 using System.Net.Http.Json;
 using System.Security.Cryptography;
@@ -18,13 +19,13 @@ public class OpenAnimeProvider : IAnimeProvider
     private const string ApiUrl      = "https://api.openani.me";
     private const string KyubiApiUrl = "https://kyubi-san.vercel.app/api/decode";
 
+    private const string BrowserUserAgent =
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36";
+
     private readonly Dictionary<string, string> _defaultHeaders = new()
     {
-        { "Referer", "https://openani.me/" },
-        {
-            "User-Agent",
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-        }
+        ["Referer"]    = "https://openani.me/",
+        ["User-Agent"] = BrowserUserAgent
     };
 
     private readonly HttpClient                 _httpClient;
@@ -39,8 +40,12 @@ public class OpenAnimeProvider : IAnimeProvider
 
     public OpenAnimeProvider(ISharedBridge bridge)
     {
-        _httpClient = bridge.CreateHttpClient();
-        _logger     = bridge.CreateLogger<OpenAnimeProvider>();
+        _httpClient = bridge.CreateHttpClient(o =>
+        {
+            o.Emulation = BrowserEmulation.Chrome147;
+        });
+
+        _logger = bridge.CreateLogger<OpenAnimeProvider>();
     }
 
     public string       Name    => "OpenAnime";
@@ -49,19 +54,26 @@ public class OpenAnimeProvider : IAnimeProvider
 
     public async Task<List<SearchResult>> SearchAsync(string query, CancellationToken cancellationToken = default)
     {
+        if (string.IsNullOrWhiteSpace(query))
+        {
+            return [];
+        }
+
         try
         {
             var url      = $"{ApiUrl}/anime/search?q={Uri.EscapeDataString(query)}";
             var response = await SendRequestAsync<List<OpenAnimeSearchItem>>(url, cancellationToken: cancellationToken);
 
-            if (response == null)
+            if (response is null)
             {
                 return [];
             }
 
             return response.Select(item =>
                            {
-                               var title        = item.Turkish ?? item.Romaji ?? item.English ?? "";
+                               var title = new[] { item.Turkish, item.Romaji, item.English }
+                                               .FirstOrDefault(s => !string.IsNullOrWhiteSpace(s))
+                                           ?? string.Empty;
                                var englishTitle = !string.IsNullOrWhiteSpace(item.English) ? item.English : null;
                                var romajiTitle  = !string.IsNullOrWhiteSpace(item.Romaji) ? item.Romaji : null;
 
@@ -74,7 +86,7 @@ public class OpenAnimeProvider : IAnimeProvider
 
                                return new SearchResult
                                {
-                                   Id           = item.Slug ?? "",
+                                   Id           = item.Slug ?? string.Empty,
                                    Title        = title,
                                    EnglishTitle = englishTitle,
                                    RomajiTitle  = romajiTitle,
@@ -88,11 +100,14 @@ public class OpenAnimeProvider : IAnimeProvider
                            })
                            .ToList();
         }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
         catch (Exception ex)
         {
             _logger.LogError(ex, "search failed for query: {Query}", query);
-
-            return [];
+            throw;
         }
     }
 
@@ -100,15 +115,13 @@ public class OpenAnimeProvider : IAnimeProvider
     {
         try
         {
-            var url      = $"{ApiUrl}/anime/{animeId}";
-            var response = await SendRequestAsync<OpenAnimeDetails>(url, cancellationToken: cancellationToken);
+            var url = $"{ApiUrl}/anime/{animeId}";
+            var response = await SendRequestAsync<OpenAnimeDetails>(url, cancellationToken: cancellationToken)
+                           ?? throw new HttpRequestException($"OpenAnime boş detay yanıtı döndü ({animeId}).");
 
-            if (response == null)
-            {
-                return new AnimeDetails();
-            }
-
-            var title        = response.Turkish ?? response.Romaji ?? response.English ?? animeId;
+            var title = new[] { response.Turkish, response.Romaji, response.English }
+                            .FirstOrDefault(s => !string.IsNullOrWhiteSpace(s))
+                        ?? animeId;
             var englishTitle = !string.IsNullOrWhiteSpace(response.English) ? response.English : null;
             var romajiTitle  = !string.IsNullOrWhiteSpace(response.Romaji) ? response.Romaji : null;
             var japaneseTitle =
@@ -120,35 +133,35 @@ public class OpenAnimeProvider : IAnimeProvider
                 EnglishTitle  = englishTitle,
                 RomajiTitle   = romajiTitle,
                 JapaneseTitle = japaneseTitle,
-                Summary       = response.Summary ?? "",
+                Summary       = response.Summary ?? string.Empty,
                 Format        = ParseFormat(response.Type)
             };
 
-            if (response.Seasons != null)
+            if (response.Seasons is not null)
             {
                 foreach (var season in response.Seasons)
                 {
-                    if (season.MalID != 0)
+                    if (season.MalID is > 0)
                     {
                         details.SeasonMappings.Add(new SeasonMapping
                         {
                             SeasonNumber  = season.SeasonNumber,
-                            MyAnimeListId = season.MalID.ToString()
+                            MyAnimeListId = season.MalID.Value.ToString()
                         });
                     }
                 }
             }
 
-            if (details.SeasonMappings.Count == 0 && response.MalID != 0)
+            if (details.SeasonMappings.Count == 0 && response.MalID is > 0)
             {
                 details.SeasonMappings.Add(new SeasonMapping
                 {
                     SeasonNumber  = 1,
-                    MyAnimeListId = response.MalID.ToString()
+                    MyAnimeListId = response.MalID.Value.ToString()
                 });
             }
 
-            if (response.Type?.Equals("movie", StringComparison.OrdinalIgnoreCase) == true)
+            if (string.Equals(response.Type, "movie", StringComparison.OrdinalIgnoreCase))
             {
                 details.Episodes.Add(new Episode
                 {
@@ -158,9 +171,10 @@ public class OpenAnimeProvider : IAnimeProvider
                     Season = 1
                 });
             }
-            else if (response.Seasons != null)
+            else if (response.Seasons is not null)
             {
-                var seasonTasks = response.Seasons.Where(s => s.HasEpisode)
+                var seasonTasks = response.Seasons
+                                          .Where(s => s.HasEpisode)
                                           .Select(async season =>
                                           {
                                               var eps = await GetSeasonEpisodesAsync(
@@ -176,8 +190,8 @@ public class OpenAnimeProvider : IAnimeProvider
                                                   Season = season.SeasonNumber
                                               });
                                           });
-                var results = await Task.WhenAll(seasonTasks);
-                foreach (var eps in results)
+
+                foreach (var eps in await Task.WhenAll(seasonTasks))
                 {
                     details.Episodes.AddRange(eps);
                 }
@@ -185,226 +199,238 @@ public class OpenAnimeProvider : IAnimeProvider
 
             return details;
         }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
         catch (Exception ex)
         {
             _logger.LogError(ex, "getDetailsAsync failed for animeId: {AnimeId}", animeId);
-
-            return new AnimeDetails();
+            throw;
         }
     }
 
     public async Task<List<string>> GetGroupsAsync(string episodeId, CancellationToken cancellationToken = default)
     {
-        var result = await GetFansubDataAsync(episodeId, cancellationToken);
-
-        return result.Fansubs.Select(x => x.Name).ToList();
+        var (fansubs, _) = await GetFansubDataAsync(episodeId, cancellationToken);
+        return fansubs.Select(x => x.Name).ToList();
     }
 
     public async Task<List<VideoSource>> GetVideoSourcesAsync(string episodeId,
         string?                                                      group             = null,
         CancellationToken                                            cancellationToken = default)
     {
-        try
+        var parts = episodeId.Split('/');
+        if (parts.Length < 3)
         {
-            var parts = episodeId.Split('/');
-
-            if (parts.Length < 3)
-            {
-                return [];
-            }
-
-            var slug    = parts[0];
-            var season  = parts[1];
-            var episode = parts[2];
-            var (fansubs, discoveredCdnLink) = await GetFansubDataAsync(episodeId, cancellationToken);
-
-            if (!fansubs.Any())
-            {
-                return [];
-            }
-
-            var sourcesBag = new ConcurrentBag<VideoSource>();
-            var fansubTasks = fansubs
-                              .Where(fs => string.IsNullOrEmpty(group)
-                                           || string.Equals(fs.Name, group, StringComparison.OrdinalIgnoreCase))
-                              .Select(async fs =>
-                              {
-                                  try
-                                  {
-                                      var apiUrl =
-                                          $"{ApiUrl}/anime/{slug}/season/{season}/episode/{episode}?fansub={fs.Id}";
-                                      var subUrl =
-                                          $"{ApiUrl}/anime/{slug}/season/{season}/episode/{episode}/subtitles/{fs.SecureName}?type=ass";
-
-                                      var episodeTask =
-                                          SendRequestAsync<OpenAnimeEpisodeResponse>(
-                                              apiUrl,
-                                              cancellationToken: cancellationToken);
-                                      var subtitleTask =
-                                          SendRequestAsync<byte[]>(
-                                              subUrl,
-                                              cancellationToken: cancellationToken);
-
-                                      await Task.WhenAll(episodeTask, subtitleTask);
-
-                                      var response = await episodeTask;
-                                      var rawSub   = await subtitleTask;
-
-                                      if (response?.EpisodeData?.Files == null)
-                                      {
-                                          return;
-                                      }
-
-                                      var cdnBase = (discoveredCdnLink ?? "").TrimEnd('/');
-
-                                      if (string.IsNullOrEmpty(cdnBase))
-                                      {
-                                          return;
-                                      }
-
-                                      List<Subtitle>? subtitles = null;
-                                      if (rawSub is { Length: >= 8 }
-                                          && Encoding.ASCII.GetString(rawSub, 0, 8) == "KYUBI2\r\n")
-                                      {
-                                          var decryptedAss = await DecodeKyubiSubtitleAsync(rawSub, cancellationToken);
-                                          if (!string.IsNullOrEmpty(decryptedAss))
-                                          {
-                                              subtitles =
-                                              [
-                                                  new()
-                                                  {
-                                                      Url =
-                                                          $"data:text/x-ssa;base64,{Convert.ToBase64String(Encoding.UTF8.GetBytes(decryptedAss))}",
-                                                      Language = "tr",
-                                                      Label    = $"{fs.Name} (Softsub)",
-                                                      Format   = "ass"
-                                                  }
-                                              ];
-                                          }
-                                          else
-                                          {
-                                              var apiKey = GetConfiguredApiKey();
-                                              var isMissing = string.IsNullOrEmpty(apiKey);
-
-                                              subtitles =
-                                              [
-                                                  new()
-                                                  {
-                                                      Url = isMissing ? "migurdex://openanime_sub_locked" : "migurdex://openanime_sub_invalid",
-                                                      Language = "tr",
-                                                      Label = isMissing ? $"{fs.Name} [Kilitli: Discord anahtarı girilmedi]" : $"{fs.Name} [Kilitli: Anahtar geçersiz/yetkisiz]",
-                                                      Format = "ass"
-                                                  }
-                                              ];
-                                          }
-                                      }
-
-                                      var isLocked = subtitles?.Any(s => s.Url.StartsWith("migurdex://openanime_sub_")) == true;
-                                      var groupLabel = isLocked ? $"🔒 {fs.Name}" : fs.Name;
-
-                                      foreach (var file in response.EpisodeData.Files)
-                                      {
-                                          if (string.IsNullOrEmpty(file.File))
-                                          {
-                                              continue;
-                                          }
-
-                                          var videoSource = new VideoSource
-                                          {
-                                              Url       = $"{cdnBase}/{slug}/{season}/{file.File.TrimStart('/')}",
-                                              Quality   = file.Resolution > 0 ? $"{file.Resolution}p" : "Auto",
-                                              Type      = VideoType.Mp4,
-                                              Hoster    = "OpenAnime",
-                                              Group     = groupLabel,
-                                              Headers   = new Dictionary<string, string>(_defaultHeaders),
-                                              Subtitles = subtitles != null ? new List<Subtitle>(subtitles) : null
-                                          };
-
-                                          sourcesBag.Add(videoSource);
-                                      }
-                                  }
-                                  catch (Exception ex)
-                                  {
-                                      _logger.LogWarning(ex, "failed to resolve sources for fansub: {Fansub}", fs.Name);
-                                  }
-                              });
-            await Task.WhenAll(fansubTasks);
-
-            return sourcesBag.ToList();
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "failed to get video sources for episode: {EpisodeId}", episodeId);
-
             return [];
         }
-    }
 
-    private async Task EnsureTokenAsync(CancellationToken cancellationToken = default)
-    {
-        var now              = DateTimeOffset.UtcNow;
-        var needNewSession   = string.IsNullOrEmpty(_sessionId) || now >= _tokenExpiry.AddMinutes(-1);
-        var needNewSignature = string.IsNullOrEmpty(_gatewayToken) || now >= _lastSigningTime.AddSeconds(30);
+        var slug    = parts[0];
+        var season  = parts[1];
+        var episode = parts[2];
 
-        if (!needNewSession && !needNewSignature)
+        var (fansubs, discoveredCdnLink) = await GetFansubDataAsync(episodeId, cancellationToken);
+        var cdnBase = (discoveredCdnLink ?? string.Empty).TrimEnd('/');
+        if (fansubs.Count == 0 || string.IsNullOrEmpty(cdnBase))
         {
-            return;
+            return [];
         }
 
+        var sourcesBag = new ConcurrentBag<VideoSource>();
+        var fansubTasks = fansubs
+                          .Where(fs => string.IsNullOrEmpty(group)
+                                       || string.Equals(fs.Name, group, StringComparison.OrdinalIgnoreCase))
+                          .Select(async fs =>
+                          {
+                              try
+                              {
+                                  var apiUrl =
+                                      $"{ApiUrl}/anime/{slug}/season/{season}/episode/{episode}?fansub={fs.Id}";
+                                  var subUrl =
+                                      $"{ApiUrl}/anime/{slug}/season/{season}/episode/{episode}/subtitles/{fs.SecureName}?type=ass";
+
+                                  var episodeTask =
+                                      SendRequestAsync<OpenAnimeEpisodeResponse>(
+                                          apiUrl,
+                                          cancellationToken: cancellationToken);
+                                  var subtitleTask =
+                                      SendRequestAsync<byte[]>(
+                                          subUrl,
+                                          throwOnError: false,
+                                          cancellationToken: cancellationToken);
+
+                                  await Task.WhenAll(episodeTask, subtitleTask);
+
+                                  var response = await episodeTask;
+                                  var rawSub   = await subtitleTask;
+
+                                  if (response?.EpisodeData?.Files is null)
+                                  {
+                                      return;
+                                  }
+
+                                  List<Subtitle>? subtitles = null;
+                                  if (rawSub is { Length: >= 8 }
+                                      && Encoding.ASCII.GetString(rawSub, 0, 8) == "KYUBI2\r\n")
+                                  {
+                                      var decryptedAss = await DecodeKyubiSubtitleAsync(rawSub, cancellationToken);
+                                      if (!string.IsNullOrEmpty(decryptedAss))
+                                      {
+                                          subtitles =
+                                          [
+                                              new Subtitle
+                                              {
+                                                  Url =
+                                                      $"data:text/x-ssa;base64,{Convert.ToBase64String(Encoding.UTF8.GetBytes(decryptedAss))}",
+                                                  Language = "tr",
+                                                  Label    = $"{fs.Name} (Softsub)",
+                                                  Format   = "ass"
+                                              }
+                                          ];
+                                      }
+                                      else
+                                      {
+                                          var isMissing = string.IsNullOrEmpty(GetConfiguredApiKey());
+                                          subtitles =
+                                          [
+                                              new Subtitle
+                                              {
+                                                  Url = isMissing
+                                                            ? "migurdex://openanime_sub_locked"
+                                                            : "migurdex://openanime_sub_invalid",
+                                                  Language = "tr",
+                                                  Label = isMissing
+                                                              ? $"{fs.Name} [Kilitli: Discord anahtarı girilmedi]"
+                                                              : $"{fs.Name} [Kilitli: Anahtar geçersiz/yetkisiz]",
+                                                  Format = "ass"
+                                              }
+                                          ];
+                                      }
+                                  }
+
+                                  var isLocked =
+                                      subtitles?.Any(s => s.Url.StartsWith("migurdex://openanime_sub_")) == true;
+                                  var groupLabel = isLocked ? $"🔒 {fs.Name}" : fs.Name;
+
+                                  foreach (var file in response.EpisodeData.Files)
+                                  {
+                                      if (string.IsNullOrEmpty(file.File))
+                                      {
+                                          continue;
+                                      }
+
+                                      sourcesBag.Add(new VideoSource
+                                      {
+                                          Url       = $"{cdnBase}/{slug}/{season}/{file.File.TrimStart('/')}",
+                                          Quality   = file.Resolution is > 0 ? $"{file.Resolution}p" : "Auto",
+                                          Type      = VideoType.Mp4,
+                                          Hoster    = "OpenAnime",
+                                          Group     = groupLabel,
+                                          Headers   = new Dictionary<string, string>(_defaultHeaders),
+                                          Subtitles = subtitles is not null ? [.. subtitles] : null
+                                      });
+                                  }
+                              }
+                              catch (OperationCanceledException)
+                              {
+                                  throw;
+                              }
+                              catch (Exception ex)
+                              {
+                                  _logger.LogWarning(ex, "failed to resolve sources for fansub: {Fansub}", fs.Name);
+                              }
+                          });
+
+        await Task.WhenAll(fansubTasks);
+        return sourcesBag.ToList();
+    }
+
+    private async Task<string> EnsureTokenAsync(bool forceRefresh      = false,
+        CancellationToken                            cancellationToken = default)
+    {
         await _tokenSemaphore.WaitAsync(cancellationToken);
         try
         {
-            needNewSession   = string.IsNullOrEmpty(_sessionId) || now >= _tokenExpiry.AddMinutes(-1);
-            needNewSignature = string.IsNullOrEmpty(_gatewayToken) || now >= _lastSigningTime.AddSeconds(30);
+            var now            = DateTimeOffset.UtcNow;
+            var needNewSession = forceRefresh || string.IsNullOrEmpty(_sessionId) || now >= _tokenExpiry.AddMinutes(-1);
+
             if (needNewSession)
             {
-                const string sessionInitUrl = $"{ApiUrl}/session/init";
-                var request = new HttpRequestMessage(HttpMethod.Post, sessionInitUrl)
+                _sessionId       = null;
+                _gatewayToken    = null;
+                _tokenExpiry     = DateTimeOffset.MinValue;
+                _lastSigningTime = DateTimeOffset.MinValue;
+
+                using var request = new HttpRequestMessage(HttpMethod.Post, $"{ApiUrl}/session/init")
                 {
                     Content = JsonContent.Create(new
                     {
                         cr = Guid.NewGuid().ToString()
                     })
                 };
-                foreach (var header in _defaultHeaders)
+                foreach (var (key, value) in _defaultHeaders)
                 {
-                    request.Headers.Add(header.Key, header.Value);
+                    request.Headers.Add(key, value);
                 }
 
-                request.Headers.Add("Gateway-Token", _gatewayToken ?? "null");
+                request.Headers.Add("Gateway-Token", "null");
                 request.Headers.Add("Origin", "https://openani.me");
-                var response = await _httpClient.SendAsync(request, cancellationToken);
+
+                using var response = await _httpClient.SendAsync(request, cancellationToken);
                 response.EnsureSuccessStatusCode();
-                var result = await response.Content.ReadFromJsonAsync<JsonElement>();
-                _sessionId = result.GetProperty("sessionId").GetString() ?? throw new Exception("Session ID not found");
+
+                var result = await response.Content.ReadFromJsonAsync<JsonElement>(cancellationToken);
+                var sessionId = result.TryGetProperty("sessionId", out var sessionProp)
+                                    ? sessionProp.GetString()
+                                    : null;
+                if (string.IsNullOrWhiteSpace(sessionId))
+                {
+                    throw new InvalidOperationException("OpenAnime sessionId alınamadı.");
+                }
+
+                _sessionId = sessionId;
                 var parts = _sessionId.Split('.');
                 if (parts.Length > 1)
                 {
                     var       payloadJson = Encoding.UTF8.GetString(DecodeBase64Url(parts[1]));
                     using var doc         = JsonDocument.Parse(payloadJson);
-                    if (doc.RootElement.TryGetProperty("exp", out var expProp))
+                    if (doc.RootElement.TryGetProperty("exp", out var expProp) && expProp.TryGetInt64(out var expSec))
                     {
-                        _tokenExpiry = DateTimeOffset.FromUnixTimeSeconds(expProp.GetInt64());
+                        _tokenExpiry = DateTimeOffset.FromUnixTimeSeconds(expSec);
                     }
                 }
-
-                needNewSignature = true;
             }
 
-            if (needNewSignature && !string.IsNullOrEmpty(_sessionId))
+            if (forceRefresh
+                || needNewSession
+                || string.IsNullOrEmpty(_gatewayToken)
+                || now >= _lastSigningTime.AddSeconds(30))
             {
-                _gatewayToken    = SignLocally(_sessionId);
+                _gatewayToken    = SignLocally(_sessionId!);
                 _lastSigningTime = DateTimeOffset.UtcNow;
             }
+
+            return _gatewayToken!;
         }
-        catch (Exception ex) { _logger.LogError(ex, "token/Session refresh failed"); }
-        finally { _tokenSemaphore.Release(); }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "token/Session refresh failed");
+            throw;
+        }
+        finally
+        {
+            _tokenSemaphore.Release();
+        }
     }
 
     private static string SignLocally(string sessionId)
     {
-        var       now       = DateTime.UtcNow;
-        var       timestamp = now.ToString("yyyy-MM-ddTHH:mm:ssZ");
+        var       timestamp = DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ", CultureInfo.InvariantCulture);
         var       message   = $"{sessionId}:{timestamp}:openani.me";
         using var hmac      = new HMACSHA256(Encoding.UTF8.GetBytes(SecretKey));
         var       hash      = hmac.ComputeHash(Encoding.UTF8.GetBytes(message));
@@ -413,7 +439,7 @@ public class OpenAnimeProvider : IAnimeProvider
             session_id = sessionId,
             timestamp,
             hostname = "openani.me",
-            hmac     = Convert.ToHexString(hash).ToLower()
+            hmac     = Convert.ToHexStringLower(hash)
         };
 
         return Convert.ToBase64String(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(payload)));
@@ -422,17 +448,12 @@ public class OpenAnimeProvider : IAnimeProvider
     private static byte[] DecodeBase64Url(string base64Url)
     {
         var base64 = base64Url.Replace('-', '+').Replace('_', '/');
-        switch (base64.Length % 4)
+        base64 += (base64.Length % 4) switch
         {
-            case 2:
-                base64 += "==";
-
-                break;
-            case 3:
-                base64 += "=";
-
-                break;
-        }
+            2 => "==",
+            3 => "=",
+            _ => string.Empty
+        };
 
         return Convert.FromBase64String(base64);
     }
@@ -440,59 +461,75 @@ public class OpenAnimeProvider : IAnimeProvider
     private async Task<T?> SendRequestAsync<T>(string url,
         HttpMethod?                                   method            = null,
         object?                                       body              = null,
-        bool                                          isRetry           = false,
+        bool                                          useGateway        = true,
+        bool                                          throwOnError      = true,
         CancellationToken                             cancellationToken = default)
     {
-        await _requestSemaphore.WaitAsync(cancellationToken);
-        try
+        var maxAttempts = useGateway ? 2 : 1;
+
+        for (var attempt = 0; attempt < maxAttempts; attempt++)
         {
-            await EnsureTokenAsync(cancellationToken);
-            var request = new HttpRequestMessage(method ?? HttpMethod.Get, url);
-            foreach (var header in _defaultHeaders)
+            var gatewayToken = useGateway
+                                   ? await EnsureTokenAsync(attempt > 0, cancellationToken)
+                                   : null;
+
+            await _requestSemaphore.WaitAsync(cancellationToken);
+            try
             {
-                request.Headers.Add(header.Key, header.Value);
-            }
+                using var request = new HttpRequestMessage(method ?? HttpMethod.Get, url);
+                foreach (var (key, value) in _defaultHeaders)
+                {
+                    request.Headers.Add(key, value);
+                }
 
-            request.Headers.Add("Origin", "https://openani.me");
-            if (_gatewayToken != null)
+                if (useGateway)
+                {
+                    request.Headers.Add("Origin", "https://openani.me");
+                    request.Headers.Add("Gateway-Token", gatewayToken);
+                }
+
+                if (body is not null)
+                {
+                    request.Content = JsonContent.Create(body);
+                }
+
+                using var response = await _httpClient.SendAsync(request, cancellationToken);
+                if (useGateway
+                    && response.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden
+                    && attempt == 0)
+                {
+                    continue;
+                }
+
+                if (!response.IsSuccessStatusCode)
+                {
+                    if (throwOnError)
+                    {
+                        response.EnsureSuccessStatusCode();
+                    }
+
+                    return default;
+                }
+
+                if (typeof(T) == typeof(byte[]))
+                {
+                    return (T) (object) await response.Content.ReadAsByteArrayAsync(cancellationToken);
+                }
+
+                if (typeof(T) == typeof(string))
+                {
+                    return (T) (object) await response.Content.ReadAsStringAsync(cancellationToken);
+                }
+
+                return await response.Content.ReadFromJsonAsync<T>(cancellationToken);
+            }
+            finally
             {
-                request.Headers.Add("Gateway-Token", _gatewayToken);
+                _requestSemaphore.Release();
             }
-
-            if (body != null)
-            {
-                request.Content = JsonContent.Create(body);
-            }
-
-            var response = await _httpClient.SendAsync(request, cancellationToken);
-            if ((response.StatusCode == HttpStatusCode.Unauthorized
-                 || response.StatusCode == HttpStatusCode.Forbidden)
-                && !isRetry)
-            {
-                _sessionId    = null;
-                _gatewayToken = null;
-
-                return await SendRequestAsync<T>(url, method, body, true, cancellationToken);
-            }
-
-            if (!response.IsSuccessStatusCode)
-            {
-                return default;
-            }
-
-            if (typeof(T) == typeof(byte[]))
-            {
-                return (T) (object) await response.Content.ReadAsByteArrayAsync(cancellationToken);
-            }
-
-            if (typeof(T) == typeof(string))
-            {
-                return (T) (object) await response.Content.ReadAsStringAsync(cancellationToken);
-            }
-
-            return await response.Content.ReadFromJsonAsync<T>(cancellationToken);
         }
-        finally { _requestSemaphore.Release(); }
+
+        throw new HttpRequestException($"OpenAnime isteği başarısız oldu: {url}");
     }
 
     private async Task<List<SimpleEpisode>> GetSeasonEpisodesAsync(string slug,
@@ -502,67 +539,131 @@ public class OpenAnimeProvider : IAnimeProvider
         try
         {
             var url      = $"{BaseUrl}/anime/{slug}/{seasonNumber}/__data.json?x-sveltekit-invalidated=01";
-            var response = await SendRequestAsync<string>(url, cancellationToken: cancellationToken);
+            var response = await SendRequestAsync<string>(url, useGateway: false, cancellationToken: cancellationToken);
 
             if (string.IsNullOrEmpty(response))
             {
                 return [];
             }
 
-            var episodes = new List<SimpleEpisode>();
-            var data     = GetFlatData(response);
-
+            var data = GetFlatData(response);
             if (data.ValueKind == JsonValueKind.Undefined)
             {
                 return [];
             }
 
+            var episodes = new List<SimpleEpisode>();
             foreach (var item in data.EnumerateArray())
             {
-                if (item.ValueKind == JsonValueKind.Object)
+                if (item.ValueKind != JsonValueKind.Object)
                 {
-                    var episodesProp = FindProperty(item, "episodes", data);
-                    if (episodesProp.ValueKind != JsonValueKind.Undefined)
-                    {
-                        var epIndices = Resolve(episodesProp, data);
-
-                        if (epIndices.ValueKind != JsonValueKind.Array)
-                        {
-                            continue;
-                        }
-
-                        foreach (var idxToken in epIndices.EnumerateArray())
-                        {
-                            var epObj = Resolve(idxToken, data);
-
-                            if (epObj.ValueKind != JsonValueKind.Object)
-                            {
-                                continue;
-                            }
-
-                            var epNumVal = FindProperty(epObj, "episodeNumber", data);
-                            var epNum    = Resolve(epNumVal, data).GetInt32();
-                            var nameVal  = FindProperty(epObj, "name", data);
-                            var epName   = Resolve(nameVal, data).GetString() ?? $"{epNum}. Bölüm";
-                            episodes.Add(new SimpleEpisode
-                            {
-                                Number = epNum,
-                                Title  = epName
-                            });
-                        }
-
-                        break;
-                    }
+                    continue;
                 }
+
+                var episodesProp = FindProperty(item, "episodes", data);
+                if (episodesProp.ValueKind == JsonValueKind.Undefined)
+                {
+                    continue;
+                }
+
+                var epIndices = Resolve(episodesProp, data);
+                if (epIndices.ValueKind != JsonValueKind.Array)
+                {
+                    continue;
+                }
+
+                foreach (var idxToken in epIndices.EnumerateArray())
+                {
+                    var epObj = Resolve(idxToken, data);
+                    if (epObj.ValueKind != JsonValueKind.Object)
+                    {
+                        continue;
+                    }
+
+                    var resolvedNum = Resolve(FindProperty(epObj, "episodeNumber", data), data);
+                    if (resolvedNum.ValueKind != JsonValueKind.Number || !resolvedNum.TryGetInt32(out var epNum))
+                    {
+                        continue;
+                    }
+
+                    var resolvedName = Resolve(FindProperty(epObj, "name", data), data);
+                    var epName = resolvedName.ValueKind == JsonValueKind.String
+                                     ? resolvedName.GetString() ?? $"{epNum}. Bölüm"
+                                     : $"{epNum}. Bölüm";
+
+                    episodes.Add(new SimpleEpisode
+                    {
+                        Number = epNum,
+                        Title  = epName
+                    });
+                }
+
+                break;
             }
 
             return episodes.OrderBy(x => x.Number).ToList();
         }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (HttpRequestException ex) when (ex.StatusCode == HttpStatusCode.NotFound)
+        {
+            _logger.LogWarning(ex, "season episodes not found for {Slug} season {Season}", slug, seasonNumber);
+            return [];
+        }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "failed to get episodes list");
+            _logger.LogError(ex, "failed to get episodes list for {Slug} season {Season}", slug, seasonNumber);
+            throw;
+        }
+    }
 
-            return [];
+    private async Task<(List<OpenAnimeFansubInfo> Fansubs, string? CdnLink)> GetFansubDataAsync(string episodeId,
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var url      = $"{BaseUrl}/anime/{episodeId}/__data.json?x-sveltekit-invalidated=01";
+            var response = await SendRequestAsync<string>(url, useGateway: false, cancellationToken: cancellationToken);
+
+            if (string.IsNullOrEmpty(response))
+            {
+                return ([], null);
+            }
+
+            var data = GetFlatData(response);
+            if (data.ValueKind == JsonValueKind.Undefined)
+            {
+                return ([], null);
+            }
+
+            var     fansubs = new List<OpenAnimeFansubInfo>();
+            string? cdnLink = null;
+
+            foreach (var line in response.Split('\n', StringSplitOptions.RemoveEmptyEntries))
+            {
+                try
+                {
+                    using var doc = JsonDocument.Parse(line);
+                    FindCdnAndFansubsRecursive(doc.RootElement, data, fansubs, ref cdnLink);
+                }
+                catch (JsonException)
+                {
+                    // ignored
+                }
+            }
+
+            return (fansubs, cdnLink);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "getFansubData failed for episode: {EpisodeId}", episodeId);
+            throw;
         }
     }
 
@@ -580,12 +681,11 @@ public class OpenAnimeProvider : IAnimeProvider
 
         for (var i = 0; i < data.GetArrayLength(); i++)
         {
-            if (data[i].ValueKind == JsonValueKind.String && data[i].GetString() == name)
+            if (data[i].ValueKind == JsonValueKind.String
+                && data[i].GetString() == name
+                && obj.TryGetProperty(i.ToString(), out var indexedVal))
             {
-                if (obj.TryGetProperty(i.ToString(), out var indexedVal))
-                {
-                    return indexedVal;
-                }
+                return indexedVal;
             }
         }
 
@@ -600,13 +700,12 @@ public class OpenAnimeProvider : IAnimeProvider
             try
             {
                 using var doc = JsonDocument.Parse(line);
-                if (doc.RootElement.TryGetProperty("type", out var typeProp) && typeProp.GetString() == "chunk")
+                if (doc.RootElement.TryGetProperty("type", out var typeProp)
+                    && typeProp.GetString() == "chunk"
+                    && doc.RootElement.TryGetProperty("data", out var dataArr)
+                    && dataArr.ValueKind == JsonValueKind.Array)
                 {
-                    if (doc.RootElement.TryGetProperty("data", out var dataArr)
-                        && dataArr.ValueKind == JsonValueKind.Array)
-                    {
-                        return dataArr.Clone();
-                    }
+                    return dataArr.Clone();
                 }
             }
             catch
@@ -638,84 +737,44 @@ public class OpenAnimeProvider : IAnimeProvider
         switch (element.ValueKind)
         {
             case JsonValueKind.Object:
+                foreach (var prop in element.EnumerateObject())
                 {
-                    foreach (var prop in element.EnumerateObject())
+                    if (prop is { Name: "data", Value.ValueKind: JsonValueKind.Array })
                     {
-                        if (prop is { Name: "data", Value.ValueKind: JsonValueKind.Array })
+                        var len = prop.Value.GetArrayLength();
+                        if (len > maxLen)
                         {
-                            var len = prop.Value.GetArrayLength();
-                            if (len > maxLen)
-                            {
-                                maxLen   = len;
-                                bestData = prop.Value.Clone();
-                            }
+                            maxLen   = len;
+                            bestData = prop.Value.Clone();
                         }
-
-                        FindDataArray(prop.Value, ref bestData, ref maxLen);
                     }
 
-                    break;
+                    FindDataArray(prop.Value, ref bestData, ref maxLen);
                 }
+
+                break;
+
             case JsonValueKind.Array:
+                foreach (var item in element.EnumerateArray())
                 {
-                    foreach (var item in element.EnumerateArray())
-                    {
-                        FindDataArray(item, ref bestData, ref maxLen);
-                    }
-
-                    break;
+                    FindDataArray(item, ref bestData, ref maxLen);
                 }
+
+                break;
         }
     }
 
     private static JsonElement Resolve(JsonElement element, JsonElement data)
     {
-        if (element.ValueKind == JsonValueKind.Number)
+        if (element.ValueKind == JsonValueKind.Number
+            && element.TryGetInt32(out var index)
+            && index >= 0
+            && index < data.GetArrayLength())
         {
-            var index = element.GetInt32();
-
-            if (index >= 0 && index < data.GetArrayLength())
-            {
-                return data[index];
-            }
+            return data[index];
         }
 
         return element;
-    }
-
-    private async Task<(List<OpenAnimeFansubInfo> Fansubs, string? CdnLink)> GetFansubDataAsync(string episodeId,
-        CancellationToken cancellationToken = default)
-    {
-        try
-        {
-            var url      = $"{BaseUrl}/anime/{episodeId}/__data.json?x-sveltekit-invalidated=01";
-            var response = await SendRequestAsync<string>(url, cancellationToken: cancellationToken);
-
-            if (string.IsNullOrEmpty(response))
-            {
-                return ([], null);
-            }
-
-            var data = GetFlatData(response);
-
-            if (data.ValueKind == JsonValueKind.Undefined)
-            {
-                return ([], null);
-            }
-
-            var       fansubs = new List<OpenAnimeFansubInfo>();
-            string?   cdnLink = null;
-            using var doc     = JsonDocument.Parse(response.Split('\n')[0]);
-            FindCdnAndFansubsRecursive(doc.RootElement, data, fansubs, ref cdnLink);
-
-            return (fansubs, cdnLink);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "getEpisodesAndDiscoveredCdn failed");
-
-            return ([], null);
-        }
     }
 
     private static void FindCdnAndFansubsRecursive(JsonElement element,
@@ -728,7 +787,11 @@ public class OpenAnimeProvider : IAnimeProvider
             var cdnProp = FindProperty(element, "CDN_LINK", data);
             if (cdnProp.ValueKind != JsonValueKind.Undefined && string.IsNullOrEmpty(cdnLink))
             {
-                cdnLink = Resolve(cdnProp, data).GetString();
+                var resolvedCdn = Resolve(cdnProp, data);
+                if (resolvedCdn.ValueKind == JsonValueKind.String)
+                {
+                    cdnLink = resolvedCdn.GetString();
+                }
             }
 
             var fsProp = FindProperty(element, "fansubs", data);
@@ -740,22 +803,31 @@ public class OpenAnimeProvider : IAnimeProvider
                     foreach (var idxToken in fsIndices.EnumerateArray())
                     {
                         var fsObj = Resolve(idxToken, data);
-                        if (fsObj.ValueKind == JsonValueKind.Object)
+                        if (fsObj.ValueKind != JsonValueKind.Object)
                         {
-                            var id         = Resolve(FindProperty(fsObj, "id", data), data).GetString();
-                            var name       = Resolve(FindProperty(fsObj, "name", data), data).GetString();
-                            var secureName = Resolve(FindProperty(fsObj, "secureName", data), data).GetString();
-                            if (!string.IsNullOrEmpty(id)
-                                && !string.IsNullOrEmpty(name)
-                                && fansubs.All(x => x.Id != id))
+                            continue;
+                        }
+
+                        var idEl         = Resolve(FindProperty(fsObj, "id", data), data);
+                        var nameEl       = Resolve(FindProperty(fsObj, "name", data), data);
+                        var secureNameEl = Resolve(FindProperty(fsObj, "secureName", data), data);
+
+                        var id   = idEl.ValueKind == JsonValueKind.String ? idEl.GetString() : null;
+                        var name = nameEl.ValueKind == JsonValueKind.String ? nameEl.GetString() : null;
+                        var secureName = secureNameEl.ValueKind == JsonValueKind.String
+                                             ? secureNameEl.GetString()
+                                             : null;
+
+                        if (!string.IsNullOrEmpty(id)
+                            && !string.IsNullOrEmpty(name)
+                            && fansubs.All(x => x.Id != id))
+                        {
+                            fansubs.Add(new OpenAnimeFansubInfo
                             {
-                                fansubs.Add(new OpenAnimeFansubInfo
-                                {
-                                    Id         = id,
-                                    Name       = name,
-                                    SecureName = secureName ?? ""
-                                });
-                            }
+                                Id         = id,
+                                Name       = name,
+                                SecureName = secureName ?? string.Empty
+                            });
                         }
                     }
                 }
@@ -777,7 +849,7 @@ public class OpenAnimeProvider : IAnimeProvider
 
     private static ContentFormat ParseFormat(string? type)
     {
-        return type?.ToLower() switch
+        return type?.ToLowerInvariant() switch
         {
             "tv"    => ContentFormat.Tv,
             "movie" => ContentFormat.Movie,
@@ -831,45 +903,48 @@ public class OpenAnimeProvider : IAnimeProvider
             var apiKey = GetConfiguredApiKey();
             if (string.IsNullOrEmpty(apiKey))
             {
-                _logger.LogWarning("OpenAnime altyazı anahtarı tanımlı değil. Discord üzerinden alıp Ayarlar menüsünden girebilirsiniz.");
+                _logger.LogWarning(
+                    "OpenAnime altyazı anahtarı tanımlı değil. Discord üzerinden alıp Ayarlar menüsünden girebilirsiniz.");
                 return null;
             }
 
-            var payload = new KyubiDecodePayload
+            using var request = new HttpRequestMessage(HttpMethod.Post, KyubiApiUrl)
             {
-                EncodedData = Convert.ToBase64String(packageBytes)
-            };
-
-            var request = new HttpRequestMessage(HttpMethod.Post, KyubiApiUrl)
-            {
-                Content = JsonContent.Create(payload)
+                Content = JsonContent.Create(new KyubiDecodePayload
+                {
+                    EncodedData = Convert.ToBase64String(packageBytes)
+                })
             };
             request.Headers.Add("x-api-key", apiKey);
 
-            var response = await _httpClient.SendAsync(request, cancellationToken);
+            using var response = await _httpClient.SendAsync(request, cancellationToken);
             if (!response.IsSuccessStatusCode)
             {
-                if (response.StatusCode == HttpStatusCode.Unauthorized || response.StatusCode == HttpStatusCode.Forbidden)
+                if (response.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)
                 {
-                    _logger.LogWarning("OpenAnime altyazı anahtarı geçersiz veya yetkisiz. Discord sunucusundan yeni bir anahtar alabilirsiniz.");
+                    _logger.LogWarning(
+                        "OpenAnime altyazı anahtarı geçersiz veya yetkisiz. Discord sunucusundan yeni bir anahtar alabilirsiniz.");
                 }
                 else
                 {
                     _logger.LogWarning("kyubi decoder returned status {StatusCode}", response.StatusCode);
                 }
+
                 return null;
             }
 
-            var result =
-                await response.Content.ReadFromJsonAsync<KyubiDecodeResponse>(cancellationToken: cancellationToken);
-            if (result == null || !result.Ok || string.IsNullOrEmpty(result.Ass))
+            var result = await response.Content.ReadFromJsonAsync<KyubiDecodeResponse>(cancellationToken);
+            if (result is not { Ok: true } || string.IsNullOrEmpty(result.Ass))
             {
                 _logger.LogWarning("kyubi decoder returned invalid response");
                 return null;
             }
 
-            var assBytes = Convert.FromBase64String(result.Ass);
-            return Encoding.UTF8.GetString(assBytes);
+            return Encoding.UTF8.GetString(Convert.FromBase64String(result.Ass));
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
         }
         catch (Exception ex)
         {
@@ -878,13 +953,13 @@ public class OpenAnimeProvider : IAnimeProvider
         }
     }
 
-    private class KyubiDecodePayload
+    private sealed class KyubiDecodePayload
     {
         [JsonPropertyName("encodedData")]
-        public string EncodedData { get; set; } = "";
+        public string EncodedData { get; set; } = string.Empty;
     }
 
-    private class KyubiDecodeResponse
+    private sealed class KyubiDecodeResponse
     {
         [JsonPropertyName("ok")]
         public bool Ok { get; set; }
@@ -893,41 +968,41 @@ public class OpenAnimeProvider : IAnimeProvider
         public string? Ass { get; set; }
     }
 
-    private class SimpleEpisode
+    private sealed class SimpleEpisode
     {
         public int    Number { get; set; }
-        public string Title  { get; set; } = "";
+        public string Title  { get; set; } = string.Empty;
     }
 
-    private class OpenAnimeFansubInfo
+    private sealed class OpenAnimeFansubInfo
     {
-        public string Id         { get; set; } = "";
-        public string Name       { get; set; } = "";
-        public string SecureName { get; set; } = "";
+        public string Id         { get; set; } = string.Empty;
+        public string Name       { get; set; } = string.Empty;
+        public string SecureName { get; set; } = string.Empty;
     }
 
-    private class OpenAnimeEpisodeResponse
+    private sealed class OpenAnimeEpisodeResponse
     {
         [JsonPropertyName("episodeData")]
         public OpenAnimeEpisodeData? EpisodeData { get; set; }
     }
 
-    private class OpenAnimeEpisodeData
+    private sealed class OpenAnimeEpisodeData
     {
         [JsonPropertyName("files")]
         public List<OpenAnimeFile>? Files { get; set; }
     }
 
-    private class OpenAnimeFile
+    private sealed class OpenAnimeFile
     {
         [JsonPropertyName("file")]
         public string? File { get; set; }
 
         [JsonPropertyName("resolution")]
-        public int Resolution { get; set; }
+        public int? Resolution { get; set; }
     }
 
-    private class OpenAnimeSearchItem
+    private sealed class OpenAnimeSearchItem
     {
         public string?            Slug      { get; set; }
         public string?            English   { get; set; }
@@ -940,13 +1015,13 @@ public class OpenAnimeProvider : IAnimeProvider
         public bool?              Is4K      { get; set; }
     }
 
-    private class OpenAnimePictures
+    private sealed class OpenAnimePictures
     {
         public string? Banner { get; set; }
         public string? Avatar { get; set; }
     }
 
-    private class OpenAnimeDetails
+    private sealed class OpenAnimeDetails
     {
         public string? English      { get; set; }
         public string? Turkish      { get; set; }
@@ -957,12 +1032,12 @@ public class OpenAnimeProvider : IAnimeProvider
         public string? Type         { get; set; }
 
         [JsonPropertyName("malID")]
-        public int MalID { get; set; }
+        public int? MalID { get; set; }
 
         public List<OpenAnimeSeason>? Seasons { get; set; }
     }
 
-    private class OpenAnimeSeason
+    private sealed class OpenAnimeSeason
     {
         [JsonPropertyName("season_number")]
         public int SeasonNumber { get; set; }
@@ -971,6 +1046,6 @@ public class OpenAnimeProvider : IAnimeProvider
         public bool HasEpisode { get; set; }
 
         [JsonPropertyName("mal_id")]
-        public int MalID { get; set; }
+        public int? MalID { get; set; }
     }
 }
