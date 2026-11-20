@@ -195,6 +195,38 @@ public static class FuzzyPrompt
         return Theme.HighlightDisplay(choice.Display, query);
     }
 
+    private static string FormatCompactError(string detail)
+    {
+        var colonIdx = detail.IndexOf(": ", StringComparison.Ordinal);
+        if (colonIdx <= 0)
+        {
+            return Theme.Ellipsize(detail, 40);
+        }
+
+        var provider = detail[..colonIdx];
+        var reason   = detail[(colonIdx + 2)..];
+        foreach (var prefix in new[]
+                 {
+                     "Upstream arama hatası.",
+                     "Upstream kaynak hatası.",
+                     "Upstream detay hatası.",
+                     "Upstream extractor hatası."
+                 })
+        {
+            if (reason.StartsWith(prefix, StringComparison.Ordinal))
+            {
+                reason = reason[prefix.Length..].Trim();
+                break;
+            }
+        }
+
+        return string.IsNullOrEmpty(reason)
+                   ? provider
+                   : reason.StartsWith('(')
+                       ? Theme.Ellipsize($"{provider} {reason}", 40)
+                       : Theme.Ellipsize($"{provider}: {reason}", 40);
+    }
+
     internal static string FooterMarkup(int cursorIndex, int count, string? customHelp = null)
     {
         var pos  = count > 1 ? $" • {cursorIndex + 1}/{count}" : "";
@@ -288,16 +320,16 @@ public static class FuzzyPrompt
         FuzzyChoice? result    = null;
         var          isRunning = true;
 
-        Grid BuildCurrentGrid(List<FuzzyChoice> filtered)
-            => BuildGrid(title,
-                         headersList,
-                         filtered,
-                         query,
-                         cursorIndex,
-                         textCursorIndex,
-                         pageSize,
-                         footerHelp,
-                         searchable);
+        Grid BuildCurrentGrid(List<FuzzyChoice> filtered) =>
+            BuildGrid(title,
+                      headersList,
+                      filtered,
+                      query,
+                      cursorIndex,
+                      textCursorIndex,
+                      pageSize,
+                      footerHelp,
+                      searchable);
 
         AnsiConsole.Clear();
         AnsiConsole.Live(BuildCurrentGrid(FuzzyMatcher.Rank(choicesList, query)))
@@ -370,11 +402,11 @@ public static class FuzzyPrompt
         string?                          initialSelection = null,
         IEnumerable<string>?             headerLines      = null)
     {
-        var rawItems    = new List<T>();
-        var headersList = headerLines?.Where(h => !string.IsNullOrWhiteSpace(h)).ToList();
-        var isScanning  = true;
-        var cts         = new CancellationTokenSource();
-        using var modal = TuiApplicationCancellation.BeginModal(cts);
+        var       rawItems    = new List<T>();
+        var       headersList = headerLines?.Where(h => !string.IsNullOrWhiteSpace(h)).ToList();
+        var       isScanning  = true;
+        var       cts         = new CancellationTokenSource();
+        using var modal       = TuiApplicationCancellation.BeginModal(cts);
 
         var backgroundTask = Task.Run(async () =>
                                       {
@@ -538,7 +570,19 @@ public static class FuzzyPrompt
 
                                if (!isScanning && errorCount > 0)
                                {
-                                   grid.AddRow(new Markup($"[red]{errorCount} sağlayıcıda hata oluştu.[/]"));
+                                   var errDetails = stats?.GetErrorDetailsSnapshot() ?? [];
+                                   if (errDetails.Count > 0)
+                                   {
+                                       var preview = string.Join(" • ", errDetails.Take(3).Select(FormatCompactError));
+                                       var more = errDetails.Count > 3 ? $" (+{errDetails.Count - 3})" : string.Empty;
+                                       grid.AddRow(
+                                           new Markup(
+                                               $"[red]{errorCount} hata:[/] [grey]{Markup.Escape(preview + more)}[/]"));
+                                   }
+                                   else
+                                   {
+                                       grid.AddRow(new Markup($"[red]{errorCount} sağlayıcıda hata oluştu.[/]"));
+                                   }
                                }
 
                                grid.AddRow(new Text(string.Empty));
