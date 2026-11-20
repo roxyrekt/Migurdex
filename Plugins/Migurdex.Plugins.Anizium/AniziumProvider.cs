@@ -131,7 +131,7 @@ public class AniziumProvider : IAnimeProvider
                     break;
                 }
 
-                page = nextPage ?? page + 1;
+                page = nextPage ?? (page + 1);
             }
 
             return results;
