@@ -11,7 +11,7 @@ namespace Migurdex.Cli.Tui.Views;
 public class SettingsView : BaseView
 {
     /// <summary>
-    /// Fixed rows outside the table: header and blank line (2), table spacing (2), and help (1).
+    ///     Fixed rows outside the table: header and blank line (2), table spacing (2), and help (1).
     /// </summary>
     internal const int ChromeRows = 5;
 
@@ -495,22 +495,28 @@ public class SettingsView : BaseView
         return _rpcTitleModes.Contains(mode) ? mode! : "İçerik";
     }
 
-    private static string FormatEpisodeActionLabel(string? action) => action?.ToLowerInvariant() switch
+    private static string FormatEpisodeActionLabel(string? action)
     {
-        "play"                              => "Doğrudan Oynat",
-        "auto_download" or "download"       => "İndir (Otomatik Seç)",
-        "select_download" or "selectsource" => "İndir (Kaynak Listesinden Seç)",
-        _                                   => "Her Zaman Sor"
-    };
+        return action?.ToLowerInvariant() switch
+        {
+            "play"                              => "Doğrudan Oynat",
+            "auto_download" or "download"       => "İndir (Otomatik Seç)",
+            "select_download" or "selectsource" => "İndir (Kaynak Listesinden Seç)",
+            _                                   => "Her Zaman Sor"
+        };
+    }
 
-    private static string NextEpisodeAction(string? current) => current?.ToLowerInvariant() switch
+    private static string NextEpisodeAction(string? current)
     {
-        "ask"                               => "play",
-        "play"                              => "auto_download",
-        "auto_download" or "download"       => "select_download",
-        "select_download" or "selectsource" => "ask",
-        _                                   => "play"
-    };
+        return current?.ToLowerInvariant() switch
+        {
+            "ask"                               => "play",
+            "play"                              => "auto_download",
+            "auto_download" or "download"       => "select_download",
+            "select_download" or "selectsource" => "ask",
+            _                                   => "play"
+        };
+    }
 
     private static string ChannelLabel(string? channel)
     {
@@ -798,7 +804,7 @@ public class SettingsView : BaseView
         var choices = new List<FuzzyChoice>
         {
             Theme.ActionChoice("Özel Yol / Komut Belirle...", Theme.Primary),
-            Theme.ActionChoice($"Varsayılana Sıfırla ({defaultBinary})", Theme.Warning),
+            Theme.ActionChoice($"Varsayılana Sıfırla ({defaultBinary})"),
             TuiHelpers.Back()
         };
 
@@ -1108,9 +1114,7 @@ public class SettingsView : BaseView
                 await RunMalLoginAsync();
                 break;
             case "OpenAnimeKey":
-                var newKey = Theme.Ask("OpenAnime Altyazı Anahtarı (boş = kaldır):",
-                                       config.OpenAnimeApiKey ?? string.Empty)
-                                  ?.Trim();
+                var newKey = Theme.Ask("OpenAnime Altyazı Anahtarı (boş = kaldır):")?.Trim();
                 config.OpenAnimeApiKey = string.IsNullOrWhiteSpace(newKey) ? null : newKey;
                 Toast.Show(config.OpenAnimeApiKey is null
                                ? "[yellow]OpenAnime anahtarı kaldırıldı.[/]"
@@ -1272,7 +1276,7 @@ public class SettingsView : BaseView
                                                    StringComparer.OrdinalIgnoreCase))
                                            {
                                                config.DisabledProviders.RemoveAll(x => x.Equals(p.Name,
-                                                   StringComparison.OrdinalIgnoreCase));
+                                                       StringComparison.OrdinalIgnoreCase));
                                            }
                                            else
                                            {
@@ -1699,7 +1703,7 @@ public class SettingsView : BaseView
                     : value == "Bilinmiyor"
                         ? "grey"
                         : "red",
-            "ToolUpdateCheck" => value == "Açık" ? "green" : "grey",
+            "ToolUpdateCheck"      => value == "Açık" ? "green" : "grey",
             "DefaultEpisodeAction" => value == "Her Zaman Sor" ? "grey" : "cyan",
             "AniList" or "MyAnimeList" => value.Contains("Süresi dolmuş")
                                               ? "red"

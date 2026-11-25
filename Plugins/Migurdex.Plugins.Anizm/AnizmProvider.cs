@@ -15,8 +15,6 @@ public partial class AnizmProvider : IAnimeProvider
     private readonly HttpClient             _httpClient;
     private readonly ILogger<AnizmProvider> _logger;
 
-    private sealed record V3TranslatorInfo(string SourcesUrl, string Name, bool IsActive);
-
     public AnizmProvider(ISharedBridge bridge, ILogger<AnizmProvider> logger)
     {
         _httpClient = bridge.CreateHttpClient(x =>
@@ -42,11 +40,8 @@ public partial class AnizmProvider : IAnimeProvider
             var url =
                 $"{BaseUrl}/searchAnime?query={encoded}&page=1&type=detailed&limit=10&priorityField=info_title&orderBy=info_year&orderDirection=ASC";
 
-            var response = await _httpClient.GetAsync(url, cancellationToken);
-            if (!response.IsSuccessStatusCode)
-            {
-                return [];
-            }
+            using var response = await _httpClient.GetAsync(url, cancellationToken);
+            response.EnsureSuccessStatusCode();
 
             var json = await response.Content.ReadAsStringAsync(cancellationToken);
             if (string.IsNullOrEmpty(json))
@@ -165,11 +160,15 @@ public partial class AnizmProvider : IAnimeProvider
 
             return list;
         }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
         catch (Exception ex)
         {
             _logger.LogError(ex, "search failed");
 
-            return [];
+            throw;
         }
     }
 
@@ -477,11 +476,15 @@ public partial class AnizmProvider : IAnimeProvider
 
             return groups;
         }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
         catch (Exception ex)
         {
             _logger.LogError(ex, "failed to get groups for episode: {Id}", episodeId);
 
-            return [];
+            throw;
         }
     }
 
@@ -644,6 +647,10 @@ public partial class AnizmProvider : IAnimeProvider
 
                     await ResolveAndAddAsync(foundUrls, groupName, watchUrl, sources, cancellationToken);
                 }
+                catch (OperationCanceledException)
+                {
+                    throw;
+                }
                 catch (Exception ex)
                 {
                     _logger.LogError(ex, "batch video parse failed on URL: {Url}", tUrl);
@@ -666,11 +673,15 @@ public partial class AnizmProvider : IAnimeProvider
                 return m.Success && m.Groups[1].Value == bolumId;
             }
         }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
         catch (Exception ex)
         {
             _logger.LogError(ex, "getVideoSourcesAsync failed");
 
-            return [];
+            throw;
         }
     }
 
@@ -715,6 +726,10 @@ public partial class AnizmProvider : IAnimeProvider
                                                       csrfToken,
                                                       sources,
                                                       cancellationToken);
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
             }
             catch (Exception ex)
             {
@@ -1325,4 +1340,6 @@ public partial class AnizmProvider : IAnimeProvider
 
         return numbers;
     }
+
+    private sealed record V3TranslatorInfo(string SourcesUrl, string Name, bool IsActive);
 }

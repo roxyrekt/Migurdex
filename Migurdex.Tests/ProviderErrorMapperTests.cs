@@ -12,7 +12,8 @@ public sealed class ProviderErrorMapperTests
     public void HttpError_MapsStatusIntoMessage()
     {
         var (outcome, message) = ProviderErrorMapper.Map(
-            new HttpRequestException(null, null, HttpStatusCode.Forbidden), "Upstream arama hatası.");
+            new HttpRequestException(null, null, HttpStatusCode.Forbidden),
+            "Upstream arama hatası.");
 
         Assert.Equal(BlameOutcome.Error, outcome);
         Assert.Equal("Upstream arama hatası. (HTTP 403)", message);
@@ -31,7 +32,8 @@ public sealed class ProviderErrorMapperTests
     public void JsonError_HintsAtStructureChange()
     {
         var (outcome, message) = ProviderErrorMapper.Map(
-            new JsonException("bad json"), "Upstream detay hatası.");
+            new JsonException("bad json"),
+            "Upstream detay hatası.");
 
         Assert.Equal(BlameOutcome.Error, outcome);
         Assert.Contains("ayrıştırılamadı", message);
@@ -44,5 +46,21 @@ public sealed class ProviderErrorMapperTests
 
         Assert.Equal(BlameOutcome.Error, outcome);
         Assert.Equal("Upstream grup hatası.", message);
+    }
+
+    [Fact]
+    public void NetworkHttpErrorWithoutStatus_MapsDnsAndConnectionReasons()
+    {
+        var (dnsOutcome, dnsMsg) = ProviderErrorMapper.Map(
+            new HttpRequestException("Rust side error: Network error: dns error: failed to lookup address information"),
+            "Upstream arama hatası.");
+        Assert.Equal(BlameOutcome.Error, dnsOutcome);
+        Assert.Equal("Upstream arama hatası. (DNS çözülemedi)", dnsMsg);
+
+        var (connOutcome, connMsg) = ProviderErrorMapper.Map(
+            new HttpRequestException(HttpRequestError.ConnectionError, "connection refused"),
+            "Upstream arama hatası.");
+        Assert.Equal(BlameOutcome.Error, connOutcome);
+        Assert.Equal("Upstream arama hatası. (bağlantı hatası)", connMsg);
     }
 }

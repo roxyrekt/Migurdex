@@ -107,11 +107,15 @@ public partial class AnimexeProvider : IAnimeProvider
 
             return results;
         }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
         catch (Exception ex)
         {
             _logger.LogError(ex, "search failed for query: {Query}", query);
 
-            return [];
+            throw;
         }
     }
 
@@ -284,11 +288,15 @@ public partial class AnimexeProvider : IAnimeProvider
 
             return details;
         }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
         catch (Exception ex)
         {
             _logger.LogError(ex, "getDetailsAsync failed for anime: {AnimeId}", animeId);
 
-            return new AnimeDetails();
+            throw;
         }
     }
 
@@ -326,11 +334,15 @@ public partial class AnimexeProvider : IAnimeProvider
 
             return groups;
         }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
         catch (Exception ex)
         {
             _logger.LogError(ex, "getGroupsAsync failed for: {EpisodeId}", episodeId);
 
-            return [];
+            throw;
         }
     }
 
@@ -415,11 +427,11 @@ public partial class AnimexeProvider : IAnimeProvider
                 var finalUrl = UnwrapStreamUrl(url);
                 var source = new VideoSource
                 {
-                    Url      = url,
-                    Quality  = quality,
-                    Type     = finalUrl.Contains(".m3u8", StringComparison.OrdinalIgnoreCase) ? VideoType.M3U8 : info.Type,
-                    Hoster   = @"Animexe Proxy",
-                    Group    = info.Group,
+                    Url = url,
+                    Quality = quality,
+                    Type = finalUrl.Contains(".m3u8", StringComparison.OrdinalIgnoreCase) ? VideoType.M3U8 : info.Type,
+                    Hoster = @"Animexe Proxy",
+                    Group = info.Group,
                     Language = info.Language
                 };
 
@@ -433,11 +445,15 @@ public partial class AnimexeProvider : IAnimeProvider
 
             return sources.GroupBy(x => x.Url).Select(x => x.First()).ToList();
         }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
         catch (Exception ex)
         {
             _logger.LogError(ex, "getVideoSourcesAsync failed for: {EpisodeId}", episodeId);
 
-            return [];
+            throw;
         }
     }
 

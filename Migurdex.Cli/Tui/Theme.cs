@@ -1,4 +1,5 @@
 using Spectre.Console;
+using System.Text;
 
 namespace Migurdex.Cli.Tui;
 
@@ -14,6 +15,8 @@ public static class Theme
 
     public const int MaxTitleLength = 48;
     public const int MaxLineWidth   = 100;
+
+    public static string SelectionMarker => "›";
 
     public static string Header(string title, string? subtitle = null)
     {
@@ -119,9 +122,28 @@ public static class Theme
         return $"[{color}][[{Markup.Escape(text)}]][/]";
     }
 
-    public static string SuccessText(string text) => $"[{Success}]{Markup.Escape(text)}[/]";
-    public static string DangerText(string  text) => $"[{Danger}]{Markup.Escape(text)}[/]";
-    public static string MutedText(string   text) => $"[{Muted}]{Markup.Escape(text)}[/]";
+    public static string SuccessText(string text)
+    {
+        return $"[{Success}]{Markup.Escape(text)}[/]";
+    }
+
+    public static string DangerText(string text)
+    {
+        return $"[{Danger}]{Markup.Escape(text)}[/]";
+    }
+
+    public static string MutedText(string text)
+    {
+        return $"[{Muted}]{Markup.Escape(text)}[/]";
+    }
+
+    public static string Ask(string label)
+    {
+        return AnsiConsole.Prompt(
+            new TextPrompt<string>($"[cyan]{Markup.Escape(label)}[/]")
+                .PromptStyle(Primary)
+                .AllowEmpty());
+    }
 
     public static T Ask<T>(string label, T defaultValue)
     {
@@ -149,8 +171,8 @@ public static class Theme
             return markup;
         }
 
-        var sb      = new System.Text.StringBuilder(markup.Length + 32);
-        var textBuf = new System.Text.StringBuilder();
+        var sb      = new StringBuilder(markup.Length + 32);
+        var textBuf = new StringBuilder();
 
         var i = 0;
         while (i < markup.Length)
@@ -239,7 +261,7 @@ public static class Theme
             }
         }
 
-        var sb  = new System.Text.StringBuilder(text.Length + 32);
+        var sb  = new StringBuilder(text.Length + 32);
         var pos = 0;
         foreach (var (start, end) in merged)
         {
@@ -281,7 +303,7 @@ public static class Theme
 
         while (i < words.Length && lines.Count < maxLines)
         {
-            var sb       = new System.Text.StringBuilder();
+            var sb       = new StringBuilder();
             var lastLine = lines.Count == maxLines - 1;
 
             while (i < words.Length)
@@ -319,6 +341,4 @@ public static class Theme
 
         return lines;
     }
-
-    public static string SelectionMarker => "›";
 }

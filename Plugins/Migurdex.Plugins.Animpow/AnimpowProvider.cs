@@ -64,11 +64,15 @@ public partial class AnimpowProvider : IAnimeProvider
 
             return results;
         }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
         catch (Exception ex)
         {
             _logger.LogError(ex, "search failed for query: {Query}", query);
 
-            return [];
+            throw;
         }
     }
 
@@ -92,7 +96,7 @@ public partial class AnimpowProvider : IAnimeProvider
 
             if (string.IsNullOrEmpty(animeJson))
             {
-                return new AnimeDetails();
+                throw new InvalidOperationException($"AnimPow boş detay yanıtı döndü: {animeId}");
             }
 
             using var animeDoc  = JsonDocument.Parse(animeJson);
@@ -306,11 +310,15 @@ public partial class AnimpowProvider : IAnimeProvider
 
             return details;
         }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
         catch (Exception ex)
         {
             _logger.LogError(ex, "getDetailsAsync failed for anime: {AnimeId}", animeId);
 
-            return new AnimeDetails();
+            throw;
         }
     }
 
@@ -363,11 +371,15 @@ public partial class AnimpowProvider : IAnimeProvider
 
             return groups;
         }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
         catch (Exception ex)
         {
             _logger.LogError(ex, "getGroupsAsync failed for {EpisodeId}", episodeId);
 
-            return [];
+            throw;
         }
     }
 
@@ -488,11 +500,15 @@ public partial class AnimpowProvider : IAnimeProvider
 
             return sources;
         }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
         catch (Exception ex)
         {
             _logger.LogError(ex, "failed to load watch sources for {EpisodeId}", episodeId);
 
-            return [];
+            throw;
         }
     }
 
@@ -573,6 +589,10 @@ public partial class AnimpowProvider : IAnimeProvider
 
             _logger.LogInformation("API handshake completed");
         }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
         catch (Exception ex)
         {
             _logger.LogError(ex, "API handshake error");
@@ -607,13 +627,13 @@ public partial class AnimpowProvider : IAnimeProvider
         CancellationToken                           cancellationToken = default,
         bool                                        isRetry           = false)
     {
-        var request = new HttpRequestMessage(HttpMethod.Get, url);
+        using var request = new HttpRequestMessage(HttpMethod.Get, url);
         request.Headers.Add("X-Session-Id", _sessionId);
         request.Headers.Add("Referer", BaseUrl + "/");
         request.Headers.Add("Origin", BaseUrl);
         request.Headers.Add("Accept", "application/json");
 
-        var response = await _httpClient.SendAsync(request, cancellationToken);
+        using var response = await _httpClient.SendAsync(request, cancellationToken);
         if (!response.IsSuccessStatusCode)
         {
             if (!isRetry
@@ -627,7 +647,7 @@ public partial class AnimpowProvider : IAnimeProvider
                 return await FetchApiAsync(url, cancellationToken, true);
             }
 
-            return string.Empty;
+            response.EnsureSuccessStatusCode();
         }
 
         var json = await response.Content.ReadAsStringAsync(cancellationToken);

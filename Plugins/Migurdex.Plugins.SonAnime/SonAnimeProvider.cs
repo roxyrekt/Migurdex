@@ -30,12 +30,9 @@ public class SonAnimeProvider : IAnimeProvider
     {
         try
         {
-            var searchUrl = $"{ApiBaseUrl}/anime/search?q={Uri.EscapeDataString(query)}";
-            var response  = await _httpClient.GetAsync(searchUrl, cancellationToken);
-            if (!response.IsSuccessStatusCode)
-            {
-                return [];
-            }
+            var       searchUrl = $"{ApiBaseUrl}/anime/search?q={Uri.EscapeDataString(query)}";
+            using var response  = await _httpClient.GetAsync(searchUrl, cancellationToken);
+            response.EnsureSuccessStatusCode();
 
             var json = await response.Content.ReadAsStringAsync(cancellationToken);
             if (string.IsNullOrWhiteSpace(json))
@@ -61,10 +58,14 @@ public class SonAnimeProvider : IAnimeProvider
 
             return results;
         }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
         catch (Exception ex)
         {
             _logger.LogError(ex, "SonAnime search failed for query: {Query}", query);
-            return [];
+            throw;
         }
     }
 
@@ -79,106 +80,112 @@ public class SonAnimeProvider : IAnimeProvider
             var response = await _httpClient.GetAsync(endpoint, cancellationToken);
             if (!response.IsSuccessStatusCode && !int.TryParse(animeId, out _))
             {
+                response.Dispose();
                 endpoint = $"{ApiBaseUrl}/anime/id/{animeId}";
                 response = await _httpClient.GetAsync(endpoint, cancellationToken);
             }
 
-            if (!response.IsSuccessStatusCode)
+            using (response)
             {
-                return new AnimeDetails();
-            }
+                response.EnsureSuccessStatusCode();
 
-            var json = await response.Content.ReadAsStringAsync(cancellationToken);
-            if (string.IsNullOrWhiteSpace(json))
-            {
-                return new AnimeDetails();
-            }
-
-            using var doc  = JsonDocument.Parse(json);
-            var       root = doc.RootElement;
-
-            var title        = GetStringProperty(root, "anime_name", animeId);
-            var englishTitle = GetStringProperty(root, "anime_name_en", null);
-            var animeType    = GetStringProperty(root, "anime_type", "anime");
-            var slug         = GetStringProperty(root, "anime_link", animeId);
-            var posterUrl    = NormalizePhotoUrl(GetStringProperty(root, "anime_photo", null));
-            var summary      = GetStringProperty(root, "anime_description", "");
-            var tmdbId       = GetIdStringProperty(root, "tmdb_id");
-            var malId        = GetIdStringProperty(root, "mal_id");
-
-            var isMovie = "movie".Equals(animeType, StringComparison.OrdinalIgnoreCase)
-                          || AnimeDetails.IsMovieTitle(title)
-                          || AnimeDetails.IsMovieTitle(englishTitle);
-
-            var altTitles = new List<string>();
-            if (!string.IsNullOrWhiteSpace(englishTitle)
-                && !englishTitle.Equals(title, StringComparison.OrdinalIgnoreCase))
-            {
-                altTitles.Add(englishTitle);
-            }
-
-            var details = new AnimeDetails
-            {
-                Title             = title,
-                EnglishTitle      = englishTitle,
-                PosterUrl         = posterUrl,
-                Summary           = summary,
-                AlternativeTitles = altTitles,
-                Format            = isMovie ? ContentFormat.Movie : ContentFormat.Tv
-            };
-
-            var parsedSeasons = new HashSet<int>();
-
-            if (root.TryGetProperty("episodes", out var episodesProp) && episodesProp.ValueKind == JsonValueKind.Array)
-            {
-                foreach (var ep in episodesProp.EnumerateArray())
+                var json = await response.Content.ReadAsStringAsync(cancellationToken);
+                if (string.IsNullOrWhiteSpace(json))
                 {
-                    var seasonNum = GetIntProperty(ep, "anime_season", 1);
-                    var epNum     = GetIntProperty(ep, "episode_number", 1);
-                    var epId      = GetIntProperty(ep, "id", 0);
+                    throw new InvalidOperationException($"SonAnime boş detay yanıtı döndü: {animeId}");
+                }
 
-                    parsedSeasons.Add(seasonNum);
+                using var doc  = JsonDocument.Parse(json);
+                var       root = doc.RootElement;
 
-                    var epIdentifier = $"{slug}:{seasonNum}:{epNum}:{epId}";
-                    var epTitle      = isMovie ? "Film" : $"S{seasonNum}E{epNum:D2} - Bölüm {epNum}";
+                var title        = GetStringProperty(root, "anime_name", animeId);
+                var englishTitle = GetStringProperty(root, "anime_name_en", null);
+                var animeType    = GetStringProperty(root, "anime_type", "anime");
+                var slug         = GetStringProperty(root, "anime_link", animeId);
+                var posterUrl    = NormalizePhotoUrl(GetStringProperty(root, "anime_photo", null));
+                var summary      = GetStringProperty(root, "anime_description", "");
+                var tmdbId       = GetIdStringProperty(root, "tmdb_id");
+                var malId        = GetIdStringProperty(root, "mal_id");
 
-                    details.Episodes.Add(new Episode
+                var isMovie = "movie".Equals(animeType, StringComparison.OrdinalIgnoreCase)
+                              || AnimeDetails.IsMovieTitle(title)
+                              || AnimeDetails.IsMovieTitle(englishTitle);
+
+                var altTitles = new List<string>();
+                if (!string.IsNullOrWhiteSpace(englishTitle)
+                    && !englishTitle.Equals(title, StringComparison.OrdinalIgnoreCase))
+                {
+                    altTitles.Add(englishTitle);
+                }
+
+                var details = new AnimeDetails
+                {
+                    Title             = title,
+                    EnglishTitle      = englishTitle,
+                    PosterUrl         = posterUrl,
+                    Summary           = summary,
+                    AlternativeTitles = altTitles,
+                    Format            = isMovie ? ContentFormat.Movie : ContentFormat.Tv
+                };
+
+                var parsedSeasons = new HashSet<int>();
+
+                if (root.TryGetProperty("episodes", out var episodesProp)
+                    && episodesProp.ValueKind == JsonValueKind.Array)
+                {
+                    foreach (var ep in episodesProp.EnumerateArray())
                     {
-                        Id     = epIdentifier,
-                        Title  = epTitle,
-                        Number = isMovie ? 1 : epNum,
-                        Season = isMovie ? 1 : seasonNum
+                        var seasonNum = GetIntProperty(ep, "anime_season", 1);
+                        var epNum     = GetIntProperty(ep, "episode_number", 1);
+                        var epId      = GetIntProperty(ep, "id", 0);
+
+                        parsedSeasons.Add(seasonNum);
+
+                        var epIdentifier = $"{slug}:{seasonNum}:{epNum}:{epId}";
+                        var epTitle      = isMovie ? "Film" : $"S{seasonNum}E{epNum:D2} - Bölüm {epNum}";
+
+                        details.Episodes.Add(new Episode
+                        {
+                            Id     = epIdentifier,
+                            Title  = epTitle,
+                            Number = isMovie ? 1 : epNum,
+                            Season = isMovie ? 1 : seasonNum
+                        });
+                    }
+                }
+
+                if (!parsedSeasons.Any())
+                {
+                    parsedSeasons.Add(1);
+                }
+
+                foreach (var s in parsedSeasons.OrderBy(s => s))
+                {
+                    details.SeasonMappings.Add(new SeasonMapping
+                    {
+                        SeasonNumber  = s,
+                        TmdbId        = s == 1 ? tmdbId : null,
+                        MyAnimeListId = s == 1 ? malId : null
                     });
                 }
+
+                details.Episodes = details.Episodes
+                                          .OrderBy(e => e.Season ?? 1)
+                                          .ThenBy(e => e.Number)
+                                          .ToList();
+
+                details.Normalize();
+                return details;
             }
-
-            if (!parsedSeasons.Any())
-            {
-                parsedSeasons.Add(1);
-            }
-
-            foreach (var s in parsedSeasons.OrderBy(s => s))
-            {
-                details.SeasonMappings.Add(new SeasonMapping
-                {
-                    SeasonNumber  = s,
-                    TmdbId        = s == 1 ? tmdbId : null,
-                    MyAnimeListId = s == 1 ? malId : null
-                });
-            }
-
-            details.Episodes = details.Episodes
-                                      .OrderBy(e => e.Season ?? 1)
-                                      .ThenBy(e => e.Number)
-                                      .ToList();
-
-            details.Normalize();
-            return details;
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "SonAnime GetDetailsAsync failed for: {AnimeId}", animeId);
-            return new AnimeDetails();
+            throw;
         }
     }
 
@@ -206,57 +213,63 @@ public class SonAnimeProvider : IAnimeProvider
             var response = await _httpClient.GetAsync(endpoint, cancellationToken);
             if (!response.IsSuccessStatusCode)
             {
+                response.Dispose();
                 endpoint = $"{ApiBaseUrl}/anime/id/{slug}";
                 response = await _httpClient.GetAsync(endpoint, cancellationToken);
             }
 
-            if (!response.IsSuccessStatusCode)
+            using (response)
             {
-                return [];
-            }
+                response.EnsureSuccessStatusCode();
 
-            var json = await response.Content.ReadAsStringAsync(cancellationToken);
-            if (string.IsNullOrWhiteSpace(json))
-            {
-                return [];
-            }
-
-            using var doc  = JsonDocument.Parse(json);
-            var       root = doc.RootElement;
-
-            if (!root.TryGetProperty("episodes", out var episodesProp) || episodesProp.ValueKind != JsonValueKind.Array)
-            {
-                return [];
-            }
-
-            var sources = new List<VideoSource>();
-            foreach (var ep in episodesProp.EnumerateArray())
-            {
-                var epNum = GetIntProperty(ep, "episode_number", 1);
-                var epId  = GetIntProperty(ep, "id", 0);
-
-                if ((targetEpId.HasValue && epId == targetEpId.Value)
-                    || (targetEpNum.HasValue && epNum == targetEpNum.Value)
-                    || (!targetEpId.HasValue && !targetEpNum.HasValue))
+                var json = await response.Content.ReadAsStringAsync(cancellationToken);
+                if (string.IsNullOrWhiteSpace(json))
                 {
-                    AddVideoSourceIfPresent(ep, "episode_link_1080", "1080p", sources);
-                    AddVideoSourceIfPresent(ep, "episode_link_720", "720p", sources);
-                    AddVideoSourceIfPresent(ep, "episode_link_480", "480p", sources);
-                    AddVideoSourceIfPresent(ep, "episode_link_360", "360p", sources);
+                    return [];
+                }
 
-                    if (sources.Count > 0)
+                using var doc  = JsonDocument.Parse(json);
+                var       root = doc.RootElement;
+
+                if (!root.TryGetProperty("episodes", out var episodesProp)
+                    || episodesProp.ValueKind != JsonValueKind.Array)
+                {
+                    return [];
+                }
+
+                var sources = new List<VideoSource>();
+                foreach (var ep in episodesProp.EnumerateArray())
+                {
+                    var epNum = GetIntProperty(ep, "episode_number", 1);
+                    var epId  = GetIntProperty(ep, "id", 0);
+
+                    if ((targetEpId.HasValue && epId == targetEpId.Value)
+                        || (targetEpNum.HasValue && epNum == targetEpNum.Value)
+                        || (!targetEpId.HasValue && !targetEpNum.HasValue))
                     {
-                        break;
+                        AddVideoSourceIfPresent(ep, "episode_link_1080", "1080p", sources);
+                        AddVideoSourceIfPresent(ep, "episode_link_720", "720p", sources);
+                        AddVideoSourceIfPresent(ep, "episode_link_480", "480p", sources);
+                        AddVideoSourceIfPresent(ep, "episode_link_360", "360p", sources);
+
+                        if (sources.Count > 0)
+                        {
+                            break;
+                        }
                     }
                 }
-            }
 
-            return sources;
+                return sources;
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "SonAnime GetVideoSourcesAsync failed for episode: {EpisodeId}", episodeId);
-            return [];
+            throw;
         }
     }
 

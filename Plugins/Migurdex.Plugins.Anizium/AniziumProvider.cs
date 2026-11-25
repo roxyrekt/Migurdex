@@ -57,15 +57,22 @@ public class AniziumProvider : IAnimeProvider
 
         try
         {
-            var results = new List<SearchResult>();
-            var page    = 1;
+            const int maxPages = 25;
+            var       results  = new List<SearchResult>();
+            var       page     = 1;
 
-            while (true)
+            while (page <= maxPages)
             {
                 var       path     = $"/page/search?value={Uri.EscapeDataString(query)}&page={page}";
                 using var response = await SendApiGetAsync(path, cancellationToken).ConfigureAwait(false);
                 if (response is null || !response.IsSuccessStatusCode)
                 {
+                    if (page == 1)
+                    {
+                        response?.EnsureSuccessStatusCode();
+                        throw new HttpRequestException("Anizium arama yanıtı alınamadı.");
+                    }
+
                     break;
                 }
 
@@ -136,7 +143,7 @@ public class AniziumProvider : IAnimeProvider
         catch (Exception ex)
         {
             _logger.LogError(ex, "Anizium search failed");
-            return [];
+            throw;
         }
     }
 
@@ -271,18 +278,25 @@ public class AniziumProvider : IAnimeProvider
                 using var response = await SendApiGetAsync(path, cancellationToken).ConfigureAwait(false);
                 if (response is null || !response.IsSuccessStatusCode)
                 {
-                    return (List<VideoSource>) [];
+                    return (Success: false, Status: response?.StatusCode, Sources: (List<VideoSource>) []);
                 }
 
                 var json = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
-                return ParseSourcesPayload(json, server);
+                return (Success: true, Status: response.StatusCode,
+                        Sources: ParseSourcesPayload(json, server));
             });
 
             var results = await Task.WhenAll(serverTasks).ConfigureAwait(false);
-            var sources = new List<VideoSource>();
-            foreach (var list in results)
+            if (results.All(r => !r.Success))
             {
-                sources.AddRange(list);
+                var status = results.Select(r => r.Status).FirstOrDefault(s => s.HasValue);
+                throw new HttpRequestException($"Anizium kaynak isteği başarısız: {status}", null, status);
+            }
+
+            var sources = new List<VideoSource>();
+            foreach (var r in results)
+            {
+                sources.AddRange(r.Sources);
             }
 
             return sources;
@@ -294,7 +308,7 @@ public class AniziumProvider : IAnimeProvider
         catch (Exception ex)
         {
             _logger.LogError(ex, "Anizium failed to get video sources for {EpisodeId}", episodeId);
-            return [];
+            throw;
         }
     }
 

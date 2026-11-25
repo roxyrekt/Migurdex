@@ -1,3 +1,4 @@
+using AngleSharp.Html.Dom;
 using AngleSharp.Html.Parser;
 using Microsoft.Extensions.Logging;
 using Migurdex.Shared.Enums;
@@ -14,8 +15,8 @@ public partial class CizgiMaxProvider : IAnimeProvider
 {
     private readonly ISharedBridge             _bridge;
     private readonly HttpClient                _httpClient;
-    private readonly HttpClient                _noRedirectClient;
     private readonly ILogger<CizgiMaxProvider> _logger;
+    private readonly HttpClient                _noRedirectClient;
 
     public CizgiMaxProvider(ISharedBridge bridge, ILogger<CizgiMaxProvider> logger)
     {
@@ -51,10 +52,7 @@ public partial class CizgiMaxProvider : IAnimeProvider
             request.Headers.TryAddWithoutValidation("Referer", $"{BaseUrl}/");
 
             using var response = await _httpClient.SendAsync(request, cancellationToken);
-            if (!response.IsSuccessStatusCode)
-            {
-                return [];
-            }
+            response.EnsureSuccessStatusCode();
 
             var       json = await response.Content.ReadAsStringAsync(cancellationToken);
             using var doc  = JsonDocument.Parse(json);
@@ -130,10 +128,14 @@ public partial class CizgiMaxProvider : IAnimeProvider
 
             return results;
         }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Search failed for query: {Query}", query);
-            return [];
+            throw;
         }
     }
 
@@ -146,10 +148,7 @@ public partial class CizgiMaxProvider : IAnimeProvider
             req.Headers.TryAddWithoutValidation("Referer", $"{BaseUrl}/");
 
             using var res = await _httpClient.SendAsync(req, cancellationToken);
-            if (!res.IsSuccessStatusCode)
-            {
-                return new AnimeDetails();
-            }
+            res.EnsureSuccessStatusCode();
 
             var       html     = await res.Content.ReadAsStringAsync(cancellationToken);
             var       parser   = new HtmlParser();
@@ -283,10 +282,14 @@ public partial class CizgiMaxProvider : IAnimeProvider
             details.Normalize();
             return details;
         }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to get details for anime: {AnimeId}", animeId);
-            return new AnimeDetails();
+            throw;
         }
     }
 
@@ -302,10 +305,14 @@ public partial class CizgiMaxProvider : IAnimeProvider
                    .Distinct(StringComparer.OrdinalIgnoreCase)
                    .ToList();
         }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to get groups for episode: {EpisodeId}", episodeId);
-            return [];
+            throw;
         }
     }
 
@@ -373,6 +380,10 @@ public partial class CizgiMaxProvider : IAnimeProvider
                             }
                         }
                     }
+                    catch (OperationCanceledException)
+                    {
+                        throw;
+                    }
                     catch (Exception ex)
                     {
                         _logger.LogWarning(ex, "Failed to resolve oynat src for server: {Label}", label);
@@ -404,6 +415,10 @@ public partial class CizgiMaxProvider : IAnimeProvider
                                 }
                             }
                         }
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        throw;
                     }
                     catch (Exception ex)
                     {
@@ -455,6 +470,10 @@ public partial class CizgiMaxProvider : IAnimeProvider
                                     }
                                 }
                             }
+                            catch (OperationCanceledException)
+                            {
+                                throw;
+                            }
                             catch (Exception ex)
                             {
                                 _logger.LogWarning(ex, "Failed to fetch qualities for server: {Label}", label);
@@ -502,6 +521,10 @@ public partial class CizgiMaxProvider : IAnimeProvider
                                     Headers = null
                                 });
                             }
+                            catch (OperationCanceledException)
+                            {
+                                throw;
+                            }
                             catch (Exception ex)
                             {
                                 _logger.LogWarning(ex,
@@ -512,6 +535,10 @@ public partial class CizgiMaxProvider : IAnimeProvider
                         }
 
                         continue;
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        throw;
                     }
                     catch (Exception ex)
                     {
@@ -542,10 +569,14 @@ public partial class CizgiMaxProvider : IAnimeProvider
 
             return sources;
         }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to get video sources for episode: {EpisodeId}", episodeId);
-            return [];
+            throw;
         }
     }
 
@@ -560,10 +591,7 @@ public partial class CizgiMaxProvider : IAnimeProvider
         req.Headers.TryAddWithoutValidation("Referer", $"{BaseUrl}/");
 
         using var res = await _httpClient.SendAsync(req, cancellationToken);
-        if (!res.IsSuccessStatusCode)
-        {
-            return [];
-        }
+        res.EnsureSuccessStatusCode();
 
         var html  = await res.Content.ReadAsStringAsync(cancellationToken);
         var match = ServersRegex().Match(html);
@@ -611,16 +639,6 @@ public partial class CizgiMaxProvider : IAnimeProvider
         return list;
     }
 
-    private sealed class CizgiMaxServer
-    {
-        public string? Type         { get; set; }
-        public string? Src          { get; set; }
-        public string? ResolveUrl   { get; set; }
-        public string? StreamUrl    { get; set; }
-        public string? QualitiesUrl { get; set; }
-        public string? Label        { get; set; }
-    }
-
     [GeneratedRegex(@"(?:^|/)diziler/(?<slug>[^/]+)", RegexOptions.IgnoreCase)]
     private static partial Regex DizilerSlugRegex();
 
@@ -666,7 +684,7 @@ public partial class CizgiMaxProvider : IAnimeProvider
         return null;
     }
 
-    private static string? FindLdJsonDescription(AngleSharp.Html.Dom.IHtmlDocument document)
+    private static string? FindLdJsonDescription(IHtmlDocument document)
     {
         foreach (var script in document.QuerySelectorAll("script[type='application/ld+json']"))
         {
@@ -697,5 +715,15 @@ public partial class CizgiMaxProvider : IAnimeProvider
         }
 
         return null;
+    }
+
+    private sealed class CizgiMaxServer
+    {
+        public string? Type         { get; set; }
+        public string? Src          { get; set; }
+        public string? ResolveUrl   { get; set; }
+        public string? StreamUrl    { get; set; }
+        public string? QualitiesUrl { get; set; }
+        public string? Label        { get; set; }
     }
 }
